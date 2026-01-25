@@ -341,7 +341,7 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
         setScanStatus(`LOCKING ON: ${tickerToSearch.toUpperCase()}...`);
         tickersToProcess = [tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "")];
       } else {
-        setScanStatus(`HUNTING...`);
+        setScanStatus(`GATHERING...`);
         const excludeStr = rejectedTickers.size > 0 ? `EXCLUDE: ${Array.from(rejectedTickers).slice(-20).join(", ")}` : "";
 
         const discoveryPrompt = `
@@ -907,11 +907,23 @@ function CustomDropdown({ value, onChange, options, label }) {
     if (isOpen && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       setButtonRect({
-        top: rect.bottom + window.scrollY,
-        left: rect.left + window.scrollX,
+        top: rect.bottom,
+        left: rect.left,
         width: rect.width
       });
     }
+  }, [isOpen]);
+  
+  // Close dropdown on scroll
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const handleScroll = () => {
+      setIsOpen(false);
+    };
+    
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
   }, [isOpen]);
   
   const handleToggle = () => {
@@ -944,10 +956,10 @@ function CustomDropdown({ value, onChange, options, label }) {
           />
           
           <div 
-            className="fixed bg-black border-2 border-zinc-800 rounded-lg overflow-hidden shadow-2xl"
+            className="fixed bg-black border-2 border-zinc-800 rounded-lg overflow-hidden shadow-2xl max-h-60 overflow-y-auto"
             style={{ 
               zIndex: 99999,
-              top: `${buttonRect.top + 4}px`,
+              top: `${Math.min(buttonRect.top + 4, window.innerHeight - 250)}px`,
               left: `${buttonRect.left}px`,
               width: `${buttonRect.width}px`
             }}
