@@ -341,7 +341,7 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
         setScanStatus(`LOCKING ON: ${tickerToSearch.toUpperCase()}...`);
         tickersToProcess = [tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "")];
       } else {
-        setScanStatus(`HUNTING (ATTEMPT ${attempts}/15)...`);
+        setScanStatus(`HUNTING...`);
         const excludeStr = rejectedTickers.size > 0 ? `EXCLUDE: ${Array.from(rejectedTickers).slice(-20).join(", ")}` : "";
 
         const discoveryPrompt = `
@@ -736,13 +736,25 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           ]}
         />
         <button 
-          onClick={() => { setManualSearch(""); runScanner(null); }}
-          disabled={loading}
-          className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 px-6 py-3 rounded-lg text-xs md:text-sm font-bold border border-zinc-800 transition-all flex items-center justify-center gap-2 whitespace-nowrap hover:text-[#00ff4e] hover:border-[#00ff4e]/30"
-        >
-          <span className={loading ? 'animate-spin' : ''}>↻</span>
-          SCAN FOR OPPORTUNITIES
-        </button>
+  onClick={() => { setManualSearch(""); runScanner(null); }}
+  disabled={loading}
+  className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 px-6 py-3 rounded-lg text-xs md:text-sm font-bold border border-zinc-800 transition-all flex items-center justify-center gap-2 whitespace-nowrap hover:text-[#00ff4e] hover:border-[#00ff4e]/30 disabled:opacity-50"
+>
+  {loading ? (
+    <>
+      <span>ANALYZING MARKET</span>
+      <span className="inline-flex gap-0.5">
+        <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
+        <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
+        <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
+      </span>
+    </>
+  ) : (
+    <>
+      ANALYZE MARKET
+    </>
+  )}
+</button>
       </div>
     </div>
   </div>
