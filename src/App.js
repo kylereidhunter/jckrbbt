@@ -193,7 +193,7 @@ const removeFromWatchlist = (symbol) => {
 const fetchNews = useCallback(async () => {
   setLoadingNews(true);
   try {
-    const newsUrl = `https://finnhub.io/api/v1/news?category=general&token=${d5k4ug1r01qjaedt34tgd5k4ug1r01qjaedt34u0}`;
+    const newsUrl = `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`;
     const response = await fetch(newsUrl);
     const data = await response.json();
     
