@@ -679,7 +679,9 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       {/* HEADER */}
       <header className="flex justify-between items-end mb-12 border-b-2 border-zinc-900 pb-8">
         <div className="flex items-center gap-6">
-          <img src="/jckrbbt_logo.png" alt="Logo" className="h-16 w-auto object-contain" />
+          <button onClick={() => setActiveTab("DASHBOARD")} className="cursor-pointer hover:opacity-80 transition-opacity">
+            <img src="/jckrbbt_logo.png" alt="Logo" className="h-16 w-auto object-contain" />
+          </button>
           <div className="border-l-2 border-zinc-900 pl-6">
             <p className="text-zinc-600 text-[10px] tracking-[0.4em] mt-2 uppercase flex items-center gap-2 font-black">
               Status: {scanStatus}
