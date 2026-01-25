@@ -241,18 +241,21 @@ const newsUrl = `https://newsapi.org/v2/everything?sources=bloomberg,reuters,the
             category: category,
             tickers: tickers
           };
-        } catch (e) {
-          return {
-            id: article.url,
-            headline: article.title,
-            summary: article.description || "Click to read full article",
-            source: article.source.name,
-            url: article.url,
-            image: article.urlToImage,
-            datetime: new Date(article.publishedAt).getTime() / 1000,
-            category: "Markets",
+        } catch (error) {
+          console.error("Error fetching news:", error);
+          setNewsArticles([{
+            id: 'error',
+            headline: `Error loading news: ${error.message}`,
+            summary: 'Please try refreshing or check your API limits at newsapi.org',
+            source: 'System',
+            url: '#',
+            image: null,
+            datetime: Date.now() / 1000,
+            category: 'Markets',
             tickers: []
-          };
+          }]);
+        } finally {
+          setLoadingNews(false);
         }
       })
     );
