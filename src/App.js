@@ -193,8 +193,7 @@ const removeFromWatchlist = (symbol) => {
 const fetchNews = useCallback(async () => {
   setLoadingNews(true);
   try {
-const newsUrl = `https://newsapi.org/v2/everything?sources=bloomberg,reuters,the-wall-street-journal,financial-times,fortune,business-insider,cnbc,associated-press,axios,the-verge,techcrunch,ars-technica,wired,bbc-news&language=en&q=stock+OR+market+OR+finance+OR+trading+OR+economy&sortBy=publishedAt&pageSize=25&apiKey=ee691abfbec14347b3ef6ab05cbe9310`;    
-    const response = await fetch(newsUrl);
+const newsUrl = `https://newsapi.org/v2/everything?domains=bloomberg.com,reuters.com,wsj.com,ft.com,fortune.com,businessinsider.com,cnbc.com,axios.com,theverge.com,techcrunch.com,arstechnica.com,wired.com,bbc.com&language=en&q=stock+OR+market+OR+finance+OR+trading+OR+economy&sortBy=publishedAt&pageSize=25&apiKey=ee691abfbec14347b3ef6ab05cbe9310`;    const response = await fetch(newsUrl);
     const data = await response.json();
     
     if (!data.articles || data.articles.length === 0) {
