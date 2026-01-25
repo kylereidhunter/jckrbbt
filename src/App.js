@@ -78,7 +78,28 @@ const extract = (tag, text) => {
 
 const clean = (val) => {
   if (!val) return "";
-  return val.replace(/["':`\-|]/g, "").trim();
+  return val.replace(/["':`|]/g, "").trim(); // Removed \- to keep hyphens
+};
+
+const formatText = (text) => {
+  if (!text) return text;
+  
+  // Fix common formatting issues
+  let result = text;
+  
+  // Match: 52week, 52 week, 52weeks, 52 weeks (case insensitive)
+  result = result.replace(/(\d+)\s*(week|weeks|wk|wks)/gi, '$1-week');
+  result = result.replace(/(\d+)\s*(day|days)/gi, '$1-day');
+  result = result.replace(/(\d+)\s*(month|months|mo|mos)/gi, '$1-month');
+  result = result.replace(/(\d+)\s*(year|years|yr|yrs)/gi, '$1-year');
+  result = result.replace(/\bPE\b/g, 'P/E');
+  result = result.replace(/\bPS\b/g, 'P/S');
+  result = result.replace(/alltime/gi, 'all-time');
+  
+  // Fix double hyphens if they occur
+  result = result.replace(/(\d+)--/g, '$1-');
+  
+  return result;
 };
 
 
@@ -535,11 +556,6 @@ const analysisPrompt = isManual
 const analysis = await aiModel.generateContent(analysisPrompt);
 const resText = await analysis.response.text();
 
-const truncateCatalyst = (text) => {
-  const words = text.split(' ');
-  if (words.length <= 10) return text;
-  return words.slice(0, 10).join(' ') + '...';
-};
 
 if (!isManual && resText.includes("NEUTRAL")) {
   rejectedTickers.add(ticker);
@@ -557,8 +573,8 @@ if (!isManual && resText.includes("NEUTRAL")) {
             volatility: getScore(extract("VOLATILITY", resText), 40),
             rating: clean(extract("SIG", resText)),
             momentum: clean(extract("MOM", resText)),
-            catalyst: truncateCatalyst(clean(extract("CAT", resText))),
-            insights: extract("INSIGHTS", resText).split('|').map(i => clean(i)).filter(i => i.length > 5)
+            catalyst: formatText(clean(extract("CAT", resText))), 
+            insights: extract("INSIGHTS", resText).split('|').map(i => formatText(clean(i))).filter(i => i.length > 5)
           };
 
           localStocks.push(newStock);
@@ -1100,9 +1116,9 @@ function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [],
           <p className="text-[8px] md:text-[10px] text-zinc-500 font-black mb-1 md:mb-2 uppercase tracking-tighter">Momentum</p>
           <p className="text-base md:text-2xl font-black text-white uppercase">{stock.momentum}</p>
         </div>
-        <div>
+        <div className="col-span-3 md:col-span-1">
           <p className="text-[8px] md:text-[10px] text-zinc-500 font-black mb-1 md:mb-2 uppercase tracking-tighter">Catalyst</p>
-          <p className="text-base md:text-2xl font-black text-white uppercase break-words">{stock.catalyst}</p>
+          <p className="text-base md:text-2xl font-black text-white uppercase leading-tight">{stock.catalyst}</p>
         </div>
       </div>
 
