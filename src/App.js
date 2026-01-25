@@ -89,10 +89,8 @@ const clean = (val) => {
 
 // --- TRADINGVIEW MINI CHART COMPONENT ---
 const MiniChart = ({ symbol }) => {
-  // Strip anything not a letter to prevent injection errors
   const cleanSymbol = symbol ? symbol.split(/[^a-zA-Z]/)[0].toUpperCase() : "";
 
-  // The widget expects a URL-encoded JSON object of settings
   const settings = {
     "symbol": cleanSymbol,
     "width": "100%",
@@ -100,8 +98,9 @@ const MiniChart = ({ symbol }) => {
     "locale": "en",
     "dateRange": "1D",
     "colorTheme": "dark",
-    "trendLineColor": "#37a6ef",
-    "underLineColor": "#e3f2fd",
+    "trendLineColor": "#00ff4e",
+    "underLineColor": "rgba(0, 255, 78, 0.3)",
+    "underLineBottomColor": "rgba(0, 0, 0, 0)",
     "isTransparent": true,
     "autosize": false
   };
@@ -366,7 +365,7 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
         setScanStatus(`LOCKING ON: ${tickerToSearch.toUpperCase()}...`);
         tickersToProcess = [tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "")];
       } else {
-        setScanStatus(`GATHERING (ATTEMPT ${attempts}/15)...`);
+        setScanStatus(`G (ATTEMPT ${attempts}/15)...`);
         const excludeStr = rejectedTickers.size > 0 ? `EXCLUDE: ${Array.from(rejectedTickers).slice(-20).join(", ")}` : "";
 
         const discoveryPrompt = `
