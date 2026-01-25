@@ -366,7 +366,7 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
         setScanStatus(`LOCKING ON: ${tickerToSearch.toUpperCase()}...`);
         tickersToProcess = [tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "")];
       } else {
-        setScanStatus(`HUNTING (ATTEMPT ${attempts}/15)...`);
+        setScanStatus(`GATHERING (ATTEMPT ${attempts}/15)...`);
         const excludeStr = rejectedTickers.size > 0 ? `EXCLUDE: ${Array.from(rejectedTickers).slice(-20).join(", ")}` : "";
 
         const discoveryPrompt = `
