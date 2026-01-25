@@ -193,76 +193,42 @@ const removeFromWatchlist = (symbol) => {
 const fetchNews = useCallback(async () => {
   setLoadingNews(true);
   try {
-const newsUrl = `https://newsapi.org/v2/everything?domains=bloomberg.com,reuters.com,wsj.com,ft.com,fortune.com,businessinsider.com,cnbc.com,axios.com,theverge.com,techcrunch.com,arstechnica.com,wired.com,bbc.com&language=en&q=stock+OR+market+OR+finance+OR+trading+OR+economy&sortBy=publishedAt&pageSize=25&apiKey=ee691abfbec14347b3ef6ab05cbe9310`;    const response = await fetch(newsUrl);
+    const newsUrl = `https://finnhub.io/api/v1/news?category=general&token=${d5k4ug1r01qjaedt34tgd5k4ug1r01qjaedt34u0}`;
+    const response = await fetch(newsUrl);
     const data = await response.json();
     
-    if (!data.articles || data.articles.length === 0) {
+    if (!data || data.length === 0) {
       setNewsArticles([]);
       setLoadingNews(false);
       return;
     }
     
-    // Process articles with AI
-    const processedArticles = await Promise.all(
-      data.articles.map(async (article) => {
-        try {
-          const aiPrompt = `
-            Analyze this financial news headline and summary:
-            HEADLINE: ${article.title}
-            SUMMARY: ${article.description || "No summary available"}
-            
-            TASK:
-            1. Categorize into ONE of: Markets, Stocks, Crypto, Tech, Economy, Policy, Earnings
-            2. Extract any stock tickers mentioned (max 3, must be valid US tickers)
-            
-            FORMAT:
-            [CATEGORY] CategoryName [/CATEGORY]
-            [TICKERS] AAPL, MSFT [/TICKERS] (or "None" if no tickers)
-          `;
-          
-          const aiResponse = await aiModel.generateContent(aiPrompt);
-          const aiText = await aiResponse.response.text();
-          
-          const category = extract("CATEGORY", aiText) || "Markets";
-          const tickersText = extract("TICKERS", aiText);
-          const tickers = tickersText && tickersText !== "None" 
-            ? tickersText.split(',').map(t => t.trim()).filter(t => t.length > 0).slice(0, 3)
-            : [];
-          
-          return {
-            id: article.url,
-            headline: article.title,
-            summary: article.description || "Click to read full article",
-            source: article.source.name,
-            url: article.url,
-            image: article.urlToImage,
-            datetime: new Date(article.publishedAt).getTime() / 1000,
-            category: category,
-            tickers: tickers
-          };
-        } catch (error) {
-          console.error("Error fetching news:", error);
-          setNewsArticles([{
-            id: 'error',
-            headline: `Error loading news: ${error.message}`,
-            summary: 'Please try refreshing or check your API limits at newsapi.org',
-            source: 'System',
-            url: '#',
-            image: null,
-            datetime: Date.now() / 1000,
-            category: 'Markets',
-            tickers: []
-          }]);
-        } finally {
-          setLoadingNews(false);
-        }
-      })
-    );
+    const formattedArticles = data.slice(0, 25).map(article => ({
+      id: article.id || article.datetime,
+      headline: article.headline,
+      summary: article.summary || "Click to read full article",
+      source: article.source,
+      url: article.url,
+      image: article.image,
+      datetime: article.datetime,
+      category: article.category || "Markets",
+      tickers: []
+    }));
     
-    setNewsArticles(processedArticles);
+    setNewsArticles(formattedArticles);
   } catch (error) {
     console.error("Error fetching news:", error);
-    setNewsArticles([]);
+    setNewsArticles([{
+      id: 'error',
+      headline: `Error loading news: ${error.message}`,
+      summary: 'Please try refreshing',
+      source: 'System',
+      url: '#',
+      image: null,
+      datetime: Date.now() / 1000,
+      category: 'Markets',
+      tickers: []
+    }]);
   } finally {
     setLoadingNews(false);
   }
