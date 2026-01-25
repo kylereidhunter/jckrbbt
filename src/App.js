@@ -640,9 +640,9 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           </div>
         </div>
         <div className="md:absolute md:top-10 md:right-8 text-left md:text-right">
-          <p className="text-[#00ff4e] font-black tabular-nums text-lg md:text-xl tracking-tighter">
-            {currentTime.toLocaleTimeString([], { hour12: false })}
-          </p>
+         <p className="text-[#00ff4e] font-black tabular-nums text-lg md:text-xl tracking-tighter">
+  {currentTime.toLocaleTimeString([], { hour12: true })}
+</p>
           <p className="text-zinc-500 text-[8px] md:text-[10px] font-black uppercase tracking-wider md:tracking-widest">
             {currentTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
           </p>
