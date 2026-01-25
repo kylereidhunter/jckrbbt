@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Clock, Activity, Target, Trash2, Plus, Search, TrendingUp, AlertCircle, RefreshCcw } from 'lucide-react';
+import { Trash2, Plus, } from 'lucide-react';
 import { motion, AnimatePresence } from "framer-motion";
 
 console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
@@ -27,7 +27,7 @@ const REPUTABLE_SOURCES = [
 ];
 
 const sourceString = REPUTABLE_SOURCES.map(s => `site:${s}`).join(" OR ");
-const proxyUrl = (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`;
+
 
 
 const TypewriterGreeting = () => {
@@ -86,13 +86,6 @@ const clean = (val) => {
 
 
 
-// Converts AI text to numbers for the progress bars
-const getScore = (extractedValue, fallback) => {
-  if (!extractedValue) return fallback;
-  const cleanValue = extractedValue.replace(/[^0-9.]/g, "");
-  const score = parseFloat(cleanValue);
-  return (isNaN(score) || score === 0) ? fallback : Math.min(Math.max(score, 5.00), 99.99);
-};
 
 // --- TRADINGVIEW MINI CHART COMPONENT ---
 const MiniChart = ({ symbol }) => {
@@ -613,7 +606,7 @@ if (!isManual && resText.includes("NEUTRAL")) {
     }
   } catch (err) { console.error(err); }
   finally { setLoading(false); setScanStatus("COMPLETE"); }
-}, [aiModel, FINNHUB_KEY, sourceString, scanPriceLimit]);
+}, [aiModel, sourceString, scanPriceLimit]);
 
 // --- SORT AND FILTER LOGIC ---
 const getSortedAndFilteredStocks = (stockList) => {
