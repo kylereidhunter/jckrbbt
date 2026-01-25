@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#1A1A1A" />
+    <meta name="description" content="jckrbbt finance dashboard" />
+    <title>jckrbbt_</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              // We map 'mono' to JetBrains and 'alpha' to AlphaLyrae
+              mono: ['JetBrainsMono', 'ui-monospace', 'monospace'],
+              alpha: ['AlphaLyrae', 'ui-sans-serif', 'sans-serif'],
+            },
+            animation: {
+              'marquee': 'marquee 25s linear infinite',
+              'blink': 'blink 1s step-end infinite',
+            },
+            keyframes: {
+              marquee: {
+                '0%': { transform: 'translateX(0%)' },
+                '100%': { transform: 'translateX(-50%)' },
+              },
+              blink: {
+                'from, to': { color: 'transparent' },
+                '50%': { color: '#00FF41' },
+              }
+            }
+          }
+        }
+      }
+    </script>
+
+   <style type="text/css">
+  @font-face {
+    font-family: 'AlphaLyrae';
+    src: url('/fonts/AlphaLyrae-Medium.ttf') format('truetype');
+    font-weight: 500;
+  }
+  @font-face {
+    font-family: 'JetBrainsMonoLight';
+    src: url('/fonts/JetBrainsMono-Light.ttf') format('truetype');
+    font-weight: 300;
+  }
+  @font-face {
+    font-family: 'JetBrainsMonoMedium';
+    src: url('/fonts/JetBrainsMono-Medium.ttf') format('truetype');
+    font-weight: 500;
+  }
+
+  /* 1. THE BASELINE: Everything defaults to JetBrains Light */
+  html, body, p, span, div, li, button, [class*="text-"] {
+    font-family: 'JetBrainsMonoLight', monospace !important;
+    font-weight: 300 !important;
+  }
+
+  /* 2. THE EXCEPTION: Targeted Headings get Alpha Lyrae */
+  /* We use 'body h1' to make this rule stronger than the baseline above */
+  body h1, body h2, body h3, .alpha-font {
+    font-family: 'AlphaLyrae', sans-serif !important;
+    font-weight: 500 !important;
+    letter-spacing: -0.02em !important;
+  }
+
+  /* 3. BRAND LOGO: JetBrains Medium */
+  .brand-logo {
+    font-family: 'JetBrainsMonoMedium', monospace !important;
+    font-weight: 500 !important;
+  }
+
+  body { background-color: #1A1A1A; margin: 0; }
+</style>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+  </body>
+</html>

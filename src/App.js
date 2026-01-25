@@ -1,0 +1,1269 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Clock, Activity, Target, Trash2, Plus, Search, TrendingUp, AlertCircle, RefreshCcw } from 'lucide-react';
+import { motion, AnimatePresence } from "framer-motion";
+
+console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
+console.log('GEN_AI_KEY:', process.env.REACT_APP_GEN_AI_KEY);
+
+// --- CONFIGURATION ---
+const FINNHUB_KEY = process.env.REACT_APP_FINNHUB_KEY; 
+const GEN_AI_KEY = process.env.REACT_APP_GEN_AI_KEY;
+const genAI = new GoogleGenerativeAI(GEN_AI_KEY);
+const aiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+const REPUTABLE_SOURCES = [
+ "Wall Street Journal", "Bloomberg", "Financial Times", "Reuters", "CNBC", 
+  "Barron's", "MarketWatch", "Seeking Alpha", "The Economist", "Forbes",
+  "Investor's Business Daily", "Yahoo Finance", "Benzinga", "Morningstar",
+  "Zacks Investment Research", "The Motley Fool", "Barchart", "Investing.com",
+  "Fortune", "Business Insider", "The Street", "CNN Business", "Fox Business",
+  "Nikkei Asia", "TradingView", "FinViz", "Koyfin", "StockCharts", "TipRanks",
+  "Investopedia", "Bankrate", "NerdWallet", "Kiplinger", "FRED (Federal Reserve)",
+  "SEC EDGAR", "CoinDesk", "The Block", "Glassnode", "South China Morning Post",
+  "LiveMint", "The Globe and Mail", "Australian Financial Review", "WhaleWisdom",
+  "Dataroma", "OpenInsider", "ETF.com", "Project Syndicate", "ValueWalk",
+  "Institutional Investor", "Morning Brew"
+];
+
+const sourceString = REPUTABLE_SOURCES.map(s => `site:${s}`).join(" OR ");
+const proxyUrl = (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`;
+
+
+const TypewriterGreeting = () => {
+  const [text, setText] = useState("");
+  const [isDone, setIsDone] = useState(false);
+  
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "GOOD MORNING";
+    if (hour < 18) return "GOOD AFTERNOON";
+    return "GOOD EVENING";
+  };
+
+  const fullText = getGreeting();
+
+  useEffect(() => {
+    let i = 0;
+    setText(""); 
+    const timer = setInterval(() => {
+      setText(fullText.slice(0, i));
+      i++;
+      if (i > fullText.length) {
+        clearInterval(timer);
+        setIsDone(true);
+      }
+    }, 100);
+    return () => clearInterval(timer);
+  }, [fullText]);
+
+  return (
+    <div className="mb-8 font-black text-3xl tracking-[0.2em] flex items-baseline gap-1">
+      <span className="text-white leading-none">{text}</span>
+      {/* - Changed to h-[3px] for a thicker terminal feel
+          - Added translate-y-[2px] to anchor it below the baseline
+          - Changed to inline-block for precise positioning 
+      */}
+      <span 
+        className={`inline-block w-5 h-[3px] bg-[#00ff4e] translate-y-[2px] ${isDone ? 'animate-[pulse_1s_infinite]' : ''}`} 
+        style={{ boxShadow: '0 0 8px rgba(0,255,78,0.6)' }}
+      />
+    </div>
+  );
+};
+
+
+const extract = (tag, text) => {
+  const regex = new RegExp(`\\[${tag}\\]\\s*([\\s\\S]*?)\\s*\\[\\/${tag}\\]`, "i");
+  const match = text.match(regex);
+  return (match && match[1]) ? match[1].trim() : "";
+};
+
+const clean = (val) => {
+  if (!val) return "";
+  return val.replace(/["':`\-|]/g, "").trim();
+};
+
+
+
+// Converts AI text to numbers for the progress bars
+const getScore = (extractedValue, fallback) => {
+  if (!extractedValue) return fallback;
+  const cleanValue = extractedValue.replace(/[^0-9.]/g, "");
+  const score = parseFloat(cleanValue);
+  return (isNaN(score) || score === 0) ? fallback : Math.min(Math.max(score, 5.00), 99.99);
+};
+
+// --- TRADINGVIEW MINI CHART COMPONENT ---
+const MiniChart = ({ symbol }) => {
+  // Strip anything not a letter to prevent injection errors
+  const cleanSymbol = symbol ? symbol.split(/[^a-zA-Z]/)[0].toUpperCase() : "";
+
+  // The widget expects a URL-encoded JSON object of settings
+  const settings = {
+    "symbol": cleanSymbol,
+    "width": "100%",
+    "height": 220,
+    "locale": "en",
+    "dateRange": "1D",
+    "colorTheme": "dark",
+    "trendLineColor": "#37a6ef",
+    "underLineColor": "#e3f2fd",
+    "isTransparent": true,
+    "autosize": false
+  };
+
+  const encodedSettings = encodeURIComponent(JSON.stringify(settings));
+  const chartUrl = `https://s.tradingview.com/embed-widget/mini-symbol-overview/?locale=en#${encodedSettings}`;
+
+  return (
+    <div style={{ height: '220px', width: '100%', overflow: 'hidden', background: '#000', borderRadius: '8px' }}>
+      {cleanSymbol ? (
+        <iframe
+          key={cleanSymbol}
+          title={`chart-${cleanSymbol}`}
+          src={chartUrl}
+          width="100%"
+          height="220"
+          style={{ border: 'none' }}
+          allowtransparency="true" 
+          scrolling="no"
+        />
+      ) : (
+        <div className="flex items-center justify-center h-full text-zinc-800 text-[10px] uppercase font-black">
+          Invalid Ticker
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default function App() {
+  const [stocks, setStocks] = useState([]);
+  const [newsArticles, setNewsArticles] = useState([]);
+  const [loadingNews, setLoadingNews] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());  
+  const [scanStatus, setScanStatus] = useState("SYSTEM READY");
+  const [isMarketOpen, setIsMarketOpen] = useState(false);
+  const [manualSearch, setManualSearch] = useState("");
+  const [activeTab, setActiveTab] = useState("DASHBOARD");
+  const [sortBy, setSortBy] = useState("confidence");
+  const [filterSignal, setFilterSignal] = useState("all");
+  const [filterPriceRange, setFilterPriceRange] = useState("all");
+  const [filterVolatility, setFilterVolatility] = useState("all");  
+  const [scanPriceLimit, setScanPriceLimit] = useState(50);
+  const [watchlist, setWatchlist] = useState(() => {
+  
+  
+  const saved = localStorage.getItem("JACKRABBIT_WATCHLIST");
+
+
+  return saved ? JSON.parse(saved) : [];
+});
+
+// Sync watchlist to local storage whenever it changes
+useEffect(() => {
+  localStorage.setItem("JACKRABBIT_WATCHLIST", JSON.stringify(watchlist));
+}, [watchlist]);
+
+
+
+const addToWatchlist = (stock) => {
+  if (!watchlist.some(s => s.symbol === stock.symbol)) {
+    setWatchlist(prev => [stock, ...prev]);
+  }
+};
+
+const removeFromWatchlist = (symbol) => {
+  setWatchlist(prev => prev.filter(s => s.symbol !== symbol));
+};
+
+// --- FETCH NEWS FUNCTION ---
+const fetchNews = useCallback(async () => {
+  setLoadingNews(true);
+  try {
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+    const fromDate = yesterday.toISOString().split('T')[0];
+    const toDate = now.toISOString().split('T')[0];
+    
+    // Fetch general market news
+    const newsUrl = `https://finnhub.io/api/v1/news?category=general&from=${fromDate}&to=${toDate}&token=${FINNHUB_KEY}`;
+    const response = await fetch(newsUrl);
+    const data = await response.json();
+    
+    if (!data || data.length === 0) {
+      setNewsArticles([]);
+      setLoadingNews(false);
+      return;
+    }
+    
+    // Process top 25 articles
+    const topArticles = data.slice(0, 25);
+    
+    // Use AI to categorize and extract tickers
+    const processedArticles = await Promise.all(
+      topArticles.map(async (article) => {
+        try {
+          const aiPrompt = `
+            Analyze this financial news headline and summary:
+            HEADLINE: ${article.headline}
+            SUMMARY: ${article.summary || "No summary available"}
+            
+            TASK:
+            1. Categorize into ONE of: Markets, Stocks, Crypto, Tech, Economy, Policy, Earnings
+            2. Extract any stock tickers mentioned (max 3, must be valid US tickers)
+            
+            FORMAT:
+            [CATEGORY] CategoryName [/CATEGORY]
+            [TICKERS] AAPL, MSFT [/TICKERS] (or "None" if no tickers)
+          `;
+          
+          const aiResponse = await aiModel.generateContent(aiPrompt);
+          const aiText = await aiResponse.response.text();
+          
+          const category = extract("CATEGORY", aiText) || "Markets";
+          const tickersText = extract("TICKERS", aiText);
+          const tickers = tickersText && tickersText !== "None" 
+            ? tickersText.split(',').map(t => t.trim()).filter(t => t.length > 0).slice(0, 3)
+            : [];
+          
+          return {
+            id: article.id,
+            headline: article.headline,
+            summary: article.summary || "Click to read full article",
+            source: article.source,
+            url: article.url,
+            image: article.image,
+            datetime: article.datetime,
+            category: category,
+            tickers: tickers
+          };
+        } catch (e) {
+          return {
+            id: article.id,
+            headline: article.headline,
+            summary: article.summary || "Click to read full article",
+            source: article.source,
+            url: article.url,
+            image: article.image,
+            datetime: article.datetime,
+            category: "Markets",
+            tickers: []
+          };
+        }
+      })
+    );
+    
+    setNewsArticles(processedArticles);
+  } catch (error) {
+    console.error("Error fetching news:", error);
+    setNewsArticles([]);
+  } finally {
+    setLoadingNews(false);
+  }
+}, []);
+
+
+
+// --- DATA UTILITIES ---
+const getScore = (extractedValue, fallback) => {
+  if (!extractedValue) return fallback;
+  const cleanValue = extractedValue.replace(/[^0-9.]/g, "");
+  const score = parseFloat(cleanValue);
+  return (isNaN(score) || score === 0) ? fallback : Math.min(Math.max(score, 5.00), 99.99);
+};
+
+  useEffect(() => {
+  const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+  return () => clearInterval(timer);
+}, []);
+
+  // --- MARKET HOURS & CLOCK ---
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      setCurrentTime(now);
+      
+      // Basic NYSE Market Hours Check (EST)
+      const estTime = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
+      const hours = estTime.getHours();
+      const mins = estTime.getMinutes();
+      const day = estTime.getDay();
+      const isOpen = day >= 1 && day <= 5 && (hours > 9 || (hours === 9 && mins >= 30)) && hours < 16;
+      setIsMarketOpen(isOpen);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+// --- FETCH NEWS ON TAB SWITCH & AUTO-REFRESH ---
+useEffect(() => {
+  if (activeTab === "NEWS" && newsArticles.length === 0) {
+    fetchNews();
+  }
+}, [activeTab, fetchNews, newsArticles.length]);
+
+useEffect(() => {
+  if (activeTab === "NEWS") {
+    const newsRefreshTimer = setInterval(() => {
+      fetchNews();
+    }, 300000); // Refresh every 5 minutes
+    return () => clearInterval(newsRefreshTimer);
+  }
+}, [activeTab, fetchNews]);
+
+  // --- LIVE PRICE UPDATES (Every 10 Seconds) ---
+useEffect(() => {
+  // Sync both lists
+  if ((stocks.length === 0 && watchlist.length === 0) || !isMarketOpen) return;
+
+  const liveTimer = setInterval(async () => {
+    const updateList = async (list) => {
+      return Promise.all(list.map(async (stock) => {
+        try {
+          const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${stock.symbol}&token=${FINNHUB_KEY}`);
+          const data = await res.json();
+          if (!data.c) return stock; 
+          return {
+            ...stock,
+            price: data.c.toFixed(2),
+            change: data.dp?.toFixed(2) || stock.change,
+            isPositive: data.dp >= 0
+          };
+        } catch (e) { return stock; }
+      }));
+    };
+
+    if (stocks.length > 0) setStocks(await updateList(stocks));
+    if (watchlist.length > 0) setWatchlist(await updateList(watchlist));
+  }, 10000);
+
+  return () => clearInterval(liveTimer);
+}, [stocks, watchlist, isMarketOpen]);
+
+  // --- NEURAL SCANNER LOGIC ---
+const runScanner = useCallback(async (tickerToSearch = null) => {
+  setLoading(true);
+  setStocks([]); 
+  setScanStatus("INITIALIZING...");
+
+  const rejectedTickers = new Set();
+  const displayedTickers = new Set(); 
+  const localStocks = [];
+  
+  const now = new Date();
+  const oneWeekAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+  const fDate = now.toISOString().split('T')[0];     
+  const yDate = oneWeekAgo.toISOString().split('T')[0];
+  const currentMonthName = now.toLocaleString('default', { month: 'long' }); 
+  const currentYear = now.getFullYear();
+
+  const isManual = !!tickerToSearch;
+  let attempts = 0;
+
+  try {
+    const targetGoal = isManual ? 1 : 10;
+
+    while (localStocks.length < targetGoal && attempts < 15) {
+      attempts++;
+      let tickersToProcess = []; // Use a unique name for the loop
+
+      if (isManual) {
+        setScanStatus(`LOCKING ON: ${tickerToSearch.toUpperCase()}...`);
+        tickersToProcess = [tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "")];
+      } else {
+        setScanStatus(`HUNTING (ATTEMPT ${attempts}/15)...`);
+        const excludeStr = rejectedTickers.size > 0 ? `EXCLUDE: ${Array.from(rejectedTickers).slice(-20).join(", ")}` : "";
+
+        const discoveryPrompt = `
+  You are a quantitative analyst scanning for US stocks under $${scanPriceLimit} with MAJOR catalysts for ${currentMonthName} ${currentYear}.
+  
+  CRITICAL: Return ONLY valid stock tickers (2-5 letters, US-traded). No company names, no explanations.
+  
+  SEARCH STRATEGY:
+  
+  1. BIOTECH CATALYSTS (Top Priority - Jan 2026 is peak season):
+     - "FDA PDUFA approval January 2026"
+     - "Phase 3 clinical trial results ${currentMonthName} 2026"
+     - "Biosecure Act beneficiaries manufacturing"
+     - "ASCO GU genitourinary conference ${currentMonthName} 2026"
+     Search biotech stocks under $20 with binary events this month.
+  
+  2. LEGISLATIVE & POLICY WINNERS:
+     - "DOGE government efficiency contract winners"
+     - "Corporate tax cut small cap beneficiaries 2026"
+     - "EPA methane fee repeal energy stocks"
+     - "Defense spending increase 2026 small caps"
+     Search companies benefiting from new regulations/deregulation.
+  
+  3. TECHNICAL BREAKOUTS:
+     - "Stocks breaking 52-week high ${currentMonthName} 2026"
+     - "Short squeeze candidates high short interest"
+     - "Golden cross technical breakout small caps"
+     - "Analyst upgrade strong buy rating this week"
+     Search stocks with momentum + institutional buying.
+  
+  4. M&A / SPECIAL SITUATIONS:
+     - "Merger acquisition target ${currentMonthName} 2026"
+     - "Activist investor stake announcement"
+     - "Buyout rumor takeover candidate"
+     Search companies with acquisition potential.
+  
+  QUALITY FILTERS:
+  - Only stocks under $${scanPriceLimit}
+  - Must have NEWS from past 7 days
+  - Prioritize small/mid caps ($100M - $10B market cap)
+  - Avoid penny stocks under $2
+  
+  TRUSTED SOURCES ONLY: ${sourceString}
+  
+  ${excludeStr}
+  
+  OUTPUT FORMAT: Return ONLY a comma-separated list of 100-150 stock tickers.
+  Example: ABCD, EFGH, IJKL, MNOP
+`;
+
+        const aiRes = await aiModel.generateContent({
+          contents: [{ role: "user", parts: [{ text: discoveryPrompt }] }],
+          tools: [{ googleSearch: {} }] 
+        });
+        
+        const aiText = await aiRes.response.text();
+        // Clean and extract only the first 2-5 letter capitalized words
+        const foundSymbols = (aiText || "").match(/\b[A-Z]{2,5}\b/g) || [];
+        tickersToProcess = [...new Set(foundSymbols)];
+      }
+
+      // Filter out the blacklist
+      const blacklist = ["CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", "FDA", "JAN", "FEB"];
+      const tickers = tickersToProcess.filter(t => !blacklist.includes(t));
+
+      for (const ticker of tickers) {
+        if (localStocks.length >= targetGoal) break;
+        if (displayedTickers.has(ticker) || rejectedTickers.has(ticker)) continue;
+
+        setScanStatus(`ANALYZING: ${ticker}`);
+
+        try {
+          const qUrl = `https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`;
+          const nUrl = `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`;    
+          const pUrl = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`;
+
+          const [q, n, p] = await Promise.all([
+            fetch(qUrl).then(r => r.json()),
+            fetch(nUrl).then(r => r.json()),
+            fetch(pUrl).then(r => r.json()),
+          ]);
+
+          await new Promise(r => setTimeout(r, 1200));
+
+// Add basic quality filters BEFORE AI analysis
+if (!isManual) {
+  // Skip if no volume data or extremely low volume
+  
+  
+  // Skip penny stocks under $2 (too risky/manipulated)
+  if (q.c < 2) {
+    rejectedTickers.add(ticker);
+    continue;
+  }
+  
+  // Skip if price exceeds user-selected limit
+  if (q.c > scanPriceLimit) {
+    rejectedTickers.add(ticker);
+    continue;
+  }
+}
+
+const headlines = n?.length > 0 
+  ? n.slice(0, 10).map(i => `[${new Date(i.datetime * 1000).toLocaleDateString()}] ${i.headline}`).join(" | ") 
+  : "No recent company-specific news found.";
+
+// NOW do the AI analysis
+// NOW do the AI analysis
+const analysisPrompt = isManual 
+  ? `
+    TICKER: ${ticker}
+    CURRENT PRICE: $${q.c}
+    52-WEEK RANGE: $${q.l} - $${q.h}
+    NEWS (Past 7 Days): ${headlines}
+    COMPANY: ${p.name || ticker}
+    
+    Provide a comprehensive analysis regardless of catalyst strength.
+    
+    ANALYZE:
+    1. Price momentum and technical setup
+    2. Recent news developments (even if minor)
+    3. Sector trends and peer comparison
+    4. Risk factors and potential headwinds
+    
+    FORMAT (Use EXACT tags):
+    NAME: ${p.name || 'Unknown'}
+    [RANGE] $XX.XX - $XX.XX [/RANGE]
+    [SIG] BULLISH or BEARISH [/SIG]
+    [MOM] Positive, Steady, or Uncertain [/MOM]
+    [CAT] Brief description of main driver or "Routine Trading" [/CAT]
+    [CONF] XX.XX [/CONF] (20-95 range, higher = more confident)
+    [VOLATILITY] XX.XX [/VOLATILITY] (Calculate: 100 * (${q.h} - ${q.l}) / ${q.c})
+    [INSIGHTS]
+    | First insight about price action or technical setup
+    | Second insight about fundamentals or news
+    | Third insight about risks or catalysts
+    [/INSIGHTS]
+  `
+  : `
+    TICKER: ${ticker}
+    PRICE: $${q.c} (52W: $${q.l} - $${q.h})
+    NEWS: ${headlines}
+    COMPANY: ${p.name || ticker}
+    
+    Analyze ${ticker} for potential trading opportunities in ${currentMonthName} ${currentYear}.
+    
+    IMPORTANT: If NEWS shows "No recent company-specific news found", you MUST analyze:
+    - Price momentum and technical patterns
+    - Sector performance and industry trends
+    - Recent volume changes
+    - Distance from 52-week high/low
+    Do NOT just say "sector tailwinds" - be specific about what you observe.
+    
+    ACCEPT these as valid catalysts:
+    ✓ Recent earnings or guidance (within 30 days)
+    ✓ FDA approvals, clinical trials, healthcare developments
+    ✓ M&A activity, acquisitions, activist investors
+    ✓ Major analyst upgrades from known firms
+    ✓ Significant contract wins or partnerships
+    ✓ Technical breakouts with strong volume
+    ✓ Regulatory/policy benefits to the company
+    ✓ Sector rotation or industry tailwinds (only if specific)
+    
+    REJECT only if:
+    ✗ Absolutely no news in past 30 days AND no technical setup
+    ✗ Only negative news
+    
+    Be GENEROUS with confidence scores:
+    - 60-80: Recent relevant news from decent source
+    - 40-60: Technical setup or sector momentum
+    - Below 40: Very weak/old information
+    
+    FORMAT (Use EXACT tags):
+    NAME: ${p.name || 'Unknown'}
+    [RANGE] $XX.XX - $XX.XX [/RANGE]
+    [SIG] BULLISH or BEARISH [/SIG]
+    [MOM] Positive, Steady, or Uncertain [/MOM]
+    [CAT] Specific catalyst (NOT generic) - max 10 words [/CAT]
+    [CONF] XX.XX [/CONF]
+    [VOLATILITY] XX.XX [/VOLATILITY]
+    [INSIGHTS]
+    | Insight about catalyst or price action
+    | Supporting technical or fundamental point
+    | Risk consideration or alternative view
+    [/INSIGHTS]
+    
+    Only mark [SIG] NEUTRAL [/SIG] if there's truly zero relevant information.
+  `;
+
+const analysis = await aiModel.generateContent(analysisPrompt);
+const resText = await analysis.response.text();
+
+const truncateCatalyst = (text) => {
+  const words = text.split(' ');
+  if (words.length <= 10) return text;
+  return words.slice(0, 10).join(' ') + '...';
+};
+
+// DEBUG LOGGING
+console.log(`\n=== ${ticker} ANALYSIS ===`);
+console.log('Response:', resText.substring(0, 500)); // First 500 chars
+console.log('Has NEUTRAL:', resText.includes("NEUTRAL"));
+console.log('Extracted SIG:', extract("SIG", resText));
+console.log('Extracted CAT:', extract("CAT", resText));
+console.log('======================\n');
+
+if (!isManual && resText.includes("NEUTRAL")) {
+  rejectedTickers.add(ticker);
+  continue;
+}
+
+
+          const newStock = {
+            symbol: ticker.trim().toUpperCase(), // CLEANEST SYMBOL
+            name: p.name || clean(extract("NAME", resText)) || `${ticker} CORP`,
+            price: q.c.toFixed(2),
+            change: q.dp?.toFixed(2) || "0.00",
+            isPositive: extract("SIG", resText).toUpperCase().includes("BULLISH"),
+            range: clean(extract("RANGE", resText)),
+            confidence: getScore(extract("CONF", resText), 65),
+            volatility: getScore(extract("VOLATILITY", resText), 40),
+            rating: clean(extract("SIG", resText)),
+            momentum: clean(extract("MOM", resText)),
+              catalyst: truncateCatalyst(clean(extract("CAT", resText))), // <-- APPLY TRUNCATION HERE
+            insights: extract("INSIGHTS", resText).split('|').map(i => clean(i)).filter(i => i.length > 5)
+          };
+
+          localStocks.push(newStock);
+          displayedTickers.add(ticker); 
+          setStocks([...localStocks]); 
+
+        } catch (e) {
+          rejectedTickers.add(ticker);
+        }
+      }
+      if (isManual) break;
+    }
+  } catch (err) { console.error(err); }
+  finally { setLoading(false); setScanStatus("COMPLETE"); }
+}, [aiModel, FINNHUB_KEY, sourceString, scanPriceLimit]);
+
+// --- SORT AND FILTER LOGIC ---
+const getSortedAndFilteredStocks = (stockList) => {
+  let filtered = [...stockList];
+  
+  // Apply filters
+  if (filterSignal !== "all") {
+    filtered = filtered.filter(stock => 
+      stock.rating.toLowerCase() === filterSignal.toLowerCase()
+    );
+  }
+  
+  if (filterPriceRange !== "all") {
+    filtered = filtered.filter(stock => {
+      const price = parseFloat(stock.price);
+      if (filterPriceRange === "under10") return price < 10;
+      if (filterPriceRange === "10-25") return price >= 10 && price < 25;
+      if (filterPriceRange === "25-50") return price >= 25 && price < 50;
+      if (filterPriceRange === "over50") return price >= 50;
+      return true;
+    });
+  }
+  
+  if (filterVolatility !== "all") {
+    filtered = filtered.filter(stock => {
+      const vol = stock.volatility;
+      if (filterVolatility === "low") return vol < 30;
+      if (filterVolatility === "medium") return vol >= 30 && vol <= 50;
+      if (filterVolatility === "high") return vol > 50;
+      return true;
+    });
+  }
+  
+  // Apply sorting
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === "confidence") return b.confidence - a.confidence;
+    if (sortBy === "volatility-high") return b.volatility - a.volatility;
+    if (sortBy === "volatility-low") return a.volatility - b.volatility;
+    if (sortBy === "price-high") return parseFloat(b.price) - parseFloat(a.price);
+    if (sortBy === "price-low") return parseFloat(a.price) - parseFloat(b.price);
+    if (sortBy === "change-high") return parseFloat(b.change) - parseFloat(a.change);
+    if (sortBy === "change-low") return parseFloat(a.change) - parseFloat(b.change);
+    return 0;
+  });
+  
+  return sorted;
+};
+
+const displayedStocks = getSortedAndFilteredStocks(stocks);
+const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
+
+
+
+ return (
+    <div className="min-h-screen bg-black text-white p-8 font-mono">
+      {/* Add this style tag */}
+      <style>{`
+        select option {
+          background-color: #000 !important;
+          color: #fff !important;
+        }
+        select option:hover {
+          background-color: #1a1a1a !important;
+        }
+        select option:checked {
+          background-color: #00ff4e !important;
+          color: #000 !important;
+        }
+      `}</style>
+      
+      {/* HEADER */}
+      <header className="flex justify-between items-end mb-12 border-b-2 border-zinc-900 pb-8">
+        <div className="flex items-center gap-6">
+          <img src="/jckrbbt_logo.png" alt="Logo" className="h-16 w-auto object-contain" />
+          <div className="border-l-2 border-zinc-900 pl-6">
+            <p className="text-zinc-600 text-[10px] tracking-[0.4em] mt-2 uppercase flex items-center gap-2 font-black">
+              Status: {scanStatus}
+              {isMarketOpen && <span className="h-2 w-2 bg-[#00ff4e] rounded-full animate-pulse shadow-[0_0_10px_#00ff4e]"/>}
+            </p>
+          </div>
+        </div>
+<div className="absolute top-10 right-8 text-right">
+  <p className="text-[#00ff4e] font-black tabular-nums text-xl tracking-tighter">
+    {currentTime.toLocaleTimeString([], { hour12: false })}
+  </p>
+  <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
+    {currentTime.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+  </p>
+</div>
+      </header>
+
+      <TypewriterGreeting />
+
+<div className="flex gap-4 mb-8 border-b border-zinc-900 pb-4">
+  {["DASHBOARD", "WATCH LIST", "NEWS"].map((tab) => (
+    <button
+      key={tab}
+      onClick={() => setActiveTab(tab)}
+      className={`text-xs font-black tracking-[0.3em] px-6 py-2 rounded-full transition-all ${
+        activeTab === tab 
+        ? "bg-[#00ff4e] text-black shadow-[0_0_20px_rgba(0,255,78,0.4)]" 
+        : "text-zinc-500 hover:text-white"
+      }`}
+    >
+      {tab === "WATCH LIST" ? `${tab} (${watchlist.length})` : tab}
+    </button>
+  ))}
+</div>
+
+{/* --- NEWS TAB CONTROLS --- */}
+{activeTab === "NEWS" && (
+<div className="bg-[#050505] border border-zinc-900 p-3 rounded-xl mb-8 shadow-2xl backdrop-blur-md">
+  <div className="flex flex-row items-center justify-between">
+    <div className="flex items-center gap-3">
+      <div className="h-2 w-2 bg-[#00ff4e] rounded-full animate-pulse shadow-[0_0_10px_#00ff4e]" />
+      <span className="text-zinc-500 text-xs font-black uppercase tracking-widest">
+        Live Financial News Feed
+      </span>
+    </div>
+    <button 
+      onClick={fetchNews}
+      disabled={loadingNews}
+      className="bg-zinc-900 hover:bg-zinc-800 text-zinc-400 px-6 py-3 rounded-lg font-bold border border-zinc-800 transition-all flex items-center gap-2 whitespace-nowrap hover:text-[#00ff4e] hover:border-[#00ff4e]/30"
+    >
+      <span className={loadingNews ? 'animate-spin' : ''}>↻</span>
+      REFRESH NEWS
+    </button>
+  </div>
+</div>
+)}
+
+{/* --- SINGLE ROW DASHBOARD CONTROLS --- */}
+{activeTab !== "NEWS" && (
+<div className="bg-[#050505] border border-zinc-900 p-3 rounded-xl mb-8 shadow-2xl backdrop-blur-md">
+  <div className="flex flex-row items-center gap-3">
+    
+    {/* 1. SEARCH INPUT */}
+    <div className="flex-grow relative group">
+      <input
+        type="text"
+        placeholder="SEARCH TICKER (e.g. AAPL)..."
+        value={manualSearch}
+        onChange={(e) => setManualSearch(e.target.value.toUpperCase())}
+        onKeyDown={(e) => e.key === 'Enter' && runScanner(manualSearch)}
+        className="w-full bg-black border border-zinc-800 text-white px-5 py-3 rounded-lg outline-none transition-all font-mono placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
+        style={{ caretColor: '#00ff4e' }}
+      />
+      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none group-focus-within:text-[#00ff4e] text-zinc-800 transition-colors">
+        
+      </div>
+    </div>
+
+
+
+    {/* 2. SCAN ASSET BUTTON (Prompt 2 Trigger) */}
+    <button 
+      onClick={() => runScanner(manualSearch)}
+      disabled={loading || !manualSearch}
+      className="hover:opacity-90 disabled:opacity-20 text-black px-8 py-3 rounded-lg font-black tracking-tighter transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)] active:scale-95 whitespace-nowrap"
+      style={{ backgroundColor: '#00ff4e' }}
+    >
+      {loading ? '...' : 'ANALYZE STOCK'}
+    </button>
+
+    {/* NEW: PRICE LIMIT SELECTOR */}
+<CustomDropdown
+  value={scanPriceLimit}
+  onChange={setScanPriceLimit}
+  label="Price Limit"
+  options={[
+    { value: 10, label: 'Under $10' },
+    { value: 25, label: 'Under $25' },
+    { value: 50, label: 'Under $50' },
+    { value: 100, label: 'Under $100' },
+    { value: 999999, label: 'Any Price' }
+  ]}
+/>
+
+    {/* 3. REFRESH BUTTON (Prompt 1 Trigger) */}
+    <button 
+      onClick={() => { setManualSearch(""); runScanner(null); }}
+      disabled={loading}
+      className="bg-zinc-900 hover:bg-zinc-800 text-zinc-400 px-6 py-3 rounded-lg font-bold border border-zinc-800 transition-all flex items-center gap-2 whitespace-nowrap hover:text-[#00ff4e] hover:border-[#00ff4e]/30"
+    >
+      <span className={loading ? 'animate-spin' : ''}>↻</span>
+      FIND STOCKS
+    </button>
+    
+  </div>
+</div>
+)}
+
+{/* --- SORT & FILTER BAR --- */}
+{activeTab !== "NEWS" && (stocks.length > 0 || watchlist.length > 0) && (
+<div className="bg-[#0a0a0a] border border-zinc-900 rounded-lg p-4 mb-4 flex items-center gap-4 flex-wrap">
+  <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
+    Sort & Filter:
+  </span>
+  
+  {/* SORT DROPDOWN */}
+  <CustomDropdown
+    value={sortBy}
+    onChange={setSortBy}
+    label="Sort"
+    options={[
+      { value: 'confidence', label: 'Sort: Confidence ↓' },
+      { value: 'volatility-high', label: 'Sort: Volatility ↓' },
+      { value: 'volatility-low', label: 'Sort: Volatility ↑' },
+      { value: 'price-high', label: 'Sort: Price ↓' },
+      { value: 'price-low', label: 'Sort: Price ↑' },
+      { value: 'change-high', label: 'Sort: Change % ↓' },
+      { value: 'change-low', label: 'Sort: Change % ↑' }
+    ]}
+  />
+  
+  {/* SIGNAL FILTER */}
+  <CustomDropdown
+    value={filterSignal}
+    onChange={setFilterSignal}
+    label="Signal"
+    options={[
+      { value: 'all', label: 'Signal: All' },
+      { value: 'bullish', label: 'Signal: Bullish' },
+      { value: 'bearish', label: 'Signal: Bearish' }
+    ]}
+  />
+  
+  {/* PRICE RANGE FILTER */}
+  <CustomDropdown
+    value={filterPriceRange}
+    onChange={setFilterPriceRange}
+    label="Price"
+    options={[
+      { value: 'all', label: 'Price: All' },
+      { value: 'under10', label: 'Price: Under $10' },
+      { value: '10-25', label: 'Price: $10 - $25' },
+      { value: '25-50', label: 'Price: $25 - $50' },
+      { value: 'over50', label: 'Price: Over $50' }
+    ]}
+  />
+  
+  {/* VOLATILITY FILTER */}
+  <CustomDropdown
+    value={filterVolatility}
+    onChange={setFilterVolatility}
+    label="Volatility"
+    options={[
+      { value: 'all', label: 'Volatility: All' },
+      { value: 'low', label: 'Volatility: Low (<30%)' },
+      { value: 'medium', label: 'Volatility: Medium (30-50%)' },
+      { value: 'high', label: 'Volatility: High (>50%)' }
+    ]}
+  />
+  
+  {/* RESET BUTTON */}
+  {(sortBy !== "confidence" || filterSignal !== "all" || filterPriceRange !== "all" || filterVolatility !== "all") && (
+    <button
+      onClick={() => {
+        setSortBy("confidence");
+        setFilterSignal("all");
+        setFilterPriceRange("all");
+        setFilterVolatility("all");
+      }}
+      className="ml-auto text-zinc-500 hover:text-[#00ff4e] text-xs font-black uppercase tracking-wider transition-colors"
+    >
+      Reset Filters
+    </button>
+  )}
+</div>
+)}
+      {/* CARDS */}
+    <div className="space-y-8 mt-10">
+  {activeTab === "DASHBOARD" ? (
+    <>
+      {stocks.length === 0 && !loading && (
+        <div className="py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-sm tracking-[0.5em] uppercase font-black">Scanner Idle</p>
+        </div>
+      )}
+      {displayedStocks.map(stock => (
+  <MetricCard 
+    key={stock.symbol} 
+    stock={stock} 
+    isMarketOpen={isMarketOpen} 
+    onAction={() => addToWatchlist(stock)}
+    removeFromWatchlist={removeFromWatchlist}
+    actionType="ADD"
+    watchlist={watchlist}
+  />
+))}
+    </>
+  ) : activeTab === "WATCH LIST" ? (
+    <>
+      {watchlist.length === 0 && (
+        <div className="py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-sm tracking-[0.5em] uppercase font-black">Watch List Empty</p>
+        </div>
+      )}
+      {displayedWatchlist.map(stock => (
+  <MetricCard 
+    key={stock.symbol} 
+    stock={stock} 
+    isMarketOpen={isMarketOpen} 
+    onAction={() => removeFromWatchlist(stock.symbol)}
+    removeFromWatchlist={removeFromWatchlist}
+    actionType="REMOVE"
+    watchlist={watchlist}
+  />
+))}
+    </>
+  ) : (
+    <>
+      {loadingNews && newsArticles.length === 0 && (
+        <div className="py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-sm tracking-[0.5em] uppercase font-black">Loading News...</p>
+        </div>
+      )}
+      {!loadingNews && newsArticles.length === 0 && (
+        <div className="py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-sm tracking-[0.5em] uppercase font-black">No News Available</p>
+        </div>
+      )}
+      {newsArticles.map(article => (
+        <NewsCard key={article.id} article={article} />
+      ))}
+    </>
+  )}
+</div>
+    </div>
+  );
+}
+
+function CustomDropdown({ value, onChange, options, label }) {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  return (
+    <div className="relative" style={{ zIndex: isOpen ? 9999 : 1 }}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="bg-black border border-zinc-800 text-white px-5 py-4 rounded-lg text-xs font-bold uppercase tracking-wider cursor-pointer hover:border-[#00ff4e]/50 focus:border-[#00ff4e]/50 focus:outline-none transition-all w-full text-left flex items-center justify-between min-w-[180px]"
+      >
+        <span>{options.find(opt => opt.value === value)?.label || label}</span>
+        <span className="text-[#00ff4e] ml-2">▼</span>
+      </button>
+      
+      {isOpen && (
+        <>
+          {/* Backdrop to close dropdown */}
+          <div 
+            className="fixed inset-0" 
+            style={{ zIndex: 9998 }}
+            onClick={() => setIsOpen(false)}
+          />
+          
+          {/* Dropdown menu */}
+          <div 
+            className="absolute top-full left-0 mt-1 w-full bg-black border border-zinc-800 rounded-lg overflow-hidden shadow-2xl"
+            style={{ zIndex: 9999 }}
+          >
+            {options.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                  value === option.value
+                    ? 'bg-[#00ff4e] text-black'
+                    : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist }) {
+  const [isOpen, setIsOpen] = useState(false);  
+  const [isHoveringButton, setIsHoveringButton] = useState(false);
+  const cardRef = useRef(null);
+  
+  const accent = stock.isPositive ? '#00ff4e' : '#FF4B2B';
+  const isPositive = parseFloat(stock.change) >= 0;
+  const trendColor = isPositive ? '#00ff4e' : '#FF4B2B';
+  const Triangle = isPositive ? '▲' : '▼';
+  const prefix = isPositive ? '+' : '';
+  const isAlreadyAdded = watchlist.some(s => s.symbol === stock.symbol);
+
+  // Auto-collapse when scrolling past the card
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleScroll = () => {
+      if (!cardRef.current) return;
+      
+      const rect = cardRef.current.getBoundingClientRect();
+      const windowHeight = window.innerHeight;
+      
+      // If card top is above viewport or card bottom is below viewport
+      if (rect.bottom < 100 || rect.top > windowHeight - 100) {
+        setIsOpen(false);
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, [isOpen]);
+
+  return (
+    <div 
+      ref={cardRef}
+      className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-8 relative hover:border-zinc-600 transition-all mb-8 overflow-hidden group"
+    >
+      
+      {/* --- HOVER-SENSITIVE TOGGLE BUTTON --- */}
+<button 
+  onMouseEnter={() => setIsHoveringButton(true)}
+  onMouseLeave={() => setIsHoveringButton(false)}
+  onClick={(e) => {
+    e.stopPropagation();
+    if (actionType === "REMOVE" || isAlreadyAdded) {
+      removeFromWatchlist(stock.symbol);
+    } else {
+      onAction();
+    }
+  }}
+  className={`absolute top-4 right-8 z-10 flex items-center gap-3 px-5 py-2 rounded-lg border transition-all active:scale-95 whitespace-nowrap w-auto ${
+    isAlreadyAdded 
+      ? isHoveringButton 
+        ? "border-red-500/50 bg-red-500/10 text-red-500" 
+        : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]" 
+      : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
+  }`}
+>
+  <span className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">
+    {actionType === "REMOVE" 
+      ? "Remove from Watchlist" 
+      : isAlreadyAdded 
+        ? (isHoveringButton ? "Remove from Watchlist" : "Added to Watch List") 
+        : "Add to Watch List"}
+  </span>
+  
+  <div className="flex items-center justify-center">
+    {actionType === "REMOVE" || (isAlreadyAdded && isHoveringButton) ? (
+      <Trash2 size={14} />
+    ) : isAlreadyAdded ? (
+      <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}>
+        <svg size={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </motion.div>
+    ) : (
+      <Plus size={14} />
+    )}
+  </div>
+</button>
+
+      <div 
+        className={`absolute top-4 left-4 h-3 w-3 rounded-full ${isMarketOpen ? 'animate-pulse' : ''}`} 
+        style={{ backgroundColor: accent, boxShadow: isMarketOpen ? `0 0 15px ${accent}` : 'none' }} 
+      />
+
+      <div className="flex justify-between items-end mb-8">
+        <div>
+          <p className="text-[10px] text-[#ffffff] font-black uppercase tracking-[0.4em] mb-2">{stock.name}</p>
+          <div className="flex items-end gap-8">
+            <h2 className="text-7xl font-black tracking-tighter text-white uppercase leading-none">{stock.symbol}</h2>
+            <div className="flex items-baseline gap-3 pb-1">
+              <span className="text-5xl font-black text-white tabular-nums leading-none">${stock.price}</span>
+              <span className="text-3xl font-black tabular-nums leading-none" style={{ color: trendColor }}>
+                {prefix}{stock.change}% <span className="text-2xl ml-2 align-middle">{Triangle}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-8 text-right pb-1 border-l-2 border-zinc-900 pl-8">
+          <div>
+            <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-4">Predicted Range</p>
+            <p className="text-3xl font-black text-white tracking-tight tabular-nums leading-none whitespace-nowrap">{stock.range}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-12 border-t-2 border-zinc-900 pt-8 mb-10">
+        <div><p className="text-[10px] text-zinc-500 font-black mb-2 uppercase tracking-tighter">Signal</p><p className="text-2xl font-black text-white uppercase">{stock.rating}</p></div>
+        <div><p className="text-[10px] text-zinc-500 font-black mb-2 uppercase tracking-tighter">Momentum</p><p className="text-2xl font-black text-white uppercase">{stock.momentum}</p></div>
+        <div><p className="text-[10px] text-zinc-500 font-black mb-2 uppercase tracking-tighter">Catalyst</p><p className="text-2xl font-black text-white uppercase">{stock.catalyst}</p></div>
+      </div>
+
+      <div className="space-y-8 mb-10">
+        <div>
+          <div className="flex justify-between text-[10px] font-black text-zinc-500 mb-3 uppercase tracking-widest">
+            <span>Neural Confidence</span>
+            <span style={{ color: '#00ff4e' }}>{stock.confidence}% Match</span>
+          </div>
+          <div className="h-[3px] bg-zinc-900 w-full relative">
+            <motion.div initial={{ width: 0 }} animate={{ width: `${stock.confidence}%` }} className="absolute h-full bg-[#00ff4e] shadow-[0_0_15px_#00ff4e]" />
+          </div>
+        </div>
+        <div>
+          <div className="flex justify-between items-end mb-2">
+            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Volatility Index</span>
+            <span className="text-xs font-mono text-[#00ff4e] bg-[#00ff4e]/10 px-2 py-0.5 rounded">{stock.volatility}%</span>
+          </div>
+          <div className="h-[2px] bg-zinc-800 rounded-full overflow-hidden">
+            <motion.div initial={{ width: 0 }} animate={{ width: `${stock.volatility}%` }} transition={{ duration: 1.5, ease: "circOut" }} className={`h-full shadow-[0_0_15px] ${stock.volatility > 35 ? 'bg-red-500 shadow-red-500' : 'bg-[#00ff4e] shadow-[#00ff4e]'}`} />
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t-2 border-zinc-900 pt-6">
+        <button onClick={() => setIsOpen(!isOpen)} className="group flex items-center gap-3 transition-all">
+          <span className={`h-1.5 w-1.5 rounded-full ${isOpen ? 'bg-[#00ff4e] shadow-[0_0_8px_#00ff4e]' : 'bg-zinc-700'}`} />
+          <span className={`text-[10px] font-black uppercase tracking-[0.3em] ${isOpen ? 'text-[#00ff4e]' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+            {isOpen ? "Hide Insights" : "View Insights"}
+          </span>
+          <motion.span animate={{ rotate: isOpen ? 180 : 0 }} className={`text-[10px] ${isOpen ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+        </button>
+
+        <AnimatePresence>
+          {isOpen && (
+            <motion.div 
+              initial="hidden" animate="visible" exit="hidden"
+              variants={{ hidden: { height: 0, opacity: 0 }, visible: { height: "auto", opacity: 1, transition: { duration: 0.4 } } }}
+              className="mt-6 pl-8 relative overflow-hidden"
+            >
+              <motion.div className="absolute left-0 top-0 w-[2px] h-full bg-[#00ff4e] shadow-[0_0_10px_#00ff4e]" />
+              <div className="flex flex-col md:flex-row gap-8">
+                <div className="flex-1 space-y-6">
+                  {stock.insights.map((point, i) => (
+                    <div key={i} className="flex items-start gap-4">
+                      <span className="mt-2 h-1.5 w-1.5 rounded-full bg-[#00ff4e] shrink-0 shadow-[0_0_5px_#00ff4e]" />
+                      <p className="text-zinc-300 text-sm leading-relaxed font-medium">{point}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="w-full md:w-[320px] bg-zinc-950/50 border border-zinc-800 rounded-xl p-4 self-start">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Intraday Pulse</h4>
+                    <span className="text-[10px] font-bold text-[#00ff4e]">LIVE</span>
+                  </div>
+                  <MiniChart symbol={stock.symbol} />
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+// --- NEWS CARD COMPONENT ---
+function NewsCard({ article }) {
+  const categoryColors = {
+    'Markets': '#00ff4e',
+    'Stocks': '#3b82f6',
+    'Crypto': '#f59e0b',
+    'Tech': '#8b5cf6',
+    'Economy': '#ef4444',
+    'Policy': '#ec4899',
+    'Earnings': '#10b981'
+  };
+
+  const categoryColor = categoryColors[article.category] || '#00ff4e';
+  const timeAgo = new Date(article.datetime * 1000).toLocaleString();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all cursor-pointer group"
+      onClick={() => window.open(article.url, '_blank')}
+    >
+      <div className="flex gap-6">
+        {/* Article Image */}
+        {article.image && (
+          <div className="w-48 h-32 flex-shrink-0 rounded-lg overflow-hidden bg-zinc-900">
+            <img 
+              src={article.image} 
+              alt={article.headline}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          </div>
+        )}
+        
+        {/* Article Content */}
+        <div className="flex-1 min-w-0">
+          {/* Header with Category & Source */}
+          <div className="flex items-center gap-3 mb-3">
+            <span 
+              className="text-[9px] font-black uppercase tracking-[0.3em] px-3 py-1 rounded-full"
+              style={{ 
+                backgroundColor: `${categoryColor}20`, 
+                color: categoryColor,
+                border: `1px solid ${categoryColor}40`
+              }}
+            >
+              {article.category}
+            </span>
+            <span className="text-zinc-600 text-xs font-bold uppercase tracking-wider">
+              {article.source}
+            </span>
+            <span className="text-zinc-700 text-xs">•</span>
+            <span className="text-zinc-600 text-xs">{timeAgo}</span>
+          </div>
+
+          {/* Headline */}
+          <h3 className="text-xl font-black text-white mb-3 leading-tight group-hover:text-[#00ff4e] transition-colors">
+            {article.headline}
+          </h3>
+
+          {/* Summary */}
+          <p className="text-zinc-400 text-sm leading-relaxed mb-4 line-clamp-2">
+            {article.summary}
+          </p>
+
+          {/* Ticker Tags */}
+          {article.tickers && article.tickers.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[9px] text-zinc-600 font-black uppercase tracking-widest">
+                Mentioned:
+              </span>
+              {article.tickers.map((ticker, idx) => (
+                <span 
+                  key={idx}
+                  className="text-[10px] font-black bg-zinc-900 text-[#00ff4e] px-2 py-1 rounded border border-zinc-800 uppercase tracking-wider"
+                >
+                  ${ticker}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Arrow indicator */}
+        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+          <span className="text-[#00ff4e] text-2xl">→</span>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
