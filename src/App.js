@@ -750,12 +750,13 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       `}</style>
       
 {/* HEADER */}
-<header className="flex flex-col md:flex-row md:justify-between md:items-end mb-8 md:mb-12 border-b-2 border-zinc-900 pb-6 md:pb-8 gap-4">
+<header className="flex justify-between items-center mb-8 md:mb-12 border-b-2 border-zinc-900 pb-6 md:pb-8 gap-4">
+  {/* Left side - Logo and Status */}
   <div className="flex items-center gap-4 md:gap-6">
     <button onClick={() => setActiveTab("DASHBOARD")} className="cursor-pointer hover:opacity-80 transition-opacity">
       <img src="/jckrbbt_logo.png" alt="Logo" className="h-12 md:h-16 w-auto object-contain" />
     </button>
-    <div className="border-l-2 border-zinc-900 pl-4 md:pl-6">
+    <div className="border-l-2 border-zinc-900 pl-4 md:pl-6 hidden md:block">
       <p className="text-zinc-600 text-[8px] md:text-[10px] tracking-[0.3em] md:tracking-[0.4em] uppercase flex items-center gap-2 font-black flex-wrap">
         <span className="hidden sm:inline">Status:</span>
         <span className="hidden lg:inline">{scanStatus}</span>
@@ -764,9 +765,10 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     </div>
   </div>
   
+  {/* Right side - Clock and Auth */}
   <div className="flex items-center gap-4 md:gap-6">
-    {/* Clock */}
-    <div className="text-left md:text-right">
+    {/* Clock - hidden on mobile */}
+    <div className="text-right hidden md:block">
       <p className="text-[#00ff4e] font-black tabular-nums text-lg md:text-xl tracking-tighter">
         {currentTime.toLocaleTimeString([], { hour12: true })}
       </p>
@@ -775,57 +777,57 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       </p>
     </div>
     
-{/* Auth Button */}
-{authLoading ? (
-  <div className="w-10 h-10 bg-zinc-900 rounded-full animate-pulse" />
-) : user ? (
-  <div className="relative group">
-    <button className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-[#00ff4e]/50 px-4 py-2 rounded-lg transition-all">
-      {userProfile?.profilePicUrl ? (
-        <img 
-          src={userProfile.profilePicUrl} 
-          alt="Profile" 
-          className="w-8 h-8 rounded-full object-cover"
-          onError={(e) => {
-            e.target.style.display = 'none';
-            e.target.nextSibling.style.display = 'flex';
-          }}
-        />
-      ) : null}
-      <div 
-        className={`w-8 h-8 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black text-sm ${userProfile?.profilePicUrl ? 'hidden' : ''}`}
-      >
-        {userProfile?.username?.[0]?.toUpperCase() || user.email?.[0].toUpperCase()}
+    {/* Auth Button */}
+    {authLoading ? (
+      <div className="w-10 h-10 bg-zinc-900 rounded-full animate-pulse" />
+    ) : user ? (
+      <div className="relative group">
+        <button className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-[#00ff4e]/50 px-3 md:px-4 py-2 rounded-lg transition-all">
+          {userProfile?.profilePicUrl ? (
+            <img 
+              src={userProfile.profilePicUrl} 
+              alt="Profile" 
+              className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+              onError={(e) => {
+                e.target.style.display = 'none';
+                e.target.nextSibling.style.display = 'flex';
+              }}
+            />
+          ) : null}
+          <div 
+            className={`w-8 h-8 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black text-sm flex-shrink-0 ${userProfile?.profilePicUrl ? 'hidden' : ''}`}
+          >
+            {userProfile?.username?.[0]?.toUpperCase() || user.email?.[0].toUpperCase()}
+          </div>
+          <span className="hidden md:block text-white text-sm font-bold whitespace-nowrap">
+            {userProfile?.username || user.email}
+          </span>
+        </button>
+        
+        {/* Dropdown */}
+        <div className="absolute right-0 top-full mt-2 w-48 bg-black border-2 border-zinc-800 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+          <button
+            onClick={() => setShowProfileSettings(true)}
+            className="w-full text-left px-4 py-3 text-sm font-bold text-white hover:bg-zinc-900 transition-all border-b border-zinc-800"
+          >
+            Profile Settings
+          </button>
+          <button
+            onClick={handleLogout}
+            className="w-full text-left px-4 py-3 text-sm font-bold text-red-500 hover:bg-zinc-900 transition-all rounded-b-lg"
+          >
+            Sign Out
+          </button>
+        </div>
       </div>
-      <span className="hidden md:block text-white text-sm font-bold max-w-[150px] truncate">
-        {userProfile?.username || user.email}
-      </span>
-    </button>
-    
-    {/* Dropdown */}
-    <div className="absolute right-0 top-full mt-2 w-48 bg-black border-2 border-zinc-800 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+    ) : (
       <button
-        onClick={() => setShowProfileSettings(true)}
-        className="w-full text-left px-4 py-3 text-sm font-bold text-white hover:bg-zinc-900 transition-all border-b border-zinc-800"
+        onClick={() => setShowAuthModal(true)}
+        className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-4 md:px-6 py-2 rounded-lg text-xs md:text-sm uppercase tracking-tight transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)]"
       >
-        Profile Settings
+        Sign In
       </button>
-      <button
-        onClick={handleLogout}
-        className="w-full text-left px-4 py-3 text-sm font-bold text-red-500 hover:bg-zinc-900 transition-all rounded-b-lg"
-      >
-        Sign Out
-      </button>
-    </div>
-  </div>
-) : (
-  <button
-    onClick={() => setShowAuthModal(true)}
-    className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-4 md:px-6 py-2 rounded-lg text-xs md:text-sm uppercase tracking-tight transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)]"
-  >
-    Sign In
-  </button>
-)}
+    )}
   </div>
 </header>
 
