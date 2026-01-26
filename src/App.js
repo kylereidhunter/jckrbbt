@@ -185,10 +185,6 @@ export default function App() {
   return saved ? JSON.parse(saved) : [];
 });
 
-// Sync watchlist to local storage whenever it changes
-useEffect(() => {
-  localStorage.setItem("JACKRABBIT_WATCHLIST", JSON.stringify(watchlist));
-}, [watchlist]);
 
 
 
@@ -288,6 +284,12 @@ useEffect(() => {
           username: data.username || null,
           profilePicUrl: data.profilePicUrl || null
         });
+      } else {
+        // No profile exists yet - set defaults
+        setUserProfile({
+          username: null,
+          profilePicUrl: null
+        });
       }
     } else {
       // Not logged in - load from localStorage
@@ -303,9 +305,18 @@ useEffect(() => {
 // Sync watchlist to Firestore (if logged in) or localStorage
 useEffect(() => {
   if (user) {
-    // Save to Firestore
-    const docRef = doc(db, 'users', user.uid);
-    setDoc(docRef, { watchlist }, { merge: true });
+    // Save to Firestore - get existing data first to preserve profile
+    const saveWatchlist = async () => {
+      const docRef = doc(db, 'users', user.uid);
+      const docSnap = await getDoc(docRef);
+      const existingData = docSnap.exists() ? docSnap.data() : {};
+      
+      await setDoc(docRef, {
+        ...existingData,
+        watchlist
+      });
+    };
+    saveWatchlist();
   } else {
     // Save to localStorage
     localStorage.setItem("JACKRABBIT_WATCHLIST", JSON.stringify(watchlist));
@@ -328,6 +339,36 @@ useEffect(() => {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+// --- LOAD USER PROFILE ON PAGE LOAD ---
+useEffect(() => {
+  console.log('Profile load effect triggered:', { user: !!user, authLoading });
+  
+  if (!user || authLoading) return;
+  
+  const loadProfile = async () => {
+    try {
+      console.log('Loading profile for user:', user.uid);
+      const docRef = doc(db, 'users', user.uid);
+      const docSnap = await getDoc(docRef);
+      
+      console.log('Firestore doc exists:', docSnap.exists());
+      
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        console.log('Profile data from Firestore:', data);
+        setUserProfile({
+          username: data.username || null,
+          profilePicUrl: data.profilePicUrl || null
+        });
+      }
+    } catch (error) {
+      console.error('Error loading profile:', error);
+    }
+  };
+  
+  loadProfile();
+}, [user, authLoading]);
 
 // --- FETCH NEWS ON TAB SWITCH & AUTO-REFRESH ---
 useEffect(() => {
@@ -1072,14 +1113,14 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         onSuccess={() => console.log('Auth successful!')}
       />
       {/* PROFILE SETTINGS MODAL */}
-      <ProfileSettings
-        isOpen={showProfileSettings}
-        onClose={() => {
-          setShowProfileSettings(false);
-          // Reload profile after closing
-          if (user) {
-            const docRef = doc(db, 'users', user.uid);
-            getDoc(docRef).then(docSnap => {
+        <ProfileSettings
+          isOpen={showProfileSettings}
+          onClose={async (shouldReload) => {
+            setShowProfileSettings(false);
+            // Reload profile if changes were saved
+            if (shouldReload && user) {
+              const docRef = doc(db, 'users', user.uid);
+              const docSnap = await getDoc(docRef);
               if (docSnap.exists()) {
                 const data = docSnap.data();
                 setUserProfile({
@@ -1087,11 +1128,10 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
                   profilePicUrl: data.profilePicUrl || null
                 });
               }
-            });
-          }
-        }}
-        user={user}
-      />
+            }
+          }}
+          user={user}
+        />
     </div>
   );
 }

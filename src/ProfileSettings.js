@@ -104,10 +104,10 @@ export default function ProfileSettings({ isOpen, onClose, user }) {
         });
       }
 
-      setMessage('Profile updated successfully!');
-      setTimeout(() => {
-        onClose();
-      }, 1500);
+        setMessage('Profile updated successfully!');
+        setTimeout(() => {
+        onClose(true); // Pass true to indicate successful save
+        }, 1500);
     } catch (error) {
       setMessage('Error updating profile: ' + error.message);
     } finally {
