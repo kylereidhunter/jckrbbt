@@ -17,6 +17,7 @@ const GEN_AI_KEY = process.env.REACT_APP_GEN_AI_KEY;
 const genAI = new GoogleGenerativeAI(GEN_AI_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
+
 const REPUTABLE_SOURCES = [
  "Wall Street Journal", "Bloomberg", "Financial Times", "Reuters", "CNBC", 
   "Barron's", "MarketWatch", "Seeking Alpha", "The Economist", "Forbes",
@@ -170,6 +171,8 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
+  const [scanMarketCap, setScanMarketCap] = useState('all');
+  const [scanSector, setScanSector] = useState('all');
   const [watchlist, setWatchlist] = useState(() => {
   
   
@@ -397,51 +400,69 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
         const excludeStr = rejectedTickers.size > 0 ? `EXCLUDE: ${Array.from(rejectedTickers).slice(-20).join(", ")}` : "";
 
         const discoveryPrompt = `
-  You are a quantitative analyst scanning for US stocks under $${scanPriceLimit} with MAJOR catalysts for ${currentMonthName} ${currentYear}.
-  
-  CRITICAL: Return ONLY valid stock tickers (2-5 letters, US-traded). No company names, no explanations.
-  
-  SEARCH STRATEGY:
-  
-  1. BIOTECH CATALYSTS (Top Priority - Jan 2026 is peak season):
-     - "FDA PDUFA approval January 2026"
-     - "Phase 3 clinical trial results ${currentMonthName} 2026"
-     - "Biosecure Act beneficiaries manufacturing"
-     - "ASCO GU genitourinary conference ${currentMonthName} 2026"
-     Search biotech stocks under $20 with binary events this month.
-  
-  2. LEGISLATIVE & POLICY WINNERS:
-     - "DOGE government efficiency contract winners"
-     - "Corporate tax cut small cap beneficiaries 2026"
-     - "EPA methane fee repeal energy stocks"
-     - "Defense spending increase 2026 small caps"
-     Search companies benefiting from new regulations/deregulation.
-  
-  3. TECHNICAL BREAKOUTS:
-     - "Stocks breaking 52-week high ${currentMonthName} 2026"
-     - "Short squeeze candidates high short interest"
-     - "Golden cross technical breakout small caps"
-     - "Analyst upgrade strong buy rating this week"
-     Search stocks with momentum + institutional buying.
-  
-  4. M&A / SPECIAL SITUATIONS:
-     - "Merger acquisition target ${currentMonthName} 2026"
-     - "Activist investor stake announcement"
-     - "Buyout rumor takeover candidate"
-     Search companies with acquisition potential.
-  
-  QUALITY FILTERS:
-  - Only stocks under $${scanPriceLimit}
-  - Must have NEWS from past 7 days
-  - Prioritize small/mid caps ($100M - $10B market cap)
-  - Avoid penny stocks under $2
-  
-  TRUSTED SOURCES ONLY: ${sourceString}
-  
-  ${excludeStr}
-  
-  OUTPUT FORMAT: Return ONLY a comma-separated list of 100-150 stock tickers.
-  Example: ABCD, EFGH, IJKL, MNOP
+You are a quantitative analyst scanning for US stocks under $${scanPriceLimit} with MAJOR catalysts for ${currentMonthName} ${currentYear}.
+
+CRITICAL: Return ONLY valid stock tickers (2-5 letters, US-traded). No company names, no explanations.
+
+${scanMarketCap !== 'all' ? `MARKET CAP FILTER: Focus ONLY on ${
+  scanMarketCap === 'small' ? 'small-cap stocks ($300M - $2B market cap)' :
+  scanMarketCap === 'mid' ? 'mid-cap stocks ($2B - $10B market cap)' :
+  'large-cap stocks (over $10B market cap)'
+}` : ''}
+
+${scanSector !== 'all' ? `SECTOR FILTER: Focus ONLY on ${
+  scanSector === 'technology' ? 'Technology sector (software, hardware, semiconductors, IT services)' :
+  scanSector === 'healthcare' ? 'Healthcare sector (biotech, pharma, medical devices, healthcare services)' :
+  scanSector === 'finance' ? 'Financial sector (banks, insurance, fintech, asset management)' :
+  scanSector === 'energy' ? 'Energy sector (oil, gas, renewable energy, utilities)' :
+  scanSector === 'consumer' ? 'Consumer sector (retail, restaurants, consumer goods)' :
+  scanSector === 'industrial' ? 'Industrial sector (manufacturing, aerospace, defense, transportation)' :
+  scanSector === 'materials' ? 'Materials sector (mining, chemicals, construction materials)' :
+  scanSector === 'realestate' ? 'Real Estate sector (REITs, property management)' :
+  'Utilities sector (electric, water, gas utilities)'
+} companies.` : ''}
+
+SEARCH STRATEGY:
+
+1. BIOTECH CATALYSTS (Top Priority - Jan 2026 is peak season):
+   - "FDA PDUFA approval January 2026"
+   - "Phase 3 clinical trial results ${currentMonthName} 2026"
+   - "Biosecure Act beneficiaries manufacturing"
+   - "ASCO GU genitourinary conference ${currentMonthName} 2026"
+   Search biotech stocks under $20 with binary events this month.
+
+2. LEGISLATIVE & POLICY WINNERS:
+   - "DOGE government efficiency contract winners"
+   - "Corporate tax cut small cap beneficiaries 2026"
+   - "EPA methane fee repeal energy stocks"
+   - "Defense spending increase 2026 small caps"
+   Search companies benefiting from new regulations/deregulation.
+
+3. TECHNICAL BREAKOUTS:
+   - "Stocks breaking 52-week high ${currentMonthName} 2026"
+   - "Short squeeze candidates high short interest"
+   - "Golden cross technical breakout small caps"
+   - "Analyst upgrade strong buy rating this week"
+   Search stocks with momentum + institutional buying.
+
+4. M&A / SPECIAL SITUATIONS:
+   - "Merger acquisition target ${currentMonthName} 2026"
+   - "Activist investor stake announcement"
+   - "Buyout rumor takeover candidate"
+   Search companies with acquisition potential.
+
+QUALITY FILTERS:
+- Only stocks under $${scanPriceLimit}
+- Must have NEWS from past 7 days
+- Prioritize small/mid caps ($100M - $10B market cap)
+- Avoid penny stocks under $2
+
+TRUSTED SOURCES ONLY: ${sourceString}
+
+${excludeStr}
+
+OUTPUT FORMAT: Return ONLY a comma-separated list of 100-150 stock tickers.
+Example: ABCD, EFGH, IJKL, MNOP
 `;
 
         const aiRes = await aiModel.generateContent({
@@ -609,7 +630,8 @@ if (!isManual && resText.includes("NEUTRAL")) {
     }
   } catch (err) { console.error(err); }
   finally { setLoading(false); setScanStatus("COMPLETE"); }
-}, [aiModel, sourceString, scanPriceLimit]);
+}, [aiModel, sourceString, scanPriceLimit, scanMarketCap, scanSector]);
+
 
 // --- SORT AND FILTER LOGIC ---
 const getSortedAndFilteredStocks = (stockList) => {
@@ -807,45 +829,77 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     </div>
 
     {/* AI SCANNER SECTION */}
-    <div className="bg-[#050505] border border-zinc-900 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
-      <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
-        ANALYZE MARKET
-      </h3>
-      <div className="flex flex-col sm:flex-row gap-3">
-        <CustomDropdown
-          value={scanPriceLimit}
-          onChange={setScanPriceLimit}
-          label="Price Limit"
-          options={[
-            { value: 10, label: 'Under $10' },
-            { value: 25, label: 'Under $25' },
-            { value: 50, label: 'Under $50' },
-            { value: 100, label: 'Under $100' },
-            { value: 999999, label: 'Any Price' }
-          ]}
-        />
-        <button 
-  onClick={() => { setManualSearch(""); runScanner(null); }}
-  disabled={loading}
-  className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 px-6 py-3 rounded-lg text-xs md:text-sm font-bold border border-zinc-800 transition-all flex items-center justify-center gap-2 whitespace-nowrap hover:text-[#00ff4e] hover:border-[#00ff4e]/30 disabled:opacity-50"
->
-  {loading ? (
-    <>
-      <span>ANALYZING MARKET</span>
-      <span className="inline-flex gap-0.5">
-        <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
-        <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
-        <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
-      </span>
-    </>
-  ) : (
-    <>
-      ANALYZE MARKET
-    </>
-  )}
-</button>
-      </div>
-    </div>
+{/* AI SCANNER SECTION */}
+<div className="bg-[#050505] border border-zinc-900 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
+  <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
+    ANALYZE MARKET
+  </h3>
+  <div className="flex flex-col sm:flex-row gap-3">
+    <CustomDropdown
+      value={scanPriceLimit}
+      onChange={setScanPriceLimit}
+      label="Price Limit"
+      options={[
+        { value: 10, label: 'Under $10' },
+        { value: 25, label: 'Under $25' },
+        { value: 50, label: 'Under $50' },
+        { value: 100, label: 'Under $100' },
+        { value: 999999, label: 'Any Price' }
+      ]}
+    />
+    
+    <CustomDropdown
+      value={scanMarketCap}
+      onChange={setScanMarketCap}
+      label="Market Cap"
+      options={[
+        { value: 'all', label: 'Any Market Cap' },
+        { value: 'small', label: 'Small Cap' },
+        { value: 'mid', label: 'Mid Cap' },
+        { value: 'large', label: 'Large Cap' }
+      ]}
+    />
+    
+    <CustomDropdown
+      value={scanSector}
+      onChange={setScanSector}
+      label="Sector"
+      options={[
+        { value: 'all', label: 'All Sectors' },
+        { value: 'technology', label: 'Technology' },
+        { value: 'healthcare', label: 'Healthcare' },
+        { value: 'finance', label: 'Finance' },
+        { value: 'energy', label: 'Energy' },
+        { value: 'consumer', label: 'Consumer' },
+        { value: 'industrial', label: 'Industrial' },
+        { value: 'materials', label: 'Materials' },
+        { value: 'realestate', label: 'Real Estate' },
+        { value: 'utilities', label: 'Utilities' }
+      ]}
+    />
+    
+    <button 
+      onClick={() => { setManualSearch(""); runScanner(null); }}
+      disabled={loading}
+      className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 px-6 py-3 rounded-lg text-xs md:text-sm font-bold border border-zinc-800 transition-all flex items-center justify-center gap-2 whitespace-nowrap hover:text-[#00ff4e] hover:border-[#00ff4e]/30 disabled:opacity-50"
+    >
+      {loading ? (
+        <>
+          <span>ANALYZING MARKET</span>
+          <span className="inline-flex gap-0.5">
+            <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
+            <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
+            <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
+          </span>
+        </>
+      ) : (
+        <>
+          ANALYZE MARKET
+        </>
+      )}
+    </button>
+  </div>
+</div>
   </div>
 )}
 
