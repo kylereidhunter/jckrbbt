@@ -7,6 +7,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from './firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import AuthModal from './AuthModal';
+import ProfileSettings from './ProfileSettings';
 
 console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
 console.log('GEN_AI_KEY:', process.env.REACT_APP_GEN_AI_KEY);
@@ -173,6 +174,8 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [scanMarketCap, setScanMarketCap] = useState('all');
   const [scanSector, setScanSector] = useState('all');
+  const [showProfileSettings, setShowProfileSettings] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
   const [watchlist, setWatchlist] = useState(() => {
   
   
@@ -274,17 +277,23 @@ useEffect(() => {
     setAuthLoading(false);
     
     if (currentUser) {
-      // Load user's watchlist from Firestore
+      // Load user's watchlist and profile from Firestore
       const docRef = doc(db, 'users', currentUser.uid);
       const docSnap = await getDoc(docRef);
       
       if (docSnap.exists()) {
-        setWatchlist(docSnap.data().watchlist || []);
+        const data = docSnap.data();
+        setWatchlist(data.watchlist || []);
+        setUserProfile({
+          username: data.username || null,
+          profilePicUrl: data.profilePicUrl || null
+        });
       }
     } else {
       // Not logged in - load from localStorage
       const saved = localStorage.getItem("JACKRABBIT_WATCHLIST");
       setWatchlist(saved ? JSON.parse(saved) : []);
+      setUserProfile(null);
     }
   });
   
@@ -725,38 +734,57 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       </p>
     </div>
     
-    {/* Auth Button */}
-    {authLoading ? (
-      <div className="w-10 h-10 bg-zinc-900 rounded-full animate-pulse" />
-    ) : user ? (
-      <div className="relative group">
-        <button className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-[#00ff4e]/50 px-4 py-2 rounded-lg transition-all">
-          <div className="w-8 h-8 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black text-sm">
-            {user.email?.[0].toUpperCase()}
-          </div>
-          <span className="hidden md:block text-white text-sm font-bold max-w-[150px] truncate">
-            {user.email}
-          </span>
-        </button>
-        
-        {/* Dropdown */}
-        <div className="absolute right-0 top-full mt-2 w-48 bg-black border-2 border-zinc-800 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-          <button
-            onClick={handleLogout}
-            className="w-full text-left px-4 py-3 text-sm font-bold text-red-500 hover:bg-zinc-900 transition-all rounded-lg"
-          >
-            Sign Out
-          </button>
-        </div>
-      </div>
-    ) : (
-      <button
-        onClick={() => setShowAuthModal(true)}
-        className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-4 md:px-6 py-2 rounded-lg text-xs md:text-sm uppercase tracking-tight transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)]"
+{/* Auth Button */}
+{authLoading ? (
+  <div className="w-10 h-10 bg-zinc-900 rounded-full animate-pulse" />
+) : user ? (
+  <div className="relative group">
+    <button className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-[#00ff4e]/50 px-4 py-2 rounded-lg transition-all">
+      {userProfile?.profilePicUrl ? (
+        <img 
+          src={userProfile.profilePicUrl} 
+          alt="Profile" 
+          className="w-8 h-8 rounded-full object-cover"
+          onError={(e) => {
+            e.target.style.display = 'none';
+            e.target.nextSibling.style.display = 'flex';
+          }}
+        />
+      ) : null}
+      <div 
+        className={`w-8 h-8 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black text-sm ${userProfile?.profilePicUrl ? 'hidden' : ''}`}
       >
-        Sign In
+        {userProfile?.username?.[0]?.toUpperCase() || user.email?.[0].toUpperCase()}
+      </div>
+      <span className="hidden md:block text-white text-sm font-bold max-w-[150px] truncate">
+        {userProfile?.username || user.email}
+      </span>
+    </button>
+    
+    {/* Dropdown */}
+    <div className="absolute right-0 top-full mt-2 w-48 bg-black border-2 border-zinc-800 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+      <button
+        onClick={() => setShowProfileSettings(true)}
+        className="w-full text-left px-4 py-3 text-sm font-bold text-white hover:bg-zinc-900 transition-all border-b border-zinc-800"
+      >
+        Profile Settings
       </button>
-    )}
+      <button
+        onClick={handleLogout}
+        className="w-full text-left px-4 py-3 text-sm font-bold text-red-500 hover:bg-zinc-900 transition-all rounded-b-lg"
+      >
+        Sign Out
+      </button>
+    </div>
+  </div>
+) : (
+  <button
+    onClick={() => setShowAuthModal(true)}
+    className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-4 md:px-6 py-2 rounded-lg text-xs md:text-sm uppercase tracking-tight transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)]"
+  >
+    Sign In
+  </button>
+)}
   </div>
 </header>
 
@@ -1042,6 +1070,27 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         isOpen={showAuthModal} 
         onClose={() => setShowAuthModal(false)}
         onSuccess={() => console.log('Auth successful!')}
+      />
+      {/* PROFILE SETTINGS MODAL */}
+      <ProfileSettings
+        isOpen={showProfileSettings}
+        onClose={() => {
+          setShowProfileSettings(false);
+          // Reload profile after closing
+          if (user) {
+            const docRef = doc(db, 'users', user.uid);
+            getDoc(docRef).then(docSnap => {
+              if (docSnap.exists()) {
+                const data = docSnap.data();
+                setUserProfile({
+                  username: data.username || null,
+                  profilePicUrl: data.profilePicUrl || null
+                });
+              }
+            });
+          }
+        }}
+        user={user}
       />
     </div>
   );
