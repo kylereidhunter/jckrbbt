@@ -11,6 +11,8 @@ import ProfileSettings from './ProfileSettings';
 import Tooltip from './tooltip';
 import CountUp from './CountUp';
 import SkeletonCard from './SkeletonCard';
+import WatchlistModal from './WatchlistModal';
+import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 
 console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
 console.log('GEN_AI_KEY:', process.env.REACT_APP_GEN_AI_KEY);
@@ -273,26 +275,82 @@ export default function App() {
   const [scanSector, setScanSector] = useState('all');
   const [showProfileSettings, setShowProfileSettings] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
-  const [watchlist, setWatchlist] = useState(() => {
+  const [watchlists, setWatchlists] = useState([]);
+  const [publicWatchlists, setPublicWatchlists] = useState([]);
+  const [selectedWatchlist, setSelectedWatchlist] = useState(null);
+  const [showWatchlistModal, setShowWatchlistModal] = useState(false);
+  const [editingWatchlist, setEditingWatchlist] = useState(null);
+  const [showAddToListMenu, setShowAddToListMenu] = useState(null); // stockSymbol when menu is open
+
+const addStockToList = async (stock, listId) => {
+  if (!user) {
+    alert('Please sign in to add stocks to lists');
+    return;
+  }
   
-  
-  const saved = localStorage.getItem("JACKRABBIT_WATCHLIST");
-
-
-  return saved ? JSON.parse(saved) : [];
-});
-
-
-
-
-const addToWatchlist = (stock) => {
-  if (!watchlist.some(s => s.symbol === stock.symbol)) {
-    setWatchlist(prev => [stock, ...prev]);
+  try {
+    await addStockToWatchlist(listId, stock);
+    // Refresh lists
+    const lists = await getUserWatchlists(user.uid);
+    setWatchlists(lists);
+    setShowAddToListMenu(null);
+  } catch (error) {
+    console.error('Error adding stock:', error);
   }
 };
 
-const removeFromWatchlist = (symbol) => {
-  setWatchlist(prev => prev.filter(s => s.symbol !== symbol));
+const removeStockFromList = async (listId, stockSymbol) => {
+  try {
+    await removeStockFromWatchlist(listId, stockSymbol);
+    // Refresh lists
+    const lists = await getUserWatchlists(user.uid);
+    setWatchlists(lists);
+  } catch (error) {
+    console.error('Error removing stock:', error);
+  }
+};
+
+const handleCreateWatchlist = async ({ name, description, isPublic }) => {
+  if (!user) return;
+  
+  try {
+    await createWatchlist(user.uid, name, description, isPublic);
+    // Refresh lists
+    const lists = await getUserWatchlists(user.uid);
+    setWatchlists(lists);
+  } catch (error) {
+    console.error('Error creating watchlist:', error);
+  }
+};
+
+const handleUpdateWatchlist = async ({ name, description, isPublic }) => {
+  if (!editingWatchlist) return;
+  
+  try {
+    await updateWatchlist(editingWatchlist.id, { name, description, isPublic });
+    // Refresh lists
+    const lists = await getUserWatchlists(user.uid);
+    setWatchlists(lists);
+    setEditingWatchlist(null);
+  } catch (error) {
+    console.error('Error updating watchlist:', error);
+  }
+};
+
+const handleDeleteWatchlist = async (listId) => {
+  if (!window.confirm('Are you sure you want to delete this watchlist?')) return;
+  
+  try {
+    await deleteWatchlist(listId);
+    // Refresh lists
+    const lists = await getUserWatchlists(user.uid);
+    setWatchlists(lists);
+    if (selectedWatchlist?.id === listId) {
+      setSelectedWatchlist(null);
+    }
+  } catch (error) {
+    console.error('Error deleting watchlist:', error);
+  }
 };
 
 const handleLogout = async () => {
@@ -303,6 +361,11 @@ const handleLogout = async () => {
     console.error("Logout error:", error);
   }
 };
+
+const [watchlist, setWatchlist] = useState(() => {
+  const saved = localStorage.getItem("JACKRABBIT_WATCHLIST");
+  return saved ? JSON.parse(saved) : [];
+});
 
 // --- FETCH NEWS FUNCTION ---
 const fetchNews = useCallback(async () => {
@@ -418,8 +481,10 @@ useEffect(() => {
       const docSnap = await getDoc(docRef);
       
       if (docSnap.exists()) {
-        const data = docSnap.data();
-        setWatchlist(data.watchlist || []);
+  const data = docSnap.data();
+  // Load user's watchlists
+  const lists = await getUserWatchlists(currentUser.uid);
+  setWatchlists(lists);
         setUserProfile({
           username: data.username || null,
           profilePicUrl: data.profilePicUrl || null
@@ -431,10 +496,9 @@ useEffect(() => {
           profilePicUrl: null
         });
       }
-    } else {
-      // Not logged in - load from localStorage
-      const saved = localStorage.getItem("JACKRABBIT_WATCHLIST");
-      setWatchlist(saved ? JSON.parse(saved) : []);
+   } else {
+  // Not logged in
+  setWatchlists([]);
       setUserProfile(null);
     }
   });
@@ -442,26 +506,17 @@ useEffect(() => {
   return () => unsubscribe();
 }, []);
 
-// Sync watchlist to Firestore (if logged in) or localStorage
+// Listen for create list modal trigger
 useEffect(() => {
-  if (user) {
-    // Save to Firestore - get existing data first to preserve profile
-    const saveWatchlist = async () => {
-      const docRef = doc(db, 'users', user.uid);
-      const docSnap = await getDoc(docRef);
-      const existingData = docSnap.exists() ? docSnap.data() : {};
-      
-      await setDoc(docRef, {
-        ...existingData,
-        watchlist
-      });
-    };
-    saveWatchlist();
-  } else {
-    // Save to localStorage
-    localStorage.setItem("JACKRABBIT_WATCHLIST", JSON.stringify(watchlist));
-  }
-}, [watchlist, user]);
+  const handleOpenModal = () => {
+    setShowWatchlistModal(true);
+  };
+  
+  window.addEventListener('openWatchlistModal', handleOpenModal);
+  return () => window.removeEventListener('openWatchlistModal', handleOpenModal);
+}, []);
+
+
 
   // --- MARKET HOURS & CLOCK ---
   useEffect(() => {
@@ -529,7 +584,8 @@ useEffect(() => {
   // --- LIVE PRICE UPDATES (Every 10 Seconds) ---
 useEffect(() => {
   // Sync both lists
-  if ((stocks.length === 0 && watchlist.length === 0) || !isMarketOpen) return;
+const allWatchlistStocks = watchlists.flatMap(list => list.stocks);
+if ((stocks.length === 0 && allWatchlistStocks.length === 0) || !isMarketOpen) return;
 
   const liveTimer = setInterval(async () => {
     const updateList = async (list) => {
@@ -549,7 +605,16 @@ useEffect(() => {
     };
 
     if (stocks.length > 0) setStocks(await updateList(stocks));
-    if (watchlist.length > 0) setWatchlist(await updateList(watchlist));
+if (allWatchlistStocks.length > 0) {
+  // Update each watchlist
+  const updatedLists = await Promise.all(
+    watchlists.map(async (list) => ({
+      ...list,
+      stocks: await updateList(list.stocks)
+    }))
+  );
+  setWatchlists(updatedLists);
+}
   }, 10000);
 
   return () => clearInterval(liveTimer);
@@ -988,7 +1053,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       <TypewriterGreeting />
 
       <div className="flex gap-2 md:gap-4 mb-6 md:mb-8 border-b border-zinc-900 pb-4 overflow-x-auto">
-        {["DASHBOARD", "WATCH LIST", "NEWS"].map((tab) => (
+       {["DASHBOARD", "MY LISTS", "NEWS"].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -998,14 +1063,15 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
               : "text-zinc-500 hover:text-white"
             }`}
           >
-            {tab === "WATCH LIST" ? `WATCH LIST (${watchlist.length})` : tab}
+            {tab === "MY LISTS" ? `MY LISTS (${watchlists.length})` : tab}
           </button>
         ))}
       </div>
 
       {/* NEWS TAB CONTROLS */}
-      {activeTab === "NEWS" && (
-        <div className="bg-[#050505] border border-zinc-900 p-3 md:p-4 rounded-xl mb-6 md:mb-8 shadow-2xl backdrop-blur-md overflow-visible">
+      {activeTab === "DASHBOARD" && (
+  <div className="space-y-4 md:space-y-6 mb-6 md:mb-8">
+    {/* MANUAL SEARCH SECTION */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="h-2 w-2 bg-[#00ff4e] rounded-full animate-pulse shadow-[0_0_10px_#00ff4e]" />
@@ -1025,7 +1091,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         </div>
       )}
 
- {activeTab !== "NEWS" && (
+ {activeTab === "DASHBOARD" && (
   <div className="space-y-4 md:space-y-6 mb-6 md:mb-8">
     {/* MANUAL SEARCH SECTION */}
     <div className="bg-[#050505] border border-zinc-900 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
@@ -1129,7 +1195,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 )}
 
       {/* SORT & FILTER BAR */}
-      {activeTab !== "NEWS" && (stocks.length > 0 || watchlist.length > 0) && (
+      {activeTab === "DASHBOARD" && stocks.length > 0 && (
         <div className="bg-[#0a0a0a] border border-zinc-900 rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4">
           <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
             Filters:
@@ -1230,38 +1296,155 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           <MetricCard 
             stock={stock} 
             isMarketOpen={isMarketOpen} 
-            onAction={() => addToWatchlist(stock)}
-            removeFromWatchlist={removeFromWatchlist}
+            onAction={(stock) => setShowAddToListMenu(stock)}
+            removeFromWatchlist={removeStockFromList}
             actionType="ADD"
-            watchlist={watchlist}
+            watchlist={watchlists.flatMap(l => l.stocks)}
+            showAddToListMenu={showAddToListMenu}
+            onCloseMenu={() => setShowAddToListMenu(null)}
+            watchlists={watchlists}
+            onAddToList={addStockToList}
+            user={user}
           />
         </motion.div>
       ))}
     </>
-  ) : activeTab === "WATCH LIST" ? (
+  ) : activeTab === "MY LISTS" ? (
     <>
-      {watchlist.length === 0 && (
-        <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-          <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Watch List Empty</p>
+      {/* Create New List Button */}
+      {user && (
+        <div className="mb-6">
+          <button
+            onClick={() => setShowWatchlistModal(true)}
+            className="flex items-center gap-2 bg-[#00ff4e] hover:opacity-90 text-black font-black px-6 py-3 rounded-lg text-sm uppercase tracking-tight transition-all"
+          >
+            <Plus size={16} />
+            Create New List
+          </button>
         </div>
       )}
-      {displayedWatchlist.map((stock, index) => (
-        <motion.div
-          key={stock.symbol}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: index * 0.1, duration: 0.4 }}
-        >
-          <MetricCard 
-            stock={stock} 
-            isMarketOpen={isMarketOpen} 
-            onAction={() => removeFromWatchlist(stock.symbol)}
-            removeFromWatchlist={removeFromWatchlist}
-            actionType="REMOVE"
-            watchlist={watchlist}
-          />
-        </motion.div>
-      ))}
+
+      {/* User's Watchlists */}
+      {!user ? (
+        <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black mb-4">Sign in to create lists</p>
+          <button
+            onClick={() => setShowAuthModal(true)}
+            className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-6 py-3 rounded-lg text-xs uppercase tracking-tight transition-all"
+          >
+            Sign In
+          </button>
+        </div>
+      ) : watchlists.length === 0 ? (
+        <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">No Lists Yet</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {watchlists.map((list, index) => (
+            <motion.div
+              key={list.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05, duration: 0.3 }}
+              className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                      <h3 
+                        onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
+                        className="text-xl font-black text-white uppercase tracking-tight cursor-pointer hover:text-[#00ff4e] transition-colors"
+                      >
+                        {list.name}
+                      </h3>
+                    {list.isPublic ? (
+                      <span className="text-[8px] font-black bg-[#00ff4e]/10 text-[#00ff4e] px-2 py-1 rounded border border-[#00ff4e]/30 uppercase">
+                        Public
+                      </span>
+                    ) : (
+                      <span className="text-[8px] font-black bg-zinc-800 text-zinc-500 px-2 py-1 rounded border border-zinc-700 uppercase">
+                        Private
+                      </span>
+                    )}
+                  </div>
+                  {list.description && (
+                    <p className="text-sm text-zinc-400">{list.description}</p>
+                  )}
+                  <p className="text-xs text-zinc-600 mt-2">{list.stocks.length} stocks</p>
+                </div>
+                
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingWatchlist(list);
+                      setShowWatchlistModal(true);
+                    }}
+                    className="text-zinc-500 hover:text-[#00ff4e] transition-colors p-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => handleDeleteWatchlist(list.id)}
+                    className="text-zinc-500 hover:text-red-500 transition-colors p-2"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                  <button
+                    onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
+                    className="text-zinc-500 hover:text-white transition-colors text-sm font-bold uppercase"
+                  >
+                    {selectedWatchlist?.id === list.id ? 'Hide ▲' : 'View ▼'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Stocks in this list */}
+              <AnimatePresence>
+                {selectedWatchlist?.id === list.id && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="border-t-2 border-zinc-900 pt-4 mt-4 space-y-4">
+                      {list.stocks.length === 0 ? (
+                        <p className="text-zinc-600 text-sm text-center py-4">No stocks in this list yet</p>
+                      ) : (
+                        list.stocks.map((stock, stockIndex) => (
+                          <motion.div
+                            key={stock.symbol}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: stockIndex * 0.05 }}
+                          >
+                            <MetricCard 
+                              stock={stock} 
+                              isMarketOpen={isMarketOpen} 
+                              onAction={(stock) => setShowAddToListMenu(stock)}
+                              removeFromWatchlist={(symbol) => removeStockFromList(list.id, symbol)}
+                              actionType="REMOVE"
+                              watchlist={watchlists.flatMap(l => l.stocks)}
+                              showAddToListMenu={showAddToListMenu}
+                              onCloseMenu={() => setShowAddToListMenu(null)}
+                              watchlists={watchlists}
+                              onAddToList={addStockToList}
+                              user={user}
+                            />
+                          </motion.div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          ))}
+        </div>
+      )}
     </>
   ) : (
     <>
@@ -1307,6 +1490,16 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           }}
           user={user}
         />
+        {/* WATCHLIST MODAL */}
+      <WatchlistModal
+        isOpen={showWatchlistModal}
+        onClose={() => {
+          setShowWatchlistModal(false);
+          setEditingWatchlist(null);
+        }}
+        onSave={editingWatchlist ? handleUpdateWatchlist : handleCreateWatchlist}
+        editList={editingWatchlist}
+      />
     </div>
   );
 }
@@ -1399,7 +1592,7 @@ function CustomDropdown({ value, onChange, options, label }) {
   );
 }
 
-function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist }) {
+function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user }) {
   const [isOpen, setIsOpen] = useState(false);  
   const [isHoveringButton, setIsHoveringButton] = useState(false);
   const cardRef = useRef(null);
@@ -1411,7 +1604,7 @@ function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [],
   const prefix = isPositive ? '+' : '';
   const isAlreadyAdded = watchlist.some(s => s.symbol === stock.symbol);
 
-  useEffect(() => {
+useEffect(() => {
     if (!isOpen) return;
 
     const handleScroll = () => {
@@ -1432,54 +1625,149 @@ function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [],
     };
   }, [isOpen]);
 
+  // Close add-to-list menu on scroll
+  useEffect(() => {
+    if (!showAddToListMenu) return;
+    
+    const handleScroll = () => {
+      onCloseMenu();
+    };
+    
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [showAddToListMenu, onCloseMenu]);
+
   return (
     <div 
       ref={cardRef}
       className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-8 relative hover:border-zinc-600 transition-all overflow-hidden group"
     >
       
-      {/* WATCHLIST BUTTON */}
-      <button 
-        onMouseEnter={() => setIsHoveringButton(true)}
-        onMouseLeave={() => setIsHoveringButton(false)}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (actionType === "REMOVE" || isAlreadyAdded) {
-            removeFromWatchlist(stock.symbol);
-          } else {
-            onAction();
-          }
-        }}
-        className={`absolute top-3 right-3 md:top-4 md:right-8 z-10 flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 rounded-lg border transition-all active:scale-95 ${
+ {/* WATCHLIST BUTTON */}
+<div className="absolute top-3 right-3 md:top-4 md:right-8 z-10">
+  {actionType === "REMOVE" ? (
+    <button 
+      onMouseEnter={() => setIsHoveringButton(true)}
+      onMouseLeave={() => setIsHoveringButton(false)}
+      onClick={(e) => {
+        e.stopPropagation();
+        removeFromWatchlist(stock.symbol);
+      }}
+      className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 rounded-lg border transition-all active:scale-95 border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
+    >
+      <span className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.2em] leading-none hidden sm:inline">
+        Remove
+      </span>
+      <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
+    </button>
+  ) : (
+    <>
+<button 
+  data-add-button="true"
+  onClick={(e) => {
+    e.stopPropagation();
+    if (!user) {
+      alert('Please sign in to add stocks to lists');
+      return;
+    }
+    onAction(stock);
+  }}
+        className={`flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 rounded-lg border transition-all active:scale-95 ${
           isAlreadyAdded 
-            ? isHoveringButton 
-              ? "border-red-500/50 bg-red-500/10 text-red-500" 
-              : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]" 
+            ? "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]" 
             : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
         }`}
       >
         <span className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.2em] leading-none hidden sm:inline">
-          {actionType === "REMOVE" 
-            ? "Remove" 
-            : isAlreadyAdded 
-              ? (isHoveringButton ? "Remove" : "Added") 
-              : "Add"}
+          {isAlreadyAdded ? "Added" : "Add"}
         </span>
-        
-        <div className="flex items-center justify-center">
-          {actionType === "REMOVE" || (isAlreadyAdded && isHoveringButton) ? (
-            <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
-          ) : isAlreadyAdded ? (
-            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 md:w-3.5 md:h-3.5">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-            </motion.div>
-          ) : (
-            <Plus size={12} className="md:w-3.5 md:h-3.5" />
-          )}
-        </div>
+        <Plus size={12} className="md:w-3.5 md:h-3.5" />
       </button>
+
+{/* Add to List Dropdown */}
+{showAddToListMenu?.symbol === stock.symbol && (() => {
+  // Find the button element to position relative to it
+  const buttonElement = cardRef.current?.querySelector('button[data-add-button="true"]');
+  const rect = buttonElement?.getBoundingClientRect();
+  
+  return ReactDOM.createPortal(
+    <>
+      <div 
+        className="fixed inset-0 bg-transparent z-[99998]"
+        onClick={() => onCloseMenu()}
+      />
+      <div 
+        className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
+        style={{
+  top: rect ? `${rect.bottom + 8}px` : '100px',
+  right: rect ? `${window.innerWidth - rect.right}px` : '20px',
+  width: '280px'
+}}
+      >
+        <div className="p-3 border-b border-zinc-800">
+          <p className="text-xs font-black text-white uppercase">Add to List</p>
+        </div>
+        
+        {/* Create New List Option */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onCloseMenu();
+            window.dispatchEvent(new CustomEvent('openWatchlistModal'));
+          }}
+          className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
+        >
+          <div className="flex items-center gap-2">
+            <Plus size={14} />
+            <span className="uppercase tracking-wider">Create New List</span>
+          </div>
+        </button>
+        
+        {watchlists.length === 0 ? (
+          <div className="p-4 text-center">
+            <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
+          </div>
+        ) : (
+          watchlists.map((list) => {
+            const isInList = list.stocks.some(s => s.symbol === stock.symbol);
+            return (
+              <button
+                key={list.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isInList) {
+                    onAddToList(stock, list.id);
+                  }
+                }}
+                disabled={isInList}
+                className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
+                  isInList
+                    ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
+                    : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="uppercase tracking-wider">{list.name}</span>
+                  {isInList && (
+                    <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+                <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </>,
+    document.body
+  );
+})
+()}
+    </>
+  )}
+</div>
 
      
 
@@ -1557,9 +1845,9 @@ function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [],
   <div>
     <div className="flex justify-between items-end mb-2">
       <span className="text-[8px] md:text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center">
-        Volatility Index
-        <Tooltip content="Measures price fluctuation based on 52-week range. Higher volatility means larger price swings and higher risk/reward potential." />
-      </span>
+  Volatility Index
+  <Tooltip content="Historical Volatility (HV) calculated using annualized standard deviation of daily returns over 30 days. Higher volatility indicates larger price swings and higher risk/reward potential. Values above 60% are considered highly volatile." />
+</span>
       <span className="text-[10px] md:text-xs font-mono text-[#00ff4e] bg-[#00ff4e]/10 px-2 py-0.5 rounded">{stock.volatility}%</span>
     </div>
     <div className="h-[2px] bg-zinc-800 rounded-full overflow-hidden">
