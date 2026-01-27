@@ -502,6 +502,8 @@ useEffect(() => {
       setUserProfile(null);
     }
   });
+
+  
   
   return () => unsubscribe();
 }, []);
@@ -515,6 +517,11 @@ useEffect(() => {
   window.addEventListener('openWatchlistModal', handleOpenModal);
   return () => window.removeEventListener('openWatchlistModal', handleOpenModal);
 }, []);
+
+// Close selected watchlist when switching tabs
+useEffect(() => {
+  setSelectedWatchlist(null);
+}, [activeTab]);
 
 
 
