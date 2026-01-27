@@ -26,6 +26,8 @@ const FINNHUB_KEY = process.env.REACT_APP_FINNHUB_KEY;
 const GEN_AI_KEY = process.env.REACT_APP_GEN_AI_KEY;
 const genAI = new GoogleGenerativeAI(GEN_AI_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const ALPHA_VANTAGE_KEY = process.env.REACT_APP_ALPHA_VANTAGE_KEY;
+
 
 
 const REPUTABLE_SOURCES = [
@@ -747,7 +749,7 @@ useEffect(() => {
   }
 }, [activeTab, fetchNews]);
 
-  // --- LIVE PRICE UPDATES (Every 10 Seconds) ---
+// --- LIVE PRICE UPDATES (Every 30 Seconds) ---
 useEffect(() => {
   // Sync both lists
 const allWatchlistStocks = watchlists.flatMap(list => list.stocks);
@@ -781,7 +783,7 @@ if (allWatchlistStocks.length > 0) {
   );
   setWatchlists(updatedLists);
 }
-  }, 10000);
+  }, 30000); // Update every 30 seconds instead of 10
 
   return () => clearInterval(liveTimer);
 }, [stocks, watchlist, isMarketOpen]);
@@ -910,19 +912,34 @@ Example: ABCD, EFGH, IJKL, MNOP
         const nUrl = `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`;    
         const pUrl = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`;
 
-        // Add historical data fetch (30 days of candles)
-        const thirtyDaysAgo = Math.floor(Date.now() / 1000) - (30 * 24 * 60 * 60);
-        const nowTimestamp = Math.floor(Date.now() / 1000);
-        const hUrl = `https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${thirtyDaysAgo}&to=${nowTimestamp}&token=${FINNHUB_KEY}`;
-
-        const [q, n, p, h] = await Promise.all([
+        // Fetch quote, news, and profile
+        const [q, n, p] = await Promise.all([
           fetch(qUrl).then(r => r.json()),
           fetch(nUrl).then(r => r.json()),
-          fetch(pUrl).then(r => r.json()),
-          fetch(hUrl).then(r => r.json()),
+          fetch(pUrl).then(r => r.json())
         ]);
 
-          await new Promise(r => setTimeout(r, 1200));
+        // Fetch historical data from Alpha Vantage (free tier)
+        const ALPHA_KEY = process.env.REACT_APP_ALPHA_VANTAGE_KEY;
+        let h = { c: [] };
+        try {
+          const alphaUrl = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${ticker}&apikey=${ALPHA_KEY}`;
+          const alphaRes = await fetch(alphaUrl);
+          const alphaData = await alphaRes.json();
+          
+          if (alphaData['Time Series (Daily)']) {
+            const timeSeries = alphaData['Time Series (Daily)'];
+            const closePrices = Object.values(timeSeries)
+              .slice(0, 30)
+              .map(day => parseFloat(day['4. close']))
+              .reverse();
+            h = { c: closePrices };
+          }
+        } catch (e) {
+          console.log(`Alpha Vantage error for ${ticker}:`, e);
+        }
+
+          await new Promise(r => setTimeout(r, 2000)); // 2 seconds instead of 1.2
 
 if (!isManual) {
   if (q.c < 2) {
@@ -1032,6 +1049,11 @@ if (!isManual && resText.includes("NEUTRAL")) {
 
 // Get AI's catalyst assessment
 const aiConfidence = getScore(extract("CONF", resText), 65);
+
+console.log(`${ticker} - Historical data points:`, h.c?.length);
+console.log(`${ticker} - Calculated HV:`, h.c && h.c.length >= 2 ? calculateHV(h.c) : 'FALLBACK');
+console.log(`${ticker} - AI Confidence:`, aiConfidence);
+console.log(`${ticker} - Signal Strength:`, calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence));
 
 const newStock = {
   symbol: ticker.trim().toUpperCase(),
@@ -1242,7 +1264,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       </div>
 
       {/* NEWS TAB CONTROLS */}
-      {activeTab === "DASHBOARD" && (
+{activeTab === "NEWS" && (
   <div className="space-y-4 md:space-y-6 mb-6 md:mb-8">
     {/* MANUAL SEARCH SECTION */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -1273,14 +1295,14 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       </h3>
       <div className="flex flex-col sm:flex-row gap-3">
         <input
-          type="text"
-          placeholder="Enter ticker (e.g. AAPL, TSLA)..."
-          value={manualSearch}
-          onChange={(e) => setManualSearch(e.target.value.toUpperCase())}
-          onKeyDown={(e) => e.key === 'Enter' && runScanner(manualSearch)}
-          className="flex-1 bg-black border border-zinc-800 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-sm placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
-          style={{ caretColor: '#00ff4e' }}
-        />
+            type="text"
+            placeholder="Enter ticker (e.g. AAPL, TSLA)..."
+            value={manualSearch}
+            onChange={(e) => setManualSearch(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === 'Enter' && runScanner(manualSearch)}
+            className="flex-1 bg-black border border-zinc-800 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
+            style={{ caretColor: '#00ff4e' }}
+          />
         <button 
           onClick={() => runScanner(manualSearch)}
           disabled={loading || !manualSearch}
@@ -1646,7 +1668,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           placeholder="Search by username..."
           value={userSearchTerm}
           onChange={(e) => handleSearchUsers(e.target.value)}
-          className="w-full bg-black border border-zinc-800 text-white px-4 py-3 rounded-lg outline-none transition-all font-mono text-sm placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
+          className="w-full bg-black border border-zinc-800 text-white px-4 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
           style={{ caretColor: '#00ff4e' }}
         />
       </div>
