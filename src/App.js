@@ -1236,7 +1236,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       : "text-zinc-500 hover:text-white"
     }`}
   >
-    {tab === "MY LISTS" ? `MY LISTS (${watchlists.length})` : tab}
+    {tab === "MY LISTS" ? `MY LISTS` : tab}
   </button>
 ))}
       </div>
@@ -1523,29 +1523,42 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
               className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
             >
               <div className="flex justify-between items-start mb-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                      <h3 
-                        onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
-                        className="text-xl font-black text-white uppercase tracking-tight cursor-pointer hover:text-[#00ff4e] transition-colors"
-                      >
-                        {list.name}
-                      </h3>
-                    {list.isPublic ? (
-                      <span className="text-[8px] font-black bg-[#00ff4e]/10 text-[#00ff4e] px-2 py-1 rounded border border-[#00ff4e]/30 uppercase">
-                        Public
-                      </span>
-                    ) : (
-                      <span className="text-[8px] font-black bg-zinc-800 text-zinc-500 px-2 py-1 rounded border border-zinc-700 uppercase">
-                        Private
-                      </span>
-                    )}
-                  </div>
-                  {list.description && (
-                    <p className="text-sm text-zinc-400">{list.description}</p>
-                  )}
-                  <p className="text-xs text-zinc-600 mt-2">{list.stocks.length} stocks</p>
-                </div>
+  <div className="flex-1">
+    <div className="flex items-center gap-3 mb-2">
+      <h3 
+        onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
+        className="text-xl font-black text-white uppercase tracking-tight cursor-pointer hover:text-[#00ff4e] transition-colors"
+      >
+        {list.name}
+      </h3>
+      {/* Desktop badge */}
+      {list.isPublic ? (
+        <span className="hidden md:inline-block text-[8px] font-black bg-[#00ff4e]/10 text-[#00ff4e] px-2 py-1 rounded border border-[#00ff4e]/30 uppercase">
+          Public
+        </span>
+      ) : (
+        <span className="hidden md:inline-block text-[8px] font-black bg-zinc-800 text-zinc-500 px-2 py-1 rounded border border-zinc-700 uppercase">
+          Private
+        </span>
+      )}
+    </div>
+    {list.description && (
+      <p className="text-sm text-zinc-400 mb-2">{list.description}</p>
+    )}
+    <div className="flex items-center gap-2">
+      <p className="text-xs text-zinc-600">{list.stocks.length} stocks</p>
+      {/* Mobile badge */}
+      {list.isPublic ? (
+        <span className="md:hidden text-[8px] font-black bg-[#00ff4e]/10 text-[#00ff4e] px-2 py-1 rounded border border-[#00ff4e]/30 uppercase">
+          Public
+        </span>
+      ) : (
+        <span className="md:hidden text-[8px] font-black bg-zinc-800 text-zinc-500 px-2 py-1 rounded border border-zinc-700 uppercase">
+          Private
+        </span>
+      )}
+    </div>
+  </div>
                 
                 <div className="flex gap-2">
                   <button
