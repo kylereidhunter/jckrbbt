@@ -1925,6 +1925,16 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
   onUnfollow={handleUnfollowUser}
 />
 
+{/* Footer */}
+<footer className="mt-16 pt-8 border-t-2 border-zinc-900 text-center">
+  <a 
+    href="/privacy"
+    className="text-zinc-600 hover:text-[#00ff4e] text-xs font-bold uppercase tracking-wider transition-colors"
+  >
+    Privacy Policy
+  </a>
+</footer>
+
     </div>
   );
 }
@@ -2417,3 +2427,4 @@ function NewsCard({ article }) {
   );
   
 }
+
