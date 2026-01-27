@@ -8,6 +8,7 @@ import { auth, db } from './firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import AuthModal from './AuthModal';
 import ProfileSettings from './ProfileSettings';
+import Tooltip from './tooltip';
 
 console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
 console.log('GEN_AI_KEY:', process.env.REACT_APP_GEN_AI_KEY);
@@ -108,6 +109,100 @@ const formatText = (text) => {
   return result;
 };
 
+// Calculate Historical Volatility (annualized)
+const calculateHV = (closePrices) => {
+  if (!closePrices || closePrices.length < 2) return 40; // fallback
+  
+  // Calculate daily returns
+  const returns = [];
+  for (let i = 1; i < closePrices.length; i++) {
+    const dailyReturn = Math.log(closePrices[i] / closePrices[i - 1]);
+    returns.push(dailyReturn);
+  }
+  
+  // Calculate mean return
+  const meanReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+  
+  // Calculate variance
+  const variance = returns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / returns.length;
+  
+  // Standard deviation
+  const stdDev = Math.sqrt(variance);
+  
+  // Annualize (multiply by sqrt of trading days per year)
+  const annualizedVolatility = stdDev * Math.sqrt(252) * 100;
+  
+  return Math.min(Math.max(annualizedVolatility, 5), 150); // Cap between 5-150%
+};
+
+// Calculate Signal Strength based on quantifiable factors
+const calculateSignalStrength = (newsData, priceData, currentPrice, volatility, aiCatalystScore) => {
+  let score = 0;
+  
+  // 1. NEWS RECENCY (30 points max)
+  if (newsData && newsData.length > 0) {
+    const mostRecentNews = newsData[0];
+    const daysSinceNews = (Date.now() / 1000 - mostRecentNews.datetime) / (24 * 60 * 60);
+    
+    if (daysSinceNews <= 7) {
+      score += 30; // Very recent
+    } else if (daysSinceNews <= 14) {
+      score += 20; // Recent
+    } else if (daysSinceNews <= 30) {
+      score += 10; // Somewhat recent
+    }
+  }
+  
+  // 2. NEWS VOLUME (20 points max)
+  const newsCount = newsData?.length || 0;
+  if (newsCount >= 10) {
+    score += 20;
+  } else if (newsCount >= 5) {
+    score += 15;
+  } else if (newsCount >= 3) {
+    score += 10;
+  } else if (newsCount >= 1) {
+    score += 5;
+  }
+  
+  // 3. PRICE MOMENTUM (25 points max)
+  // Check 5-day price momentum
+  if (priceData && priceData.length >= 5) {
+    const fiveDaysAgo = priceData[priceData.length - 6];
+    const priceChange = ((currentPrice - fiveDaysAgo) / fiveDaysAgo) * 100;
+    
+    const absMomentum = Math.abs(priceChange);
+    if (absMomentum >= 10) {
+      score += 25; // Strong momentum
+    } else if (absMomentum >= 5) {
+      score += 18; // Good momentum
+    } else if (absMomentum >= 2) {
+      score += 12; // Moderate momentum
+    } else if (absMomentum >= 1) {
+      score += 6; // Some momentum
+    }
+  }
+  
+  // 4. VOLATILITY FACTOR (15 points max)
+  // Higher volatility = more conviction in directional move
+  const vol = parseFloat(volatility);
+  if (vol >= 60) {
+    score += 15; // High volatility
+  } else if (vol >= 40) {
+    score += 12; // Moderate-high
+  } else if (vol >= 25) {
+    score += 8; // Moderate
+  } else if (vol >= 15) {
+    score += 5; // Low-moderate
+  }
+  
+  // 5. AI CATALYST ASSESSMENT (10 points max)
+  // Use the AI's confidence as a small factor
+  score += Math.min(aiCatalystScore / 10, 10);
+  
+  // Ensure score is between 0-100
+  return Math.min(Math.max(Math.round(score), 10), 95);
+};
 
 
 
@@ -578,15 +673,21 @@ Example: ABCD, EFGH, IJKL, MNOP
         setScanStatus(`ANALYZING: ${ticker}`);
 
         try {
-          const qUrl = `https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`;
-          const nUrl = `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`;    
-          const pUrl = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`;
+        const qUrl = `https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`;
+        const nUrl = `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`;    
+        const pUrl = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`;
 
-          const [q, n, p] = await Promise.all([
-            fetch(qUrl).then(r => r.json()),
-            fetch(nUrl).then(r => r.json()),
-            fetch(pUrl).then(r => r.json()),
-          ]);
+        // Add historical data fetch (30 days of candles)
+        const thirtyDaysAgo = Math.floor(Date.now() / 1000) - (30 * 24 * 60 * 60);
+        const nowTimestamp = Math.floor(Date.now() / 1000);
+        const hUrl = `https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${thirtyDaysAgo}&to=${nowTimestamp}&token=${FINNHUB_KEY}`;
+
+        const [q, n, p, h] = await Promise.all([
+          fetch(qUrl).then(r => r.json()),
+          fetch(nUrl).then(r => r.json()),
+          fetch(pUrl).then(r => r.json()),
+          fetch(hUrl).then(r => r.json()),
+        ]);
 
           await new Promise(r => setTimeout(r, 1200));
 
@@ -629,7 +730,7 @@ const analysisPrompt = isManual
     [MOM] Positive, Steady, or Uncertain [/MOM]
     [CAT] Brief description of main driver or "Routine Trading" [/CAT]
     [CONF] XX.XX [/CONF] (20-95 range, higher = more confident)
-    [VOLATILITY] XX.XX [/VOLATILITY] (Calculate: 100 * (${q.h} - ${q.l}) / ${q.c})
+    [VOLATILITY] XX.XX [/VOLATILITY]
     [INSIGHTS]
     | First insight about price action or technical setup
     | Second insight about fundamentals or news
@@ -696,20 +797,23 @@ if (!isManual && resText.includes("NEUTRAL")) {
   continue;
 }
 
-          const newStock = {
-            symbol: ticker.trim().toUpperCase(),
-            name: p.name || clean(extract("NAME", resText)) || `${ticker} CORP`,
-            price: q.c.toFixed(2),
-            change: q.dp?.toFixed(2) || "0.00",
-            isPositive: extract("SIG", resText).toUpperCase().includes("BULLISH"),
-            range: clean(extract("RANGE", resText)),
-            confidence: getScore(extract("CONF", resText), 65),
-            volatility: getScore(extract("VOLATILITY", resText), 40),
-            rating: clean(extract("SIG", resText)),
-            momentum: clean(extract("MOM", resText)),
-            catalyst: formatText(clean(extract("CAT", resText))), 
-            insights: extract("INSIGHTS", resText).split('|').map(i => formatText(clean(i))).filter(i => i.length > 5)
-          };
+// Get AI's catalyst assessment
+const aiConfidence = getScore(extract("CONF", resText), 65);
+
+const newStock = {
+  symbol: ticker.trim().toUpperCase(),
+  name: p.name || clean(extract("NAME", resText)) || `${ticker} CORP`,
+  price: q.c.toFixed(2),
+  change: q.dp?.toFixed(2) || "0.00",
+  isPositive: extract("SIG", resText).toUpperCase().includes("BULLISH"),
+  range: clean(extract("RANGE", resText)),
+  confidence: calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence),
+  volatility: h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40.00,
+  rating: clean(extract("SIG", resText)),
+  momentum: clean(extract("MOM", resText)),
+  catalyst: formatText(clean(extract("CAT", resText))), 
+  insights: extract("INSIGHTS", resText).split('|').map(i => formatText(clean(i))).filter(i => i.length > 5)
+};
 
           localStocks.push(newStock);
           displayedTickers.add(ticker); 
@@ -1381,43 +1485,58 @@ function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [],
         </div>
       </div>
 
-      {/* METRICS GRID */}
-      <div className="grid grid-cols-3 gap-4 md:gap-12 border-t-2 border-zinc-900 pt-4 md:pt-8 mb-6 md:mb-10">
-        <div>
-          <p className="text-[8px] md:text-[10px] text-zinc-500 font-black mb-1 md:mb-2 uppercase tracking-tighter">Signal</p>
-          <p className="text-base md:text-2xl font-black text-white uppercase">{stock.rating}</p>
-        </div>
-        <div>
-          <p className="text-[8px] md:text-[10px] text-zinc-500 font-black mb-1 md:mb-2 uppercase tracking-tighter">Momentum</p>
-          <p className="text-base md:text-2xl font-black text-white uppercase">{stock.momentum}</p>
-        </div>
-        <div className="col-span-3 md:col-span-1">
-          <p className="text-[8px] md:text-[10px] text-zinc-500 font-black mb-1 md:mb-2 uppercase tracking-tighter">Catalyst</p>
-          <p className="text-base md:text-2xl font-black text-white uppercase leading-tight">{stock.catalyst}</p>
-        </div>
-      </div>
+{/* METRICS GRID */}
+<div className="grid grid-cols-3 gap-4 md:gap-12 border-t-2 border-zinc-900 pt-4 md:pt-8 mb-6 md:mb-10">
+  <div>
+    <p className="text-[8px] md:text-[10px] text-zinc-500 font-black mb-1 md:mb-2 uppercase tracking-tighter flex items-center">
+      Signal
+      <Tooltip content="Bullish signals indicate potential upward movement based on AI analysis of news, technicals, and momentum. Bearish signals suggest downward pressure." />
+    </p>
+    <p className="text-base md:text-2xl font-black text-white uppercase">{stock.rating}</p>
+  </div>
+  <div>
+    <p className="text-[8px] md:text-[10px] text-zinc-500 font-black mb-1 md:mb-2 uppercase tracking-tighter flex items-center">
+      Momentum
+      <Tooltip content="Momentum shows the strength and direction of recent price movement. Positive momentum indicates sustained buying pressure." />
+    </p>
+    <p className="text-base md:text-2xl font-black text-white uppercase">{stock.momentum}</p>
+  </div>
+  <div className="col-span-3 md:col-span-1">
+    <p className="text-[8px] md:text-[10px] text-zinc-500 font-black mb-1 md:mb-2 uppercase tracking-tighter flex items-center">
+      Catalyst
+      <Tooltip content="The primary driver or event influencing the stock's movement. This could be earnings, FDA approvals, M&A activity, or technical breakouts." />
+    </p>
+    <p className="text-base md:text-2xl font-black text-white uppercase leading-tight">{stock.catalyst}</p>
+  </div>
+</div>
 
-      {/* PROGRESS BARS */}
-      <div className="space-y-4 md:space-y-8 mb-6 md:mb-10">
-        <div>
-          <div className="flex justify-between text-[8px] md:text-[10px] font-black text-zinc-500 mb-2 md:mb-3 uppercase tracking-widest">
-            <span>Neural Confidence</span>
-            <span style={{ color: '#00ff4e' }}>{stock.confidence}% Match</span>
-          </div>
-          <div className="h-[2px] md:h-[3px] bg-zinc-900 w-full relative">
-            <motion.div initial={{ width: 0 }} animate={{ width: `${stock.confidence}%` }} className="absolute h-full bg-[#00ff4e] shadow-[0_0_15px_#00ff4e]" />
-          </div>
-        </div>
-        <div>
-          <div className="flex justify-between items-end mb-2">
-            <span className="text-[8px] md:text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Volatility Index</span>
-            <span className="text-[10px] md:text-xs font-mono text-[#00ff4e] bg-[#00ff4e]/10 px-2 py-0.5 rounded">{stock.volatility}%</span>
-          </div>
-          <div className="h-[2px] bg-zinc-800 rounded-full overflow-hidden">
-            <motion.div initial={{ width: 0 }} animate={{ width: `${stock.volatility}%` }} transition={{ duration: 1.5, ease: "circOut" }} className={`h-full shadow-[0_0_15px] ${stock.volatility > 35 ? 'bg-red-500 shadow-red-500' : 'bg-[#00ff4e] shadow-[#00ff4e]'}`} />
-          </div>
-        </div>
-      </div>
+{/* PROGRESS BARS */}
+<div className="space-y-4 md:space-y-8 mb-6 md:mb-10">
+<div>
+  <div className="flex justify-between text-[8px] md:text-[10px] font-black text-zinc-500 mb-2 md:mb-3 uppercase tracking-widest">
+    <span className="flex items-center">
+      Signal Strength
+      <Tooltip content="Quantitative score (0-100%) based on news recency, news volume, price momentum, volatility, and catalyst strength. Higher scores indicate stronger trading opportunities." />
+    </span>
+    <span style={{ color: '#00ff4e' }}>{stock.confidence}%</span>
+  </div>
+  <div className="h-[2px] md:h-[3px] bg-zinc-900 w-full relative">
+    <motion.div initial={{ width: 0 }} animate={{ width: `${stock.confidence}%` }} className="absolute h-full bg-[#00ff4e] shadow-[0_0_15px_#00ff4e]" />
+  </div>
+</div>
+  <div>
+    <div className="flex justify-between items-end mb-2">
+      <span className="text-[8px] md:text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center">
+        Volatility Index
+        <Tooltip content="Measures price fluctuation based on 52-week range. Higher volatility means larger price swings and higher risk/reward potential." />
+      </span>
+      <span className="text-[10px] md:text-xs font-mono text-[#00ff4e] bg-[#00ff4e]/10 px-2 py-0.5 rounded">{stock.volatility}%</span>
+    </div>
+    <div className="h-[2px] bg-zinc-800 rounded-full overflow-hidden">
+      <motion.div initial={{ width: 0 }} animate={{ width: `${stock.volatility}%` }} transition={{ duration: 1.5, ease: "circOut" }} className={`h-full shadow-[0_0_15px] ${stock.volatility > 35 ? 'bg-red-500 shadow-red-500' : 'bg-[#00ff4e] shadow-[#00ff4e]'}`} />
+    </div>
+  </div>
+</div>
 
       {/* INSIGHTS TOGGLE */}
       <div className="border-t-2 border-zinc-900 pt-4 md:pt-6">
