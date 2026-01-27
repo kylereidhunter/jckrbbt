@@ -9,6 +9,8 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import AuthModal from './AuthModal';
 import ProfileSettings from './ProfileSettings';
 import Tooltip from './tooltip';
+import CountUp from './CountUp';
+import SkeletonCard from './SkeletonCard';
 
 console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
 console.log('GEN_AI_KEY:', process.env.REACT_APP_GEN_AI_KEY);
@@ -883,18 +885,23 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
  return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8 font-mono">
       <style>{`
-        select option {
-          background-color: #000 !important;
-          color: #fff !important;
-        }
-        select option:hover {
-          background-color: #1a1a1a !important;
-        }
-        select option:checked {
-          background-color: #00ff4e !important;
-          color: #000 !important;
-        }
-      `}</style>
+  select option {
+    background-color: #000 !important;
+    color: #fff !important;
+  }
+  select option:hover {
+    background-color: #1a1a1a !important;
+  }
+  select option:checked {
+    background-color: #00ff4e !important;
+    color: #000 !important;
+  }
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+`}</style>
       
 {/* HEADER */}
 <header className="flex justify-between items-center mb-8 md:mb-12 border-b-2 border-zinc-900 pb-6 md:pb-8 gap-4">
@@ -1197,64 +1204,83 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         </div>
       )}
 
-      {/* CARDS */}
-      <div className="space-y-6 md:space-y-8 mt-6 md:mt-10">
-        {activeTab === "DASHBOARD" ? (
-          <>
-            {stocks.length === 0 && !loading && (
-              <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-                <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Scanner Idle</p>
-              </div>
-            )}
-            {displayedStocks.map(stock => (
-              <MetricCard 
-                key={stock.symbol} 
-                stock={stock} 
-                isMarketOpen={isMarketOpen} 
-                onAction={() => addToWatchlist(stock)}
-                removeFromWatchlist={removeFromWatchlist}
-                actionType="ADD"
-                watchlist={watchlist}
-              />
-            ))}
-          </>
-        ) : activeTab === "WATCH LIST" ? (
-          <>
-            {watchlist.length === 0 && (
-              <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-                <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Watch List Empty</p>
-              </div>
-            )}
-            {displayedWatchlist.map(stock => (
-              <MetricCard 
-                key={stock.symbol} 
-                stock={stock} 
-                isMarketOpen={isMarketOpen} 
-                onAction={() => removeFromWatchlist(stock.symbol)}
-                removeFromWatchlist={removeFromWatchlist}
-                actionType="REMOVE"
-                watchlist={watchlist}
-              />
-            ))}
-          </>
-        ) : (
-          <>
-            {loadingNews && newsArticles.length === 0 && (
-              <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-                <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Loading News...</p>
-              </div>
-            )}
-            {!loadingNews && newsArticles.length === 0 && (
-              <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-                <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">No News Available</p>
-              </div>
-            )}
-            {newsArticles.map(article => (
-              <NewsCard key={article.id} article={article} />
-            ))}
-          </>
-        )}
-      </div>
+{/* CARDS */}
+<div className="space-y-6 md:space-y-8 mt-6 md:mt-10">
+  {activeTab === "DASHBOARD" ? (
+    <>
+      {stocks.length === 0 && !loading && (
+        <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Scanner Idle</p>
+        </div>
+      )}
+      {loading && stocks.length === 0 && (
+        <>
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </>
+      )}
+      {displayedStocks.map((stock, index) => (
+        <motion.div
+          key={stock.symbol}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: index * 0.1, duration: 0.4 }}
+        >
+          <MetricCard 
+            stock={stock} 
+            isMarketOpen={isMarketOpen} 
+            onAction={() => addToWatchlist(stock)}
+            removeFromWatchlist={removeFromWatchlist}
+            actionType="ADD"
+            watchlist={watchlist}
+          />
+        </motion.div>
+      ))}
+    </>
+  ) : activeTab === "WATCH LIST" ? (
+    <>
+      {watchlist.length === 0 && (
+        <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Watch List Empty</p>
+        </div>
+      )}
+      {displayedWatchlist.map((stock, index) => (
+        <motion.div
+          key={stock.symbol}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: index * 0.1, duration: 0.4 }}
+        >
+          <MetricCard 
+            stock={stock} 
+            isMarketOpen={isMarketOpen} 
+            onAction={() => removeFromWatchlist(stock.symbol)}
+            removeFromWatchlist={removeFromWatchlist}
+            actionType="REMOVE"
+            watchlist={watchlist}
+          />
+        </motion.div>
+      ))}
+    </>
+  ) : (
+    <>
+      {loadingNews && newsArticles.length === 0 && (
+        <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Loading News...</p>
+        </div>
+      )}
+      {!loadingNews && newsArticles.length === 0 && (
+        <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">No News Available</p>
+        </div>
+      )}
+      {newsArticles.map(article => (
+        <NewsCard key={article.id} article={article} />
+      ))}
+    </>
+  )}
+</div>
            {/* AUTH MODAL */}
       <AuthModal 
         isOpen={showAuthModal} 
@@ -1470,9 +1496,11 @@ function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [],
           <div className="flex flex-col sm:flex-row sm:items-end gap-3 md:gap-8">
             <h2 className="text-4xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">{stock.symbol}</h2>
             <div className="flex items-baseline gap-2 md:gap-3">
-              <span className="text-3xl md:text-5xl font-black text-white tabular-nums leading-none">${stock.price}</span>
+              <span className="text-3xl md:text-5xl font-black text-white tabular-nums leading-none">
+                $<CountUp end={parseFloat(stock.price)} decimals={2} duration={1200} />
+              </span>
               <span className="text-xl md:text-3xl font-black tabular-nums leading-none" style={{ color: trendColor }}>
-                {prefix}{stock.change}% <span className="text-lg md:text-2xl ml-1 md:ml-2 align-middle">{Triangle}</span>
+                {prefix}<CountUp end={Math.abs(parseFloat(stock.change))} decimals={2} duration={1200} />% <span className="text-lg md:text-2xl ml-1 md:ml-2 align-middle">{Triangle}</span>
               </span>
             </div>
           </div>
@@ -1518,7 +1546,9 @@ function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [],
       Signal Strength
       <Tooltip content="Quantitative score (0-100%) based on news recency, news volume, price momentum, volatility, and catalyst strength. Higher scores indicate stronger trading opportunities." />
     </span>
-    <span style={{ color: '#00ff4e' }}>{stock.confidence}%</span>
+    <span style={{ color: '#00ff4e' }}>
+  <CountUp end={stock.confidence} decimals={0} duration={1500} suffix="%" />
+</span>
   </div>
   <div className="h-[2px] md:h-[3px] bg-zinc-900 w-full relative">
     <motion.div initial={{ width: 0 }} animate={{ width: `${stock.confidence}%` }} className="absolute h-full bg-[#00ff4e] shadow-[0_0_15px_#00ff4e]" />
