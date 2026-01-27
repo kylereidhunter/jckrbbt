@@ -27,6 +27,8 @@ const GEN_AI_KEY = process.env.REACT_APP_GEN_AI_KEY;
 const genAI = new GoogleGenerativeAI(GEN_AI_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 const ALPHA_VANTAGE_KEY = process.env.REACT_APP_ALPHA_VANTAGE_KEY;
+const TWELVE_DATA_KEY = process.env.REACT_APP_TWELVE_DATA_KEY;
+
 
 
 
@@ -121,14 +123,21 @@ const formatText = (text) => {
 
 // Calculate Historical Volatility (annualized)
 const calculateHV = (closePrices) => {
-  if (!closePrices || closePrices.length < 2) return 40; // fallback
+  if (!closePrices || closePrices.length < 5) return 40; // Need at least 5 days
   
   // Calculate daily returns
   const returns = [];
   for (let i = 1; i < closePrices.length; i++) {
     const dailyReturn = Math.log(closePrices[i] / closePrices[i - 1]);
-    returns.push(dailyReturn);
+    
+    // Filter out extreme outliers (likely bad data)
+    // Daily moves over 50% are extremely rare and usually data errors
+    if (Math.abs(dailyReturn) < 0.5) {
+      returns.push(dailyReturn);
+    }
   }
+  
+  if (returns.length < 5) return 40; // Not enough valid data
   
   // Calculate mean return
   const meanReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
@@ -142,78 +151,88 @@ const calculateHV = (closePrices) => {
   // Annualize (multiply by sqrt of trading days per year)
   const annualizedVolatility = stdDev * Math.sqrt(252) * 100;
   
-  return Math.min(Math.max(annualizedVolatility, 5), 150); // Cap between 5-150%
+console.log(`Raw volatility: ${annualizedVolatility.toFixed(2)}%, Valid returns: ${returns.length}/${closePrices.length - 1}`);
+
+// Cap between 10-120% (allow for extreme but valid volatility in penny stocks/biotech)
+return Math.min(Math.max(annualizedVolatility, 10), 120);
 };
 
 // Calculate Signal Strength based on quantifiable factors
 const calculateSignalStrength = (newsData, priceData, currentPrice, volatility, aiCatalystScore) => {
   let score = 0;
   
-  // 1. NEWS RECENCY (30 points max)
+  // 1. NEWS RECENCY (25 points max) - More generous
   if (newsData && newsData.length > 0) {
     const mostRecentNews = newsData[0];
     const daysSinceNews = (Date.now() / 1000 - mostRecentNews.datetime) / (24 * 60 * 60);
     
-    if (daysSinceNews <= 7) {
-      score += 30; // Very recent
+    if (daysSinceNews <= 3) {
+      score += 25; // Very recent (within 3 days)
+    } else if (daysSinceNews <= 7) {
+      score += 20; // Recent (within a week)
     } else if (daysSinceNews <= 14) {
-      score += 20; // Recent
+      score += 15; // Somewhat recent
     } else if (daysSinceNews <= 30) {
-      score += 10; // Somewhat recent
+      score += 10; // Within a month
     }
   }
   
-  // 2. NEWS VOLUME (20 points max)
+  // 2. NEWS VOLUME (15 points max) - Lower thresholds
   const newsCount = newsData?.length || 0;
-  if (newsCount >= 10) {
-    score += 20;
-  } else if (newsCount >= 5) {
+  if (newsCount >= 8) {
     score += 15;
+  } else if (newsCount >= 5) {
+    score += 12;
   } else if (newsCount >= 3) {
-    score += 10;
+    score += 9;
   } else if (newsCount >= 1) {
-    score += 5;
+    score += 6; // At least some news
   }
   
-  // 3. PRICE MOMENTUM (25 points max)
-  // Check 5-day price momentum
+  // 3. PRICE MOMENTUM (20 points max)
   if (priceData && priceData.length >= 5) {
     const fiveDaysAgo = priceData[priceData.length - 6];
     const priceChange = ((currentPrice - fiveDaysAgo) / fiveDaysAgo) * 100;
     
     const absMomentum = Math.abs(priceChange);
     if (absMomentum >= 10) {
-      score += 25; // Strong momentum
+      score += 20; // Strong momentum
     } else if (absMomentum >= 5) {
-      score += 18; // Good momentum
+      score += 15; // Good momentum
     } else if (absMomentum >= 2) {
-      score += 12; // Moderate momentum
-    } else if (absMomentum >= 1) {
-      score += 6; // Some momentum
+      score += 10; // Moderate momentum
+    } else if (absMomentum >= 0.5) {
+      score += 5; // Some momentum
     }
   }
   
   // 4. VOLATILITY FACTOR (15 points max)
-  // Higher volatility = more conviction in directional move
   const vol = parseFloat(volatility);
   if (vol >= 60) {
     score += 15; // High volatility
-  } else if (vol >= 40) {
-    score += 12; // Moderate-high
-  } else if (vol >= 25) {
-    score += 8; // Moderate
-  } else if (vol >= 15) {
-    score += 5; // Low-moderate
+  } else if (vol >= 45) {
+    score += 13; // Moderate-high
+  } else if (vol >= 30) {
+    score += 10; // Moderate
+  } else if (vol >= 20) {
+    score += 7; // Low-moderate
+  } else if (vol >= 10) {
+    score += 4; // Low but present
   }
   
-  // 5. AI CATALYST ASSESSMENT (10 points max)
-  // Use the AI's confidence as a small factor
-  score += Math.min(aiCatalystScore / 10, 10);
+  // 5. AI CATALYST ASSESSMENT (25 points max) - Increased weight
+  // This is the most important factor since AI evaluates all qualitative aspects
+  const normalizedAI = Math.min(Math.max(aiCatalystScore, 0), 100);
+  score += (normalizedAI / 100) * 25;
+  
+  // BONUS: If we have both news AND volatility, add synergy bonus
+  if (newsCount >= 1 && vol >= 30) {
+    score += 5;
+  }
   
   // Ensure score is between 0-100
-  return Math.min(Math.max(Math.round(score), 10), 95);
+  return Math.min(Math.max(Math.round(score), 15), 95);
 };
-
 
 
 // --- TRADINGVIEW MINI CHART COMPONENT ---
@@ -292,6 +311,8 @@ export default function App() {
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [followingUsers, setFollowingUsers] = useState(new Set());
+  const [volatilityCache, setVolatilityCache] = useState({});
+  
 
 const addStockToList = async (stock, listId) => {
   if (!user) {
@@ -809,7 +830,7 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
   let attempts = 0;
 
   try {
-    const targetGoal = isManual ? 1 : 10;
+    const targetGoal = isManual ? 1 : 5; // Changed from 10
 
     while (localStocks.length < targetGoal && attempts < 15) {
       attempts++;
@@ -845,7 +866,7 @@ ${scanSector !== 'all' ? `SECTOR FILTER: Focus ONLY on ${
   'Utilities sector (electric, water, gas utilities)'
 } companies.` : ''}
 
-SEARCH STRATEGY:
+SEARCH STRATEGY (prioritize in this order):
 
 1. BIOTECH CATALYSTS (Top Priority - Jan 2026 is peak season):
    - "FDA PDUFA approval January 2026"
@@ -854,31 +875,57 @@ SEARCH STRATEGY:
    - "ASCO GU genitourinary conference ${currentMonthName} 2026"
    Search biotech stocks under $20 with binary events this month.
 
-2. LEGISLATIVE & POLICY WINNERS:
+2. EARNINGS MOMENTUM:
+   - "Earnings beat revenue surprise ${currentMonthName} 2026"
+   - "Guidance raised forward outlook"
+   - "Stocks reporting earnings this week"
+   - "Pre-earnings option activity unusual volume"
+   Search companies with earnings in next 2 weeks or recent beats.
+
+3. INSIDER BUYING & INSTITUTIONAL ACTIVITY:
+   - "Insider buying Form 4 SEC filing this week"
+   - "Hedge fund 13F new position ${currentMonthName}"
+   - "Institutional ownership increase accumulation"
+   - "Director CEO insider purchases recent"
+   Search stocks with significant insider/institutional buying.
+
+4. TECHNICAL BREAKOUTS WITH VOLUME:
+   - "Volume surge 3x average unusual trading"
+   - "Short squeeze high short interest"
+   - "RSI oversold bounce technical setup"
+   - "Golden cross moving average breakout"
+   Search for technical setups with confirmation volume.
+
+5. LEGISLATIVE & POLICY WINNERS:
    - "DOGE government efficiency contract winners"
    - "Corporate tax cut small cap beneficiaries 2026"
-   - "EPA methane fee repeal energy stocks"
    - "Defense spending increase 2026 small caps"
-   Search companies benefiting from new regulations/deregulation.
+   Search companies benefiting from new regulations.
 
-3. TECHNICAL BREAKOUTS:
-   - "Stocks breaking 52-week high ${currentMonthName} 2026"
-   - "Short squeeze candidates high short interest"
-   - "Golden cross technical breakout small caps"
+6. ANALYST ACTIVITY:
    - "Analyst upgrade strong buy rating this week"
-   Search stocks with momentum + institutional buying.
+   - "Price target raised ${currentMonthName} 2026"
+   - "Initiated coverage outperform rating"
+   Search for fresh analyst attention.
 
-4. M&A / SPECIAL SITUATIONS:
+7. M&A / SPECIAL SITUATIONS:
    - "Merger acquisition target ${currentMonthName} 2026"
    - "Activist investor stake announcement"
    - "Buyout rumor takeover candidate"
    Search companies with acquisition potential.
 
-QUALITY FILTERS:
+QUALITY FILTERS (REQUIRED):
+- Must have SPECIFIC catalyst (not just "approaching 52-week high")
+- Must have NEWS or VOLUME SURGE in past 7 days
 - Only stocks under $${scanPriceLimit}
-- Must have NEWS from past 7 days
 - Prioritize small/mid caps ($100M - $10B market cap)
 - Avoid penny stocks under $2
+- Prefer stocks with unusual volume or insider activity
+
+REJECT stocks that ONLY have:
+- ✗ Generic "technical setup" without volume confirmation
+- ✗ Just near 52-week high/low without other catalysts
+- ✗ Only sector momentum without company-specific news
 
 TRUSTED SOURCES ONLY: ${sourceString}
 
@@ -907,39 +954,75 @@ Example: ABCD, EFGH, IJKL, MNOP
 
         setScanStatus(`ANALYZING: ${ticker}`);
 
-        try {
-        const qUrl = `https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`;
-        const nUrl = `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`;    
-        const pUrl = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`;
+try {
+  // Add delay BEFORE making requests to avoid rate limiting
+  await new Promise(r => setTimeout(r, 2000));
 
-        // Fetch quote, news, and profile
-        const [q, n, p] = await Promise.all([
-          fetch(qUrl).then(r => r.json()),
-          fetch(nUrl).then(r => r.json()),
-          fetch(pUrl).then(r => r.json())
-        ]);
+  const qUrl = `https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`;
+  const nUrl = `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`;    
+  const pUrl = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`;
 
-        // Fetch historical data from Alpha Vantage (free tier)
-        const ALPHA_KEY = process.env.REACT_APP_ALPHA_VANTAGE_KEY;
-        let h = { c: [] };
-        try {
-          const alphaUrl = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${ticker}&apikey=${ALPHA_KEY}`;
-          const alphaRes = await fetch(alphaUrl);
-          const alphaData = await alphaRes.json();
-          
-          if (alphaData['Time Series (Daily)']) {
-            const timeSeries = alphaData['Time Series (Daily)'];
-            const closePrices = Object.values(timeSeries)
-              .slice(0, 30)
-              .map(day => parseFloat(day['4. close']))
-              .reverse();
-            h = { c: closePrices };
-          }
-        } catch (e) {
-          console.log(`Alpha Vantage error for ${ticker}:`, e);
-        }
+  // Fetch with error handling
+  let q, n, p;
+  try {
+    [q, n, p] = await Promise.all([
+      fetch(qUrl).then(r => {
+        if (!r.ok) throw new Error(`Finnhub error: ${r.status}`);
+        return r.json();
+      }),
+      fetch(nUrl).then(r => {
+        if (!r.ok) throw new Error(`Finnhub error: ${r.status}`);
+        return r.json();
+      }),
+      fetch(pUrl).then(r => {
+        if (!r.ok) throw new Error(`Finnhub error: ${r.status}`);
+        return r.json();
+      })
+    ]);
+  } catch (fetchError) {
+    console.log(`${ticker} - Finnhub API error, skipping:`, fetchError.message);
+    rejectedTickers.add(ticker);
+    continue;
+  }
 
-          await new Promise(r => setTimeout(r, 2000)); // 2 seconds instead of 1.2
+  // Validate data
+  if (!q || !q.c || q.c === 0) {
+    console.log(`${ticker} - Invalid quote data`);
+    rejectedTickers.add(ticker);
+    continue;
+  }
+
+// Fetch historical data from Twelve Data (800 calls/day free)
+let h = { c: [] };
+
+// Check cache first
+if (volatilityCache[ticker]) {
+  console.log(`${ticker} - Using cached volatility data`);
+  h = { c: volatilityCache[ticker] };
+} else {
+  try {
+    // Twelve Data API - much better free tier
+    const twelveUrl = `https://api.twelvedata.com/time_series?symbol=${ticker}&interval=1day&outputsize=30&apikey=${TWELVE_DATA_KEY}`;
+    const twelveRes = await fetch(twelveUrl);
+    const twelveData = await twelveRes.json();
+    
+    if (twelveData.values && twelveData.values.length > 0) {
+      const closePrices = twelveData.values
+        .map(day => parseFloat(day.close))
+        .reverse();
+      h = { c: closePrices };
+      
+      // Cache the data
+      setVolatilityCache(prev => ({ ...prev, [ticker]: closePrices }));
+      console.log(`${ticker} - Cached ${closePrices.length} data points from Twelve Data`);
+    } else if (twelveData.status === 'error') {
+      console.log(`${ticker} - Twelve Data error:`, twelveData.message);
+    }
+  } catch (e) {
+    console.log(`Twelve Data error for ${ticker}:`, e);
+  }
+}
+
 
 if (!isManual) {
   if (q.c < 2) {
@@ -1063,7 +1146,20 @@ const newStock = {
   isPositive: extract("SIG", resText).toUpperCase().includes("BULLISH"),
   range: clean(extract("RANGE", resText)),
   confidence: calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence),
-  volatility: h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40.00,
+  volatility: h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : (() => {
+  // Intelligent fallback based on price change and sector
+  const priceChange = Math.abs(parseFloat(q.dp || 0));
+  
+  // Base volatility from daily change (expand the range)
+  let estimatedVol = 25 + (priceChange * 6);
+  
+  // Adjust for price level (lower price = higher volatility typically)
+  if (q.c < 5) estimatedVol += 15;
+  else if (q.c < 10) estimatedVol += 10;
+  else if (q.c < 20) estimatedVol += 5;
+  
+  return Math.min(Math.max(estimatedVol, 20), 100).toFixed(2);
+})(),
   rating: clean(extract("SIG", resText)),
   momentum: clean(extract("MOM", resText)),
   catalyst: formatText(clean(extract("CAT", resText))), 
