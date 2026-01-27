@@ -13,6 +13,10 @@ import CountUp from './CountUp';
 import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
+import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
+import { Users } from 'lucide-react';
+import UserProfileModal from './UserProfileModal';
+
 
 console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
 console.log('GEN_AI_KEY:', process.env.REACT_APP_GEN_AI_KEY);
@@ -281,6 +285,11 @@ export default function App() {
   const [showWatchlistModal, setShowWatchlistModal] = useState(false);
   const [editingWatchlist, setEditingWatchlist] = useState(null);
   const [showAddToListMenu, setShowAddToListMenu] = useState(null); // stockSymbol when menu is open
+  const [showUserProfileModal, setShowUserProfileModal] = useState(false);
+  const [viewingUser, setViewingUser] = useState(null);
+  const [userSearchTerm, setUserSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [followingUsers, setFollowingUsers] = useState(new Set());
 
 const addStockToList = async (stock, listId) => {
   if (!user) {
@@ -350,6 +359,106 @@ const handleDeleteWatchlist = async (listId) => {
     }
   } catch (error) {
     console.error('Error deleting watchlist:', error);
+  }
+};
+
+const handleFollowUser = async (userId) => {
+  if (!user) {
+    alert('Please sign in to follow users');
+    return;
+  }
+  
+  try {
+    await followUser(user.uid, userId);
+    setFollowingUsers(prev => new Set([...prev, userId]));
+    
+    // Update current user's profile counts
+    setUserProfile(prev => ({
+      ...prev,
+      followingCount: (prev.followingCount || 0) + 1
+    }));
+    
+    // Update viewed user's follower count if modal is open
+    if (viewingUser && viewingUser.id === userId) {
+      setViewingUser(prev => ({
+        ...prev,
+        followerCount: (prev.followerCount || 0) + 1
+      }));
+    }
+  } catch (error) {
+    console.error('Error following user:', error);
+  }
+};
+
+const handleUnfollowUser = async (userId) => {
+  try {
+    await unfollowUser(user.uid, userId);
+    setFollowingUsers(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(userId);
+      return newSet;
+    });
+    
+    // Update current user's profile counts
+    setUserProfile(prev => ({
+      ...prev,
+      followingCount: Math.max((prev.followingCount || 0) - 1, 0)
+    }));
+    
+    // Update viewed user's follower count if modal is open
+    if (viewingUser && viewingUser.id === userId) {
+      setViewingUser(prev => ({
+        ...prev,
+        followerCount: Math.max((prev.followerCount || 0) - 1, 0)
+      }));
+    }
+  } catch (error) {
+    console.error('Error unfollowing user:', error);
+  }
+};
+
+const handleSearchUsers = async (term) => {
+  setUserSearchTerm(term);
+  if (term.trim().length < 2) {
+    setSearchResults([]);
+    return;
+  }
+  
+  try {
+    const results = await searchUsers(term);
+    setSearchResults(results);
+  } catch (error) {
+    console.error('Error searching users:', error);
+  }
+};
+
+const handleViewUserProfile = async (userId) => {
+  console.log('View profile clicked:', userId);
+  
+  try {
+    const userDocRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userDocRef);
+    
+    console.log('User doc exists:', userDoc.exists());
+    
+    if (!userDoc.exists()) {
+      alert('User not found');
+      return;
+    }
+    
+    const userData = { id: userId, ...userDoc.data() };
+    
+    // Load their public watchlists
+    const lists = await getUserWatchlists(userId);
+    const publicLists = lists.filter(list => list.isPublic);
+    
+    console.log('Public lists:', publicLists);
+    
+    setViewingUser({ ...userData, publicLists });
+    setShowUserProfileModal(true);
+  } catch (error) {
+    console.error('Error loading user profile:', error);
+    alert('Error loading profile: ' + error.message);
   }
 };
 
@@ -476,26 +585,41 @@ useEffect(() => {
     setAuthLoading(false);
     
     if (currentUser) {
-      // Load user's watchlist and profile from Firestore
-      const docRef = doc(db, 'users', currentUser.uid);
-      const docSnap = await getDoc(docRef);
-      
-      if (docSnap.exists()) {
-  const data = docSnap.data();
-  // Load user's watchlists
-  const lists = await getUserWatchlists(currentUser.uid);
-  setWatchlists(lists);
-        setUserProfile({
-          username: data.username || null,
-          profilePicUrl: data.profilePicUrl || null
-        });
-      } else {
-        // No profile exists yet - set defaults
-        setUserProfile({
-          username: null,
-          profilePicUrl: null
-        });
-      }
+  // Load user's watchlist and profile from Firestore
+  const docRef = doc(db, 'users', currentUser.uid);
+  const docSnap = await getDoc(docRef);
+  
+  if (docSnap.exists()) {
+    const data = docSnap.data();
+    // Load user's watchlists
+    const lists = await getUserWatchlists(currentUser.uid);
+    setWatchlists(lists);
+    setUserProfile({
+      username: data.username || null,
+      profilePicUrl: data.profilePicUrl || null,
+      followerCount: data.followerCount || 0,
+      followingCount: data.followingCount || 0
+    });
+    
+    // Load following status (ADD THIS)
+    const following = await getFollowing(currentUser.uid);
+    setFollowingUsers(new Set(following.map(u => u.id)));
+    
+  } else {
+    // Initialize counts for new users (ADD THIS WHOLE ELSE BLOCK)
+    await setDoc(doc(db, 'users', currentUser.uid), {
+      followerCount: 0,
+      followingCount: 0
+    }, { merge: true });
+    
+    setUserProfile({
+      username: null,
+      profilePicUrl: null,
+      followerCount: 0,
+      followingCount: 0
+    });
+  }
+
    } else {
   // Not logged in
   setWatchlists([]);
@@ -507,6 +631,41 @@ useEffect(() => {
   
   return () => unsubscribe();
 }, []);
+
+// Migrate old accounts to have follower/following counts
+useEffect(() => {
+  if (!user || authLoading) return;
+  
+  const migrateAccount = async () => {
+    try {
+      const docRef = doc(db, 'users', user.uid);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        // If counts don't exist, initialize them
+        if (data.followerCount === undefined || data.followingCount === undefined) {
+          console.log('Migrating account to add follower counts');
+          await setDoc(docRef, {
+            followerCount: 0,
+            followingCount: 0
+          }, { merge: true });
+          
+          // Reload profile
+          setUserProfile(prev => ({
+            ...prev,
+            followerCount: 0,
+            followingCount: 0
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error migrating account:', error);
+    }
+  };
+  
+  migrateAccount();
+}, [user, authLoading]);
 
 // Listen for create list modal trigger
 useEffect(() => {
@@ -1025,9 +1184,16 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           >
             {userProfile?.username?.[0]?.toUpperCase() || user.email?.[0].toUpperCase()}
           </div>
-          <span className="hidden md:block text-white text-sm font-bold whitespace-nowrap">
-            {userProfile?.username || user.email}
-          </span>
+          <div className="hidden md:block">
+  <span className="text-white text-sm font-bold whitespace-nowrap block">
+    {userProfile?.username || user.email}
+  </span>
+  {userProfile && (
+    <span className="text-zinc-500 text-[10px] font-bold">
+      {userProfile.followerCount || 0} followers · {userProfile.followingCount || 0} following
+    </span>
+  )}
+</div>
         </button>
         
         {/* Dropdown */}
@@ -1060,19 +1226,19 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       <TypewriterGreeting />
 
       <div className="flex gap-2 md:gap-4 mb-6 md:mb-8 border-b border-zinc-900 pb-4 overflow-x-auto">
-       {["DASHBOARD", "MY LISTS", "NEWS"].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`text-[10px] md:text-xs font-black tracking-[0.2em] md:tracking-[0.3em] px-4 md:px-6 py-2 rounded-full transition-all whitespace-nowrap flex-shrink-0 ${
-              activeTab === tab 
-              ? "bg-[#00ff4e] text-black shadow-[0_0_20px_rgba(0,255,78,0.4)]" 
-              : "text-zinc-500 hover:text-white"
-            }`}
-          >
-            {tab === "MY LISTS" ? `MY LISTS (${watchlists.length})` : tab}
-          </button>
-        ))}
+       {["DASHBOARD", "MY LISTS", "DISCOVER", "NEWS"].map((tab) => (
+  <button
+    key={tab}
+    onClick={() => setActiveTab(tab)}
+    className={`text-[10px] md:text-xs font-black tracking-[0.2em] md:tracking-[0.3em] px-4 md:px-6 py-2 rounded-full transition-all whitespace-nowrap flex-shrink-0 ${
+      activeTab === tab 
+      ? "bg-[#00ff4e] text-black shadow-[0_0_20px_rgba(0,255,78,0.4)]" 
+      : "text-zinc-500 hover:text-white"
+    }`}
+  >
+    {tab === "MY LISTS" ? `MY LISTS (${watchlists.length})` : tab}
+  </button>
+))}
       </div>
 
       {/* NEWS TAB CONTROLS */}
@@ -1453,7 +1619,115 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         </div>
       )}
     </>
-  ) : (
+  ) : activeTab === "DISCOVER" ? (
+  <>
+    {/* Search Bar */}
+    <div className="mb-6">
+      <div className="bg-[#050505] border border-zinc-900 p-4 rounded-xl">
+        <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3 flex items-center gap-2">
+          <Users size={16} />
+          Discover Traders
+        </h3>
+        <input
+          type="text"
+          placeholder="Search by username..."
+          value={userSearchTerm}
+          onChange={(e) => handleSearchUsers(e.target.value)}
+          className="w-full bg-black border border-zinc-800 text-white px-4 py-3 rounded-lg outline-none transition-all font-mono text-sm placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
+          style={{ caretColor: '#00ff4e' }}
+        />
+      </div>
+    </div>
+
+    {/* Search Results */}
+    {!user ? (
+      <div className="py-32 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+        <p className="text-xs md:text-sm tracking-[0.4em] uppercase font-black mb-4">Sign in to discover traders</p>
+        <button
+          onClick={() => setShowAuthModal(true)}
+          className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-6 py-3 rounded-lg text-xs uppercase tracking-tight transition-all"
+        >
+          Sign In
+        </button>
+      </div>
+    ) : userSearchTerm.length < 2 ? (
+      <div className="py-32 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+        <p className="text-xs md:text-sm tracking-[0.4em] uppercase font-black">Search for traders by username</p>
+      </div>
+    ) : searchResults.length === 0 ? (
+      <div className="py-32 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+        <p className="text-xs md:text-sm tracking-[0.4em] uppercase font-black">No users found</p>
+      </div>
+    ) : (
+      <div className="space-y-4">
+        {searchResults.map((searchUser, index) => (
+          <motion.div
+            key={searchUser.id}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.05, duration: 0.3 }}
+            className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4 flex-1">
+                {searchUser.profilePicUrl ? (
+                  <img 
+                    src={searchUser.profilePicUrl} 
+                    alt={searchUser.username} 
+                    className="w-12 h-12 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="w-12 h-12 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black text-lg">
+                    {searchUser.username?.[0]?.toUpperCase() || searchUser.email?.[0]?.toUpperCase()}
+                  </div>
+                )}
+                
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-black text-white uppercase tracking-tight truncate">
+                    {searchUser.username || 'Anonymous User'}
+                  </h3>
+                  <div className="flex items-center gap-3 text-xs text-zinc-500">
+                    <span>{searchUser.followerCount || 0} followers</span>
+                    <span>·</span>
+                    <span>{searchUser.followingCount || 0} following</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleViewUserProfile(searchUser.id)}
+                  className="bg-zinc-900 hover:bg-zinc-800 text-white font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all border border-zinc-800"
+                >
+                  View
+                </button>
+                
+                {searchUser.id !== user.uid && (
+                  followingUsers.has(searchUser.id) ? (
+                    <button
+                      onClick={() => handleUnfollowUser(searchUser.id)}
+                      className="bg-zinc-900 hover:bg-zinc-800 text-white font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all border border-zinc-700"
+                    >
+                      Following
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleFollowUser(searchUser.id)}
+                      className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all"
+                    >
+                      Follow
+                    </button>
+                  )
+                )}
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    )}
+  </>
+) : (
+  // NEWS tab conten
     <>
       {loadingNews && newsArticles.length === 0 && (
         <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
@@ -1507,6 +1781,21 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         onSave={editingWatchlist ? handleUpdateWatchlist : handleCreateWatchlist}
         editList={editingWatchlist}
       />
+
+      {/* USER PROFILE MODAL */}
+<UserProfileModal
+  isOpen={showUserProfileModal}
+  onClose={() => {
+    setShowUserProfileModal(false);
+    setViewingUser(null);
+  }}
+  user={viewingUser}
+  currentUserId={user?.uid}
+  isFollowing={viewingUser ? followingUsers.has(viewingUser.id) : false}
+  onFollow={handleFollowUser}
+  onUnfollow={handleUnfollowUser}
+/>
+
     </div>
   );
 }
@@ -1997,4 +2286,5 @@ function NewsCard({ article }) {
       </div>
     </motion.div>
   );
+  
 }
