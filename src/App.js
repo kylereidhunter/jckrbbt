@@ -221,19 +221,62 @@ const fetchNews = useCallback(async () => {
       return;
     }
     
-    const formattedArticles = data.slice(0, 25).map(article => ({
-      id: article.id || article.datetime,
-      headline: article.headline,
-      summary: article.summary || "Click to read full article",
-      source: article.source,
-      url: article.url,
-      image: article.image,
-      datetime: article.datetime,
-      category: article.category || "Markets",
-      tickers: []
-    }));
+    // Process articles with AI to categorize and extract tickers
+    const processedArticles = await Promise.all(
+      data.slice(0, 25).map(async (article) => {
+        try {
+          const aiPrompt = `
+            Analyze this financial news headline and summary:
+            HEADLINE: ${article.headline}
+            SUMMARY: ${article.summary || "No summary available"}
+            
+            TASK:
+            1. Categorize into ONE of: Markets, Stocks, Crypto, Tech, Economy, Policy, Earnings
+            2. Extract any stock tickers mentioned (max 3, must be valid US tickers)
+            
+            FORMAT:
+            [CATEGORY] CategoryName [/CATEGORY]
+            [TICKERS] AAPL, MSFT [/TICKERS] (or "None" if no tickers)
+          `;
+          
+          const aiResponse = await aiModel.generateContent(aiPrompt);
+          const aiText = await aiResponse.response.text();
+          
+          const category = extract("CATEGORY", aiText) || "Markets";
+          const tickersText = extract("TICKERS", aiText);
+          const tickers = tickersText && tickersText !== "None" 
+            ? tickersText.split(',').map(t => t.trim()).filter(t => t.length > 0).slice(0, 3)
+            : [];
+          
+          return {
+            id: article.id || article.datetime,
+            headline: article.headline,
+            summary: article.summary || "Click to read full article",
+            source: article.source,
+            url: article.url,
+            image: article.image,
+            datetime: article.datetime,
+            category: category,
+            tickers: tickers
+          };
+        } catch (e) {
+          // If AI processing fails, return article with defaults
+          return {
+            id: article.id || article.datetime,
+            headline: article.headline,
+            summary: article.summary || "Click to read full article",
+            source: article.source,
+            url: article.url,
+            image: article.image,
+            datetime: article.datetime,
+            category: "Markets",
+            tickers: []
+          };
+        }
+      })
+    );
     
-    setNewsArticles(formattedArticles);
+    setNewsArticles(processedArticles);
   } catch (error) {
     console.error("Error fetching news:", error);
     setNewsArticles([{
