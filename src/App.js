@@ -1668,59 +1668,57 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
             transition={{ delay: index * 0.05, duration: 0.3 }}
             className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4 flex-1">
-                {searchUser.profilePicUrl ? (
-                  <img 
-                    src={searchUser.profilePicUrl} 
-                    alt={searchUser.username} 
-                    className="w-12 h-12 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-12 h-12 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black text-lg">
-                    {searchUser.username?.[0]?.toUpperCase() || searchUser.email?.[0]?.toUpperCase()}
-                  </div>
-                )}
-                
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-lg font-black text-white uppercase tracking-tight truncate">
-                    {searchUser.username || 'Anonymous User'}
-                  </h3>
-                  <div className="flex items-center gap-3 text-xs text-zinc-500">
-                    <span>{searchUser.followerCount || 0} followers</span>
-                    <span>·</span>
-                    <span>{searchUser.followingCount || 0} following</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleViewUserProfile(searchUser.id)}
-                  className="bg-zinc-900 hover:bg-zinc-800 text-white font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all border border-zinc-800"
-                >
-                  View
-                </button>
-                
-                {searchUser.id !== user.uid && (
-                  followingUsers.has(searchUser.id) ? (
-                    <button
-                      onClick={() => handleUnfollowUser(searchUser.id)}
-                      className="bg-zinc-900 hover:bg-zinc-800 text-white font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all border border-zinc-700"
-                    >
-                      Following
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleFollowUser(searchUser.id)}
-                      className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all"
-                    >
-                      Follow
-                    </button>
-                  )
-                )}
-              </div>
-            </div>
+            <div className="flex items-start gap-4">
+  {searchUser.profilePicUrl ? (
+    <img 
+      src={searchUser.profilePicUrl} 
+      alt={searchUser.username} 
+      className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+    />
+  ) : (
+    <div className="w-12 h-12 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black text-lg flex-shrink-0">
+      {searchUser.username?.[0]?.toUpperCase() || searchUser.email?.[0]?.toUpperCase()}
+    </div>
+  )}
+  
+  <div className="flex-1 min-w-0">
+    <h3 className="text-base md:text-lg font-black text-white uppercase tracking-tight break-words mb-2">
+      {searchUser.username || 'Anonymous User'}
+    </h3>
+    <div className="flex items-center gap-2 text-xs text-zinc-500 mb-3">
+      <span>{searchUser.followerCount || 0} followers</span>
+      <span>·</span>
+      <span>{searchUser.followingCount || 0} following</span>
+    </div>
+    
+    <div className="flex gap-2">
+      <button
+        onClick={() => handleViewUserProfile(searchUser.id)}
+        className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all border border-zinc-800"
+      >
+        View
+      </button>
+      
+      {searchUser.id !== user.uid && (
+        followingUsers.has(searchUser.id) ? (
+          <button
+            onClick={() => handleUnfollowUser(searchUser.id)}
+            className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all border border-zinc-700"
+          >
+            Following
+          </button>
+        ) : (
+          <button
+            onClick={() => handleFollowUser(searchUser.id)}
+            className="flex-1 bg-[#00ff4e] hover:opacity-90 text-black font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all"
+          >
+            Follow
+          </button>
+        )
+      )}
+    </div>
+  </div>
+</div>
           </motion.div>
         ))}
       </div>
