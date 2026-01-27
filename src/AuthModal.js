@@ -9,6 +9,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   const handleEmailAuth = async (e) => {
     e.preventDefault();
@@ -87,29 +88,52 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
               <label className="text-xs font-black uppercase tracking-wider text-zinc-500 block mb-2">
                 Password
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-black border border-zinc-800 text-white px-4 py-3 rounded-lg outline-none focus:border-[#00ff4e]/50 transition-all"
-                style={{ caretColor: '#00ff4e' }}
-                required
-              />
+<input
+  type="password"
+  placeholder="Password"
+  value={password}
+  onChange={(e) => setPassword(e.target.value)}
+  className="w-full bg-zinc-900 border border-zinc-800 text-white px-4 py-3 rounded-lg outline-none focus:border-[#00ff4e]/50 transition-all"
+/>
+
+{/* Terms & Privacy Consent - Only show on signup */}
+{!isLogin && (
+  <label className="flex items-start gap-3 cursor-pointer group mt-4">
+    <input
+      type="checkbox"
+      checked={agreedToTerms}
+      onChange={(e) => setAgreedToTerms(e.target.checked)}
+      className="mt-1 w-4 h-4 bg-zinc-900 border-2 border-zinc-700 rounded checked:bg-[#00ff4e] checked:border-[#00ff4e] cursor-pointer"
+    />
+    <span className="text-xs text-zinc-400 group-hover:text-zinc-300 transition-colors">
+      I agree to the{' '}
+      <a 
+        href="/privacy" 
+        target="_blank"
+        className="text-[#00ff4e] hover:underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        Privacy Policy
+      </a>
+      {' '}and Terms of Service
+    </span>
+  </label>
+)}
+
             </div>
 
             {error && (
               <div className="bg-red-500/10 border border-red-500/50 text-red-500 px-4 py-2 rounded-lg text-sm">
                 {error}
               </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[#00ff4e] text-black font-black py-3 rounded-lg hover:opacity-90 transition-all disabled:opacity-50 uppercase tracking-tight"
-            >
-              {loading ? 'Loading...' : isLogin ? 'Sign In' : 'Create Account'}
-            </button>
+              )}
+              <button
+                type="submit"
+                disabled={loading || (!isLogin && !agreedToTerms)}
+                className="w-full bg-[#00ff4e] text-black font-black py-3 rounded-lg hover:opacity-90 transition-all disabled:opacity-50 uppercase tracking-tight"
+              >
+                {loading ? 'Processing...' : isLogin ? 'Sign In' : 'Create Account'}
+              </button>
           </form>
 
           <div className="relative my-6">
