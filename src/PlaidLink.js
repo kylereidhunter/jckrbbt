@@ -1,10 +1,9 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, memo } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { auth } from './firebase';
 
-const PlaidLinkButton = ({ linkToken, onSuccess, onError }) => {
+const PlaidLinkButton = memo(({ linkToken, onSuccess, onError }) => {
   const onPlaidSuccess = useCallback(async (publicToken, metadata) => {
-    console.log('Plaid success! Public token:', publicToken);
     try {
       const idToken = await auth.currentUser.getIdToken();
       
@@ -33,14 +32,20 @@ const PlaidLinkButton = ({ linkToken, onSuccess, onError }) => {
 
   return (
     <button
-      onClick={() => open()}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        open();
+      }}
       disabled={!ready}
       className="bg-[#00ff4e] hover:opacity-90 disabled:opacity-50 text-black font-black px-6 py-3 rounded-lg text-sm uppercase tracking-tight transition-all"
     >
       Connect Brokerage Account
     </button>
   );
-};
+});
+
+PlaidLinkButton.displayName = 'PlaidLinkButton';
 
 const PlaidLink = ({ user, onSuccess, onError }) => {
   const [linkToken, setLinkToken] = useState(null);
@@ -75,6 +80,14 @@ const PlaidLink = ({ user, onSuccess, onError }) => {
     }
   }, [user, onError]);
 
+  const handleSuccess = useCallback(() => {
+    onSuccess();
+  }, [onSuccess]);
+
+  const handleError = useCallback((error) => {
+    onError(error);
+  }, [onError]);
+
   if (!linkToken) {
     return (
       <button
@@ -89,8 +102,8 @@ const PlaidLink = ({ user, onSuccess, onError }) => {
   return (
     <PlaidLinkButton 
       linkToken={linkToken} 
-      onSuccess={onSuccess} 
-      onError={onError} 
+      onSuccess={handleSuccess} 
+      onError={handleError} 
     />
   );
 };

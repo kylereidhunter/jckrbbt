@@ -501,6 +501,17 @@ const fetchPositions = async () => {
   }
 };
 
+// Add these memoized callbacks AFTER fetchPositions
+const handlePlaidSuccess = useCallback(() => {
+  console.log('Plaid connection successful!');
+  setBrokerageConnected(true);
+  fetchPositions();
+}, []);
+
+const handlePlaidError = useCallback((error) => {
+  console.error('Plaid error details:', error);
+}, []);
+
 const handleViewUserProfile = async (userId) => {
   console.log('View profile clicked:', userId);
   
@@ -1819,17 +1830,11 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         <p className="text-zinc-500 text-sm mb-8 max-w-md mx-auto">
           Link your brokerage account to automatically track your portfolio and see real-time performance.
         </p>
-        <PlaidLink 
-          user={user}
-          onSuccess={() => {
-            setBrokerageConnected(true);
-            fetchPositions();
-          }}
-          onError={(error) => {
-            console.error('Plaid error:', error);
-            alert('Error connecting account. Please try again.');
-          }}
-        />
+<PlaidLink 
+  user={user}
+  onSuccess={handlePlaidSuccess}
+  onError={handlePlaidError}
+/>
       </div>
     ) : loadingPositions ? (
       <div className="py-32 md:py-40 text-center">
