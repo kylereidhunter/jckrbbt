@@ -5,11 +5,12 @@ const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 admin.initializeApp();
 
 // Initialize Plaid client
-const PLAID_CLIENT_ID = '6978f77110c986001d23496d';
-const PLAID_SECRET = '6544e168f07174e7f553dc138eef32';
+const PLAID_CLIENT_ID = functions.config().plaid?.client_id || '6978f77110c986001d23496d';
+const PLAID_SECRET = functions.config().plaid?.secret || 'fc9f96184fc3ed0fbb85bd06f8af1d';
+const PLAID_ENV = functions.config().plaid?.env || 'production';
 
 const configuration = new Configuration({
-  basePath: PlaidEnvironments.sandbox,
+  basePath: PLAID_ENV === 'production' ? PlaidEnvironments.production : PlaidEnvironments.sandbox,
   baseOptions: {
     headers: {
       'PLAID-CLIENT-ID': PLAID_CLIENT_ID,

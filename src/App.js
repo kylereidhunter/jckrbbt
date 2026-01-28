@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Trash2, Plus, } from 'lucide-react';
 import { motion, AnimatePresence } from "framer-motion";
@@ -19,6 +19,7 @@ import UserProfileModal from './UserProfileModal';
 import PlaidLink from './PlaidLink';
 
 
+
 console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
 console.log('GEN_AI_KEY:', process.env.REACT_APP_GEN_AI_KEY);
 
@@ -31,6 +32,7 @@ const ALPHA_VANTAGE_KEY = process.env.REACT_APP_ALPHA_VANTAGE_KEY;
 const TWELVE_DATA_KEY = process.env.REACT_APP_TWELVE_DATA_KEY;
 
 
+const isMobile = () => window.innerWidth < 768;
 
 
 const REPUTABLE_SOURCES = [
@@ -48,8 +50,6 @@ const REPUTABLE_SOURCES = [
 ];
 
 const sourceString = REPUTABLE_SOURCES.map(s => `site:${s}`).join(" OR ");
-
-
 
 const TypewriterGreeting = () => {
   const [text, setText] = useState("");
@@ -279,6 +279,27 @@ const MiniChart = ({ symbol }) => {
   );
 };
 
+// Separate Clock component to isolate re-renders
+function Clock() {
+  const [time, setTime] = useState(new Date());
+  
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  
+  return (
+    <>
+      <p className="text-[#00ff4e] font-black tabular-nums text-lg md:text-xl tracking-tighter">
+        {time.toLocaleTimeString([], { hour12: true })}
+      </p>
+      <p className="text-zinc-500 text-[8px] md:text-[10px] font-black uppercase tracking-wider md:tracking-widest">
+        {time.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+      </p>
+    </>
+  );
+}
+
 export default function App() {
   const [stocks, setStocks] = useState([]);
   const [newsArticles, setNewsArticles] = useState([]);
@@ -317,6 +338,11 @@ const [positions, setPositions] = useState([]);
 const [loadingPositions, setLoadingPositions] = useState(false);
 const [brokerageConnected, setBrokerageConnected] = useState(false);
 const [showPlaidConsent, setShowPlaidConsent] = useState(false);
+
+
+const flattenedWatchlist = useMemo(() => {
+  return watchlists.flatMap(l => l.stocks);
+}, [watchlists]);
   
   
 
@@ -461,7 +487,7 @@ const handleSearchUsers = async (term) => {
   }
 };
 
-const fetchPositions = async () => {
+const fetchPositions = useCallback(async () => {
   if (!user) return;
   
   setLoadingPositions(true);
@@ -499,14 +525,14 @@ const fetchPositions = async () => {
   } finally {
     setLoadingPositions(false);
   }
-};
+}, [user]);
 
 // Add these memoized callbacks AFTER fetchPositions
 const handlePlaidSuccess = useCallback(() => {
   console.log('Plaid connection successful!');
   setBrokerageConnected(true);
   fetchPositions();
-}, []);
+}, [fetchPositions]);
 
 const handlePlaidError = useCallback((error) => {
   console.error('Plaid error details:', error);
@@ -555,6 +581,10 @@ const [watchlist, setWatchlist] = useState(() => {
   const saved = localStorage.getItem("JACKRABBIT_WATCHLIST");
   return saved ? JSON.parse(saved) : [];
 });
+
+function MobileSnapScroll({ children }) {
+  return <div className="space-y-8">{children}</div>;
+}
 
 // --- FETCH NEWS FUNCTION ---
 const fetchNews = useCallback(async () => {
@@ -653,10 +683,6 @@ const getScore = (extractedValue, fallback) => {
   return (isNaN(score) || score === 0) ? fallback : Math.min(Math.max(score, 5.00), 99.99);
 };
 
-  useEffect(() => {
-  const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-  return () => clearInterval(timer);
-}, []);
 
 // --- AUTH STATE LISTENER ---
 useEffect(() => {
@@ -665,40 +691,46 @@ useEffect(() => {
     setAuthLoading(false);
     
     if (currentUser) {
-  // Load user's watchlist and profile from Firestore
-  const docRef = doc(db, 'users', currentUser.uid);
-  const docSnap = await getDoc(docRef);
-  
-  if (docSnap.exists()) {
-    const data = docSnap.data();
-    // Load user's watchlists
-    const lists = await getUserWatchlists(currentUser.uid);
-    setWatchlists(lists);
-    setUserProfile({
-      username: data.username || null,
-      profilePicUrl: data.profilePicUrl || null,
-      followerCount: data.followerCount || 0,
-      followingCount: data.followingCount || 0
-    });
-    
-    // Load following status (ADD THIS)
-    const following = await getFollowing(currentUser.uid);
-    setFollowingUsers(new Set(following.map(u => u.id)));
-    
-  } else {
-    // Initialize counts for new users (ADD THIS WHOLE ELSE BLOCK)
-    await setDoc(doc(db, 'users', currentUser.uid), {
-      followerCount: 0,
-      followingCount: 0
-    }, { merge: true });
-    
-    setUserProfile({
-      username: null,
-      profilePicUrl: null,
-      followerCount: 0,
-      followingCount: 0
-    });
-  }
+      // Load user's watchlist and profile from Firestore
+      const docRef = doc(db, 'users', currentUser.uid);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        // Load user's watchlists
+        const lists = await getUserWatchlists(currentUser.uid);
+        setWatchlists(lists);
+        setUserProfile({
+          username: data.username || null,
+          profilePicUrl: data.profilePicUrl || null,
+          followerCount: data.followerCount || 0,
+          followingCount: data.followingCount || 0
+        });
+        
+        // Load following status
+        const following = await getFollowing(currentUser.uid);
+        setFollowingUsers(new Set(following.map(u => u.id)));
+        
+        // Check if brokerage is connected and load positions
+        if (data.brokerageConnected) {
+          setBrokerageConnected(true);
+          fetchPositions();
+        }
+        
+      } else {
+        // Initialize counts for new users
+        await setDoc(doc(db, 'users', currentUser.uid), {
+          followerCount: 0,
+          followingCount: 0
+        }, { merge: true });
+        
+        setUserProfile({
+          username: null,
+          profilePicUrl: null,
+          followerCount: 0,
+          followingCount: 0
+        });
+      }
 
    } else {
   // Not logged in
@@ -710,7 +742,7 @@ useEffect(() => {
   
   
   return () => unsubscribe();
-}, []);
+}, [fetchPositions]);
 
 // Migrate old accounts to have follower/following counts
 useEffect(() => {
@@ -764,11 +796,10 @@ useEffect(() => {
 
 
 
-  // --- MARKET HOURS & CLOCK ---
+// --- MARKET HOURS & CLOCK ---
   useEffect(() => {
     const timer = setInterval(() => {
       const now = new Date();
-      setCurrentTime(now);
       
       // Basic NYSE Market Hours Check (EST)
       const estTime = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
@@ -829,9 +860,8 @@ useEffect(() => {
 
 // --- LIVE PRICE UPDATES (Every 30 Seconds) ---
 useEffect(() => {
-  // Sync both lists
-const allWatchlistStocks = watchlists.flatMap(list => list.stocks);
-if ((stocks.length === 0 && allWatchlistStocks.length === 0) || !isMarketOpen) return;
+  if (!isMarketOpen) return;
+  if (stocks.length === 0 && watchlists.length === 0) return;
 
   const liveTimer = setInterval(async () => {
     const updateList = async (list) => {
@@ -850,21 +880,23 @@ if ((stocks.length === 0 && allWatchlistStocks.length === 0) || !isMarketOpen) r
       }));
     };
 
-    if (stocks.length > 0) setStocks(await updateList(stocks));
-if (allWatchlistStocks.length > 0) {
-  // Update each watchlist
-  const updatedLists = await Promise.all(
-    watchlists.map(async (list) => ({
-      ...list,
-      stocks: await updateList(list.stocks)
-    }))
-  );
-  setWatchlists(updatedLists);
-}
-  }, 30000); // Update every 30 seconds instead of 10
+    if (stocks.length > 0) {
+      setStocks(await updateList(stocks));
+    }
+    
+    if (watchlists.length > 0) {
+      const updatedLists = await Promise.all(
+        watchlists.map(async (list) => ({
+          ...list,
+          stocks: await updateList(list.stocks)
+        }))
+      );
+      setWatchlists(updatedLists);
+    }
+  }, 30000);
 
   return () => clearInterval(liveTimer);
-}, [stocks, watchlist, isMarketOpen]);
+}, [isMarketOpen, FINNHUB_KEY]); // REMOVED stocks, watchlists, watchlist from dependencies!
 
   // --- NEURAL SCANNER LOGIC ---
 const runScanner = useCallback(async (tickerToSearch = null) => {
@@ -1283,7 +1315,7 @@ const getSortedAndFilteredStocks = (stockList) => {
   return sorted;
 };
 
-const displayedStocks = getSortedAndFilteredStocks(stocks);
+const displayedStocks = useMemo(() => getSortedAndFilteredStocks(stocks), [stocks, sortBy, filterSignal, filterPriceRange, filterVolatility]);
 const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
 
@@ -1325,16 +1357,11 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     </div>
   </div>
   
-  {/* Right side - Clock and Auth */}
+{/* Right side - Clock and Auth */}
   <div className="flex items-center gap-4 md:gap-6">
     {/* Clock - hidden on mobile */}
     <div className="text-right hidden md:block">
-      <p className="text-[#00ff4e] font-black tabular-nums text-lg md:text-xl tracking-tighter">
-        {currentTime.toLocaleTimeString([], { hour12: true })}
-      </p>
-      <p className="text-zinc-500 text-[8px] md:text-[10px] font-black uppercase tracking-wider md:tracking-widest">
-        {currentTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-      </p>
+      <Clock />
     </div>
     
     {/* Auth Button */}
@@ -1634,28 +1661,24 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           <SkeletonCard />
         </>
       )}
-      {displayedStocks.map((stock, index) => (
-        <motion.div
-          key={stock.symbol}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: index * 0.1, duration: 0.4 }}
-        >
-          <MetricCard 
-            stock={stock} 
-            isMarketOpen={isMarketOpen} 
-            onAction={(stock) => setShowAddToListMenu(stock)}
-            removeFromWatchlist={removeStockFromList}
-            actionType="ADD"
-            watchlist={watchlists.flatMap(l => l.stocks)}
-            showAddToListMenu={showAddToListMenu}
-            onCloseMenu={() => setShowAddToListMenu(null)}
-            watchlists={watchlists}
-            onAddToList={addStockToList}
-            user={user}
-          />
-        </motion.div>
-      ))}
+<MobileSnapScroll>
+  {displayedStocks.map((stock, index) => (
+    <MetricCard 
+      key={stock.symbol}
+      stock={stock} 
+      isMarketOpen={isMarketOpen} 
+      onAction={(stock) => setShowAddToListMenu(stock)}
+      removeFromWatchlist={removeStockFromList}
+      actionType="ADD"
+      watchlist={flattenedWatchlist}      
+      showAddToListMenu={showAddToListMenu}
+      onCloseMenu={() => setShowAddToListMenu(null)}
+      watchlists={watchlists}
+      onAddToList={addStockToList}
+      user={user}
+    />
+  ))}
+</MobileSnapScroll>
     </>
   ) : activeTab === "MY LISTS" ? (
     <>
@@ -1762,7 +1785,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
                 </div>
               </div>
 
-              {/* Stocks in this list */}
+{/* Stocks in this list */}
               <AnimatePresence>
                 {selectedWatchlist?.id === list.id && (
                   <motion.div
@@ -1771,32 +1794,28 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="border-t-2 border-zinc-900 pt-4 mt-4 space-y-4">
+                    <div className="border-t-2 border-zinc-900 pt-4 mt-4">
                       {list.stocks.length === 0 ? (
                         <p className="text-zinc-600 text-sm text-center py-4">No stocks in this list yet</p>
                       ) : (
-                        list.stocks.map((stock, stockIndex) => (
-                          <motion.div
-                            key={stock.symbol}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: stockIndex * 0.05 }}
-                          >
+                        <MobileSnapScroll>
+                          {list.stocks.map((stock) => (
                             <MetricCard 
+                              key={stock.symbol}
                               stock={stock} 
                               isMarketOpen={isMarketOpen} 
                               onAction={(stock) => setShowAddToListMenu(stock)}
                               removeFromWatchlist={(symbol) => removeStockFromList(list.id, symbol)}
                               actionType="REMOVE"
-                              watchlist={watchlists.flatMap(l => l.stocks)}
+                              watchlist={flattenedWatchlist}
                               showAddToListMenu={showAddToListMenu}
                               onCloseMenu={() => setShowAddToListMenu(null)}
                               watchlists={watchlists}
                               onAddToList={addStockToList}
                               user={user}
                             />
-                          </motion.div>
-                        ))
+                          ))}
+                        </MobileSnapScroll>
                       )}
                     </div>
                   </motion.div>
@@ -1846,26 +1865,26 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       </div>
     ) : (
       <div className="space-y-4">
-        {/* Portfolio Summary */}
+{/* Portfolio Summary */}
         <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6">
           <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-4">Portfolio Summary</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <p className="text-xs text-zinc-600 mb-1">Total Value</p>
               <p className="text-2xl font-black text-white">
-                ${positions.reduce((sum, p) => sum + p.value, 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                ${positions.reduce((sum, p) => sum + (p.value ?? 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
               </p>
             </div>
             <div>
               <p className="text-xs text-zinc-600 mb-1">Total Gain/Loss</p>
-              <p className={`text-2xl font-black ${positions.reduce((sum, p) => sum + p.gain, 0) >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                ${Math.abs(positions.reduce((sum, p) => sum + p.gain, 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+              <p className={`text-2xl font-black ${positions.reduce((sum, p) => sum + (p.gain ?? 0), 0) >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                ${Math.abs(positions.reduce((sum, p) => sum + (p.gain ?? 0), 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
               </p>
             </div>
             <div>
               <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
               <p className="text-2xl font-black text-white">
-                ${positions.reduce((sum, p) => sum + p.costBasis, 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                ${positions.reduce((sum, p) => sum + (p.costBasis ?? 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
               </p>
             </div>
             <div>
@@ -1875,24 +1894,29 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           </div>
         </div>
 
-        {/* Position Cards */}
-        {positions.map((position, index) => (
-          <motion.div
-            key={position.symbol}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05, duration: 0.3 }}
-            className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
-          >
+{/* Position Cards */}
+{positions.map((position, index) => (
+  <motion.div
+    key={position.symbol}
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ delay: index * 0.05, duration: 0.3 }}
+    className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all cursor-pointer"
+    onClick={() => {
+      setManualSearch(position.symbol);
+      setActiveTab("DASHBOARD");
+      runScanner(position.symbol);
+    }}
+  >
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h3 className="text-2xl font-black text-white uppercase tracking-tight">{position.symbol}</h3>
                 <p className="text-sm text-zinc-500">{position.name}</p>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-black text-white">${position.price.toFixed(2)}</p>
+                <p className="text-2xl font-black text-white">${position.price?.toFixed(2) ?? '0.00'}</p>
                 <p className={`text-sm font-bold ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                  {position.gain >= 0 ? '+' : ''}{position.gainPercent.toFixed(2)}%
+                  {position.gain >= 0 ? '+' : ''}{position.gainPercent?.toFixed(2) ?? '0.00'}%
                 </p>
               </div>
             </div>
@@ -1900,20 +1924,20 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t-2 border-zinc-900">
               <div>
                 <p className="text-xs text-zinc-600 mb-1">Shares</p>
-                <p className="text-lg font-black text-white">{position.quantity}</p>
+                <p className="text-lg font-black text-white">{position.quantity ?? '0'}</p>
               </div>
               <div>
                 <p className="text-xs text-zinc-600 mb-1">Market Value</p>
-                <p className="text-lg font-black text-white">${position.value.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+                <p className="text-lg font-black text-white">${position.value?.toLocaleString() ?? '0'}</p>
               </div>
               <div>
                 <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
-                <p className="text-lg font-black text-white">${position.costBasis.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+                <p className="text-lg font-black text-white">${position.costBasis?.toLocaleString() ?? '0'}</p>
               </div>
               <div>
                 <p className="text-xs text-zinc-600 mb-1">Gain/Loss</p>
                 <p className={`text-lg font-black ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                  {position.gain >= 0 ? '+' : ''}${Math.abs(position.gain).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                  {position.gain >= 0 ? '+' : ''}${Math.abs(position.gain ?? 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
                 </p>
               </div>
             </div>
@@ -2227,7 +2251,7 @@ function CustomDropdown({ value, onChange, options, label }) {
   );
 }
 
-function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user }) {
+const MetricCard = React.memo(({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user }) => {
   const [isOpen, setIsOpen] = useState(false);  
   const [isHoveringButton, setIsHoveringButton] = useState(false);
   const cardRef = useRef(null);
@@ -2238,6 +2262,8 @@ function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [],
   const Triangle = isPositive ? '▲' : '▼';
   const prefix = isPositive ? '+' : '';
   const isAlreadyAdded = watchlist.some(s => s.symbol === stock.symbol);
+
+  
 
 useEffect(() => {
     if (!isOpen) return;
@@ -2400,6 +2426,7 @@ useEffect(() => {
   );
 })
 ()}
+
     </>
   )}
 </div>
@@ -2532,7 +2559,16 @@ useEffect(() => {
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => {
+  // Only re-render if these specific props change
+  return (
+    prevProps.stock.symbol === nextProps.stock.symbol &&
+    prevProps.stock.price === nextProps.stock.price &&
+    prevProps.isMarketOpen === nextProps.isMarketOpen &&
+    prevProps.showAddToListMenu === nextProps.showAddToListMenu &&
+    prevProps.user === nextProps.user
+  );
+});
 
 // NEWS CARD COMPONENT
 function NewsCard({ article }) {

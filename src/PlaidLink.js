@@ -4,6 +4,7 @@ import { auth } from './firebase';
 
 const PlaidLinkButton = memo(({ linkToken, onSuccess, onError }) => {
   const onPlaidSuccess = useCallback(async (publicToken, metadata) => {
+    console.log('✅ Plaid success!', metadata);
     try {
       const idToken = await auth.currentUser.getIdToken();
       
@@ -23,18 +24,31 @@ const PlaidLinkButton = memo(({ linkToken, onSuccess, onError }) => {
     }
   }, [onSuccess, onError]);
 
+  const onPlaidExit = useCallback((err, metadata) => {
+    console.log('🚪 Plaid exited', { err, metadata });
+    if (err) {
+      console.error('Exit error:', err);
+    }
+  }, []);
+
   const config = {
     token: linkToken,
     onSuccess: onPlaidSuccess,
+    onExit: onPlaidExit,
   };
 
-  const { open, ready } = usePlaidLink(config);
+  const { open, ready, error } = usePlaidLink(config);
+
+  useEffect(() => {
+    console.log('Plaid Link state:', { ready, error, linkToken: linkToken?.substring(0, 20) + '...' });
+  }, [ready, error, linkToken]);
 
   return (
     <button
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        console.log('🖱️ Opening Plaid, ready:', ready);
         open();
       }}
       disabled={!ready}
@@ -53,16 +67,19 @@ const PlaidLink = ({ user, onSuccess, onError }) => {
   useEffect(() => {
     const createToken = async () => {
       try {
-        const idToken = await auth.currentUser.getIdToken();
+        console.log('🔑 Creating link token...');
+        const idToken = await auth.currentUser.getIdToken(true);
         
         const response = await fetch('/api/createLinkToken', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${idToken}`
+            'Authorization': `Bearer ${idToken}`,
+            'Cache-Control': 'no-cache'
           }
         });
         
         const data = await response.json();
+        console.log('📥 Link token response:', data);
         
         if (!data.link_token) {
           throw new Error('No link token in response');
@@ -76,17 +93,10 @@ const PlaidLink = ({ user, onSuccess, onError }) => {
     };
 
     if (user) {
+      setLinkToken(null);
       createToken();
     }
   }, [user, onError]);
-
-  const handleSuccess = useCallback(() => {
-    onSuccess();
-  }, [onSuccess]);
-
-  const handleError = useCallback((error) => {
-    onError(error);
-  }, [onError]);
 
   if (!linkToken) {
     return (
@@ -102,8 +112,8 @@ const PlaidLink = ({ user, onSuccess, onError }) => {
   return (
     <PlaidLinkButton 
       linkToken={linkToken} 
-      onSuccess={handleSuccess} 
-      onError={handleError} 
+      onSuccess={onSuccess} 
+      onError={onError} 
     />
   );
 };
