@@ -1,32 +1,129 @@
-/**
- * Import function triggers from their respective submodules:
- *
- * const {onCall} = require("firebase-functions/v2/https");
- * const {onDocumentWritten} = require("firebase-functions/v2/firestore");
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
- */
+const functions = require('firebase-functions');
+const admin = require('firebase-admin');
+const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 
-const {setGlobalOptions} = require("firebase-functions");
-const {onRequest} = require("firebase-functions/https");
-const logger = require("firebase-functions/logger");
+admin.initializeApp();
 
-// For cost control, you can set the maximum number of containers that can be
-// running at the same time. This helps mitigate the impact of unexpected
-// traffic spikes by instead downgrading performance. This limit is a
-// per-function limit. You can override the limit for each function using the
-// `maxInstances` option in the function's options, e.g.
-// `onRequest({ maxInstances: 5 }, (req, res) => { ... })`.
-// NOTE: setGlobalOptions does not apply to functions using the v1 API. V1
-// functions should each use functions.runWith({ maxInstances: 10 }) instead.
-// In the v1 API, each function can only serve one request per container, so
-// this will be the maximum concurrent request count.
-setGlobalOptions({ maxInstances: 10 });
+// Initialize Plaid client
+const PLAID_CLIENT_ID = '6978f77110c986001d23496d';
+const PLAID_SECRET = '6544e168f07174e7f553dc138eef32';
 
-// Create and deploy your first functions
-// https://firebase.google.com/docs/functions/get-started
+const configuration = new Configuration({
+  basePath: PlaidEnvironments.sandbox,
+  baseOptions: {
+    headers: {
+      'PLAID-CLIENT-ID': PLAID_CLIENT_ID,
+      'PLAID-SECRET': PLAID_SECRET,
+    },
+  },
+});
 
-// exports.helloWorld = onRequest((request, response) => {
-//   logger.info("Hello logs!", {structuredData: true});
-//   response.send("Hello from Firebase!");
-// });
+const plaidClient = new PlaidApi(configuration);
+
+// Create Link Token - CALLABLE VERSION
+exports.createLinkToken = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
+  }
+
+  try {
+    const request = {
+      user: {
+        client_user_id: context.auth.uid,
+      },
+      client_name: 'Jackrabbit',
+      products: ['investments'],
+      country_codes: ['US'],
+      language: 'en',
+    };
+
+    const response = await plaidClient.linkTokenCreate(request);
+    return { link_token: response.data.link_token };
+  } catch (error) {
+    console.error('Error creating link token:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+// Exchange Token - CALLABLE VERSION
+exports.exchangePlaidToken = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
+  }
+
+  try {
+    const response = await plaidClient.itemPublicTokenExchange({
+      public_token: data.publicToken,
+    });
+
+    await admin.firestore()
+      .collection('users')
+      .doc(context.auth.uid)
+      .set({
+        plaidAccessToken: response.data.access_token,
+        plaidItemId: response.data.item_id,
+        brokerageConnected: true,
+      }, { merge: true });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error exchanging token:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+// Get Holdings - CALLABLE VERSION
+exports.getHoldings = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
+  }
+
+  try {
+    const userDoc = await admin.firestore()
+      .collection('users')
+      .doc(context.auth.uid)
+      .get();
+
+    const accessToken = userDoc.data()?.plaidAccessToken;
+    
+    if (!accessToken) {
+      throw new functions.https.HttpsError('not-found', 'No brokerage account linked');
+    }
+
+    const response = await plaidClient.investmentsHoldingsGet({
+      access_token: accessToken,
+    });
+
+    return {
+      accounts: response.data.accounts,
+      holdings: response.data.holdings,
+      securities: response.data.securities,
+    };
+  } catch (error) {
+    console.error('Error fetching holdings:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+// Disconnect - CALLABLE VERSION
+exports.disconnectPlaid = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
+  }
+
+  try {
+    await admin.firestore()
+      .collection('users')
+      .doc(context.auth.uid)
+      .update({
+        plaidAccessToken: admin.firestore.FieldValue.delete(),
+        plaidItemId: admin.firestore.FieldValue.delete(),
+        brokerageConnected: false,
+      });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error disconnecting:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});

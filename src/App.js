@@ -16,6 +16,9 @@ import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatc
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
 import { Users } from 'lucide-react';
 import UserProfileModal from './UserProfileModal';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import PlaidLink from './PlaidLink';
+import PlaidConsent from './PlaidConsent';
 
 
 console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
@@ -312,6 +315,11 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [followingUsers, setFollowingUsers] = useState(new Set());
   const [volatilityCache, setVolatilityCache] = useState({});
+const [positions, setPositions] = useState([]);
+const [loadingPositions, setLoadingPositions] = useState(false);
+const [brokerageConnected, setBrokerageConnected] = useState(false);
+const [showPlaidConsent, setShowPlaidConsent] = useState(false);
+  
   
 
 const addStockToList = async (stock, listId) => {
@@ -452,6 +460,39 @@ const handleSearchUsers = async (term) => {
     setSearchResults(results);
   } catch (error) {
     console.error('Error searching users:', error);
+  }
+};
+
+const fetchPositions = async () => {
+  if (!user) return;
+  
+  setLoadingPositions(true);
+  try {
+    const functions = getFunctions();
+    const getHoldings = httpsCallable(functions, 'getHoldings');
+    const result = await getHoldings();
+    
+    // Transform Plaid data to our format
+    const holdingsData = result.data.holdings.map(holding => {
+      const security = result.data.securities.find(s => s.security_id === holding.security_id);
+      return {
+        symbol: security?.ticker_symbol || 'N/A',
+        name: security?.name || 'Unknown',
+        quantity: holding.quantity,
+        price: holding.institution_price,
+        value: holding.institution_value,
+        costBasis: holding.cost_basis,
+        gain: holding.institution_value - holding.cost_basis,
+        gainPercent: ((holding.institution_value - holding.cost_basis) / holding.cost_basis) * 100,
+      };
+    });
+    
+    setPositions(holdingsData);
+  } catch (error) {
+    console.error('Error fetching positions:', error);
+    alert('Error loading positions. Please try reconnecting your account.');
+  } finally {
+    setLoadingPositions(false);
   }
 };
 
@@ -1344,7 +1385,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       <TypewriterGreeting />
 
       <div className="flex gap-2 md:gap-4 mb-6 md:mb-8 border-b border-zinc-900 pb-4 overflow-x-auto">
-       {["DASHBOARD", "MY LISTS", "DISCOVER", "NEWS"].map((tab) => (
+       {["DASHBOARD", "MY LISTS", "MY POSITIONS", "DISCOVER", "NEWS"].map((tab) => (
   <button
     key={tab}
     onClick={() => setActiveTab(tab)}
@@ -1750,7 +1791,150 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         </div>
       )}
     </>
-  ) : activeTab === "DISCOVER" ? (
+
+    
+ ) : activeTab === "MY POSITIONS" ? (
+  <>
+    {/* MY POSITIONS Tab */}
+    {!user ? (
+      <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+        <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black mb-4">Sign in to view positions</p>
+        <button
+          onClick={() => setShowAuthModal(true)}
+          className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-6 py-3 rounded-lg text-xs uppercase tracking-tight transition-all"
+        >
+          Sign In
+        </button>
+      </div>
+    ) : !brokerageConnected ? (
+      <div className="py-32 md:py-40 text-center border-2 border-dashed border-zinc-900 rounded-xl">
+        <h3 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight mb-4">
+          Connect Your Brokerage
+        </h3>
+        <p className="text-zinc-500 text-sm mb-8 max-w-md mx-auto">
+          Link your brokerage account to automatically track your portfolio and see real-time performance.
+        </p>
+        <PlaidLink 
+          user={user}
+          onSuccess={() => {
+            setBrokerageConnected(true);
+            fetchPositions();
+          }}
+          onError={(error) => {
+            console.error('Plaid error:', error);
+            alert('Error connecting account. Please try again.');
+          }}
+        />
+      </div>
+    ) : loadingPositions ? (
+      <div className="py-32 md:py-40 text-center">
+        <p className="text-zinc-500 text-sm uppercase tracking-widest font-black">Loading Positions...</p>
+      </div>
+    ) : positions.length === 0 ? (
+      <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+        <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">No positions found</p>
+      </div>
+    ) : (
+      <div className="space-y-4">
+        {/* Portfolio Summary */}
+        <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6">
+          <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-4">Portfolio Summary</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs text-zinc-600 mb-1">Total Value</p>
+              <p className="text-2xl font-black text-white">
+                ${positions.reduce((sum, p) => sum + p.value, 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-600 mb-1">Total Gain/Loss</p>
+              <p className={`text-2xl font-black ${positions.reduce((sum, p) => sum + p.gain, 0) >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                ${Math.abs(positions.reduce((sum, p) => sum + p.gain, 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
+              <p className="text-2xl font-black text-white">
+                ${positions.reduce((sum, p) => sum + p.costBasis, 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-600 mb-1">Positions</p>
+              <p className="text-2xl font-black text-white">{positions.length}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Position Cards */}
+        {positions.map((position, index) => (
+          <motion.div
+            key={position.symbol}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.05, duration: 0.3 }}
+            className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
+          >
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-2xl font-black text-white uppercase tracking-tight">{position.symbol}</h3>
+                <p className="text-sm text-zinc-500">{position.name}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-2xl font-black text-white">${position.price.toFixed(2)}</p>
+                <p className={`text-sm font-bold ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                  {position.gain >= 0 ? '+' : ''}{position.gainPercent.toFixed(2)}%
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t-2 border-zinc-900">
+              <div>
+                <p className="text-xs text-zinc-600 mb-1">Shares</p>
+                <p className="text-lg font-black text-white">{position.quantity}</p>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-600 mb-1">Market Value</p>
+                <p className="text-lg font-black text-white">${position.value.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
+                <p className="text-lg font-black text-white">${position.costBasis.toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+              </div>
+              <div>
+                <p className="text-xs text-zinc-600 mb-1">Gain/Loss</p>
+                <p className={`text-lg font-black ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                  {position.gain >= 0 ? '+' : ''}${Math.abs(position.gain).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+
+        {/* Disconnect Button */}
+        <div className="pt-8 text-center">
+          <button
+            onClick={async () => {
+              if (window.confirm('Are you sure you want to disconnect your brokerage account?')) {
+                try {
+                  const functions = getFunctions();
+                  const disconnectPlaid = httpsCallable(functions, 'disconnectPlaid');
+                  await disconnectPlaid();
+                  setBrokerageConnected(false);
+                  setPositions([]);
+                } catch (error) {
+                  console.error('Error disconnecting:', error);
+                }
+              }
+            }}
+            className="text-red-500 hover:text-red-400 text-xs font-bold uppercase tracking-wider transition-colors"
+          >
+            Disconnect Brokerage Account
+          </button>
+        </div>
+      </div>
+    )}
+  </>
+) : activeTab === "DISCOVER" ? (
   <>
     {/* Search Bar */}
     <div className="mb-6">
