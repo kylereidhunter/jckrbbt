@@ -16,9 +16,7 @@ import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatc
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
 import { Users } from 'lucide-react';
 import UserProfileModal from './UserProfileModal';
-import { getFunctions, httpsCallable } from 'firebase/functions';
 import PlaidLink from './PlaidLink';
-import PlaidConsent from './PlaidConsent';
 
 
 console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
@@ -468,13 +466,20 @@ const fetchPositions = async () => {
   
   setLoadingPositions(true);
   try {
-    const functions = getFunctions();
-    const getHoldings = httpsCallable(functions, 'getHoldings');
-    const result = await getHoldings();
+    const idToken = await auth.currentUser.getIdToken();
+    
+    const response = await fetch('/api/getHoldings', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${idToken}`
+      }
+    });
+    
+    const result = await response.json();
     
     // Transform Plaid data to our format
-    const holdingsData = result.data.holdings.map(holding => {
-      const security = result.data.securities.find(s => s.security_id === holding.security_id);
+    const holdingsData = result.holdings.map(holding => {
+      const security = result.securities.find(s => s.security_id === holding.security_id);
       return {
         symbol: security?.ticker_symbol || 'N/A',
         name: security?.name || 'Unknown',
@@ -1914,18 +1919,24 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         <div className="pt-8 text-center">
           <button
             onClick={async () => {
-              if (window.confirm('Are you sure you want to disconnect your brokerage account?')) {
-                try {
-                  const functions = getFunctions();
-                  const disconnectPlaid = httpsCallable(functions, 'disconnectPlaid');
-                  await disconnectPlaid();
-                  setBrokerageConnected(false);
-                  setPositions([]);
-                } catch (error) {
-                  console.error('Error disconnecting:', error);
-                }
-              }
-            }}
+  if (window.confirm('Are you sure you want to disconnect your brokerage account?')) {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      
+      await fetch('/api/disconnectPlaid', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`
+        }
+      });
+      
+      setBrokerageConnected(false);
+      setPositions([]);
+    } catch (error) {
+      console.error('Error disconnecting:', error);
+    }
+  }
+}}
             className="text-red-500 hover:text-red-400 text-xs font-bold uppercase tracking-wider transition-colors"
           >
             Disconnect Brokerage Account

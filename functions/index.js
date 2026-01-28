@@ -20,16 +20,33 @@ const configuration = new Configuration({
 
 const plaidClient = new PlaidApi(configuration);
 
-// Create Link Token - CALLABLE VERSION
-exports.createLinkToken = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
+// Helper to verify Firebase auth token
+const verifyAuth = async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return null;
   }
+
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    return decodedToken.uid;
+  } catch (error) {
+    res.status(401).json({ error: 'Invalid token' });
+    return null;
+  }
+};
+
+// Create Link Token
+exports.createLinkToken = functions.https.onRequest(async (req, res) => {
+  const userId = await verifyAuth(req, res);
+  if (!userId) return;
 
   try {
     const request = {
       user: {
-        client_user_id: context.auth.uid,
+        client_user_id: userId,
       },
       client_name: 'Jackrabbit',
       products: ['investments'],
@@ -38,92 +55,91 @@ exports.createLinkToken = functions.https.onCall(async (data, context) => {
     };
 
     const response = await plaidClient.linkTokenCreate(request);
-    return { link_token: response.data.link_token };
+    res.json({ link_token: response.data.link_token });
   } catch (error) {
     console.error('Error creating link token:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Exchange Token - CALLABLE VERSION
-exports.exchangePlaidToken = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
-  }
+// Exchange Token
+exports.exchangePlaidToken = functions.https.onRequest(async (req, res) => {
+  const userId = await verifyAuth(req, res);
+  if (!userId) return;
 
   try {
+    const { publicToken } = req.body;
+    
     const response = await plaidClient.itemPublicTokenExchange({
-      public_token: data.publicToken,
+      public_token: publicToken,
     });
 
     await admin.firestore()
       .collection('users')
-      .doc(context.auth.uid)
+      .doc(userId)
       .set({
         plaidAccessToken: response.data.access_token,
         plaidItemId: response.data.item_id,
         brokerageConnected: true,
       }, { merge: true });
 
-    return { success: true };
+    res.json({ success: true });
   } catch (error) {
     console.error('Error exchanging token:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Get Holdings - CALLABLE VERSION
-exports.getHoldings = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
-  }
+// Get Holdings
+exports.getHoldings = functions.https.onRequest(async (req, res) => {
+  const userId = await verifyAuth(req, res);
+  if (!userId) return;
 
   try {
     const userDoc = await admin.firestore()
       .collection('users')
-      .doc(context.auth.uid)
+      .doc(userId)
       .get();
 
     const accessToken = userDoc.data()?.plaidAccessToken;
     
     if (!accessToken) {
-      throw new functions.https.HttpsError('not-found', 'No brokerage account linked');
+      return res.status(404).json({ error: 'No brokerage account linked' });
     }
 
     const response = await plaidClient.investmentsHoldingsGet({
       access_token: accessToken,
     });
 
-    return {
+    res.json({
       accounts: response.data.accounts,
       holdings: response.data.holdings,
       securities: response.data.securities,
-    };
+    });
   } catch (error) {
     console.error('Error fetching holdings:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Disconnect - CALLABLE VERSION
-exports.disconnectPlaid = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
-  }
+// Disconnect
+exports.disconnectPlaid = functions.https.onRequest(async (req, res) => {
+  const userId = await verifyAuth(req, res);
+  if (!userId) return;
 
   try {
     await admin.firestore()
       .collection('users')
-      .doc(context.auth.uid)
+      .doc(userId)
       .update({
         plaidAccessToken: admin.firestore.FieldValue.delete(),
         plaidItemId: admin.firestore.FieldValue.delete(),
         brokerageConnected: false,
       });
 
-    return { success: true };
+    res.json({ success: true });
   } catch (error) {
     console.error('Error disconnecting:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    res.status(500).json({ error: error.message });
   }
 });

@@ -1,41 +1,28 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { auth } from './firebase';
 
-const PlaidLink = ({ user, onSuccess, onError }) => {
-  const [linkToken, setLinkToken] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const functions = getFunctions();
-
-  useEffect(() => {
-    const createToken = async () => {
-      try {
-        const createLinkToken = httpsCallable(functions, 'createLinkToken');
-        const result = await createLinkToken();
-        setLinkToken(result.data.link_token);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error creating link token:', error);
-        onError(error);
-        setLoading(false);
-      }
-    };
-
-    if (user) {
-      createToken();
-    }
-  }, [user, functions, onError]);
-
+const PlaidLinkButton = ({ linkToken, onSuccess, onError }) => {
   const onPlaidSuccess = useCallback(async (publicToken, metadata) => {
+    console.log('Plaid success! Public token:', publicToken);
     try {
-      const exchangeToken = httpsCallable(functions, 'exchangePlaidToken');
-      await exchangeToken({ publicToken });
+      const idToken = await auth.currentUser.getIdToken();
+      
+      await fetch('/api/exchangePlaidToken', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ publicToken })
+      });
+      
       onSuccess();
     } catch (error) {
       console.error('Error exchanging token:', error);
       onError(error);
     }
-  }, [functions, onSuccess, onError]);
+  }, [onSuccess, onError]);
 
   const config = {
     token: linkToken,
@@ -44,7 +31,51 @@ const PlaidLink = ({ user, onSuccess, onError }) => {
 
   const { open, ready } = usePlaidLink(config);
 
-  if (loading) {
+  return (
+    <button
+      onClick={() => open()}
+      disabled={!ready}
+      className="bg-[#00ff4e] hover:opacity-90 disabled:opacity-50 text-black font-black px-6 py-3 rounded-lg text-sm uppercase tracking-tight transition-all"
+    >
+      Connect Brokerage Account
+    </button>
+  );
+};
+
+const PlaidLink = ({ user, onSuccess, onError }) => {
+  const [linkToken, setLinkToken] = useState(null);
+
+  useEffect(() => {
+    const createToken = async () => {
+      try {
+        const idToken = await auth.currentUser.getIdToken();
+        
+        const response = await fetch('/api/createLinkToken', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${idToken}`
+          }
+        });
+        
+        const data = await response.json();
+        
+        if (!data.link_token) {
+          throw new Error('No link token in response');
+        }
+        
+        setLinkToken(data.link_token);
+      } catch (error) {
+        console.error('Error creating link token:', error);
+        onError(error);
+      }
+    };
+
+    if (user) {
+      createToken();
+    }
+  }, [user, onError]);
+
+  if (!linkToken) {
     return (
       <button
         disabled
@@ -56,13 +87,11 @@ const PlaidLink = ({ user, onSuccess, onError }) => {
   }
 
   return (
-    <button
-      onClick={() => open()}
-      disabled={!ready}
-      className="bg-[#00ff4e] hover:opacity-90 disabled:opacity-50 text-black font-black px-6 py-3 rounded-lg text-sm uppercase tracking-tight transition-all"
-    >
-      Connect Brokerage Account
-    </button>
+    <PlaidLinkButton 
+      linkToken={linkToken} 
+      onSuccess={onSuccess} 
+      onError={onError} 
+    />
   );
 };
 
