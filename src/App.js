@@ -2251,10 +2251,13 @@ function CustomDropdown({ value, onChange, options, label }) {
   );
 }
 
-const MetricCard = React.memo(({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user }) => {
+function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user }) {  
   const [isOpen, setIsOpen] = useState(false);  
   const [isHoveringButton, setIsHoveringButton] = useState(false);
   const cardRef = useRef(null);
+  const prevPrice = useRef(null); // Changed: Start with null
+  const prevChange = useRef(null); // Changed: Start with null
+  
   
   const accent = stock.isPositive ? '#00ff4e' : '#FF4B2B';
   const isPositive = parseFloat(stock.change) >= 0;
@@ -2262,9 +2265,18 @@ const MetricCard = React.memo(({ stock, isMarketOpen, onAction, actionType, watc
   const Triangle = isPositive ? '▲' : '▼';
   const prefix = isPositive ? '+' : '';
   const isAlreadyAdded = watchlist.some(s => s.symbol === stock.symbol);
-
   
+  // Changed: Check for first render OR actual changes
+  const shouldAnimate = prevPrice.current === null || prevPrice.current !== stock.price || prevChange.current !== stock.change;
 
+  // Update the refs after render only when values actually change
+  useEffect(() => {
+    if (stock.price !== prevPrice.current || stock.change !== prevChange.current) {
+      prevPrice.current = stock.price;
+      prevChange.current = stock.change;
+    }
+  }, [stock.price, stock.change]);
+  
 useEffect(() => {
     if (!isOpen) return;
 
@@ -2433,28 +2445,39 @@ useEffect(() => {
 
      
 
-      {/* MAIN CONTENT */}
+{/* MAIN CONTENT */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-end mb-6 md:mb-8 gap-4">
         <div className="flex-1">
-         <p className="text-[8px] md:text-[10px] text-[#ffffff] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 flex items-center gap-2">
-  <span 
-    className={`h-1.5 w-1.5 md:h-2 md:w-2 rounded-full flex-shrink-0 ${isMarketOpen ? 'animate-pulse' : ''}`} 
-    style={{ backgroundColor: accent, boxShadow: isMarketOpen ? `0 0 15px ${accent}` : 'none' }} 
-  />
-  {stock.name}
-</p>
+          <p className="text-[8px] md:text-[10px] text-[#ffffff] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 flex items-center gap-2">
+            <span 
+              className={`h-1.5 w-1.5 md:h-2 md:w-2 rounded-full flex-shrink-0 ${isMarketOpen ? 'animate-pulse' : ''}`} 
+              style={{ backgroundColor: accent, boxShadow: isMarketOpen ? `0 0 15px ${accent}` : 'none' }} 
+            />
+            {stock.name}
+          </p>
+          
           <div className="flex flex-col sm:flex-row sm:items-end gap-3 md:gap-8">
             <h2 className="text-4xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">{stock.symbol}</h2>
+            
             <div className="flex items-baseline gap-2 md:gap-3">
               <span className="text-3xl md:text-5xl font-black text-white tabular-nums leading-none">
-                $<CountUp end={parseFloat(stock.price)} decimals={2} duration={1200} />
+                ${shouldAnimate ? (
+                  <CountUp end={parseFloat(stock.price)} decimals={2} duration={1200} />
+                ) : (
+                  parseFloat(stock.price).toFixed(2)
+                )}
               </span>
               <span className="text-xl md:text-3xl font-black tabular-nums leading-none" style={{ color: trendColor }}>
-                {prefix}<CountUp end={Math.abs(parseFloat(stock.change))} decimals={2} duration={1200} />% <span className="text-lg md:text-2xl ml-1 md:ml-2 align-middle">{Triangle}</span>
+                {prefix}{shouldAnimate ? (
+                  <CountUp end={Math.abs(parseFloat(stock.change))} decimals={2} duration={1200} />
+                ) : (
+                  Math.abs(parseFloat(stock.change)).toFixed(2)
+                )}% <span className="text-lg md:text-2xl ml-1 md:ml-2 align-middle">{Triangle}</span>
               </span>
             </div>
           </div>
         </div>
+        
         <div className="flex gap-4 md:gap-8 md:text-right md:border-l-2 md:border-zinc-900 md:pl-8">
           <div>
             <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-wider md:tracking-widest mb-2 md:mb-4">Predicted Range</p>
@@ -2497,23 +2520,29 @@ useEffect(() => {
       <Tooltip content="Quantitative score (0-100%) based on news recency, news volume, price momentum, volatility, and catalyst strength. Higher scores indicate stronger trading opportunities." />
     </span>
     <span style={{ color: '#00ff4e' }}>
-  <CountUp end={stock.confidence} decimals={0} duration={1500} suffix="%" />
-</span>
+      {stock.confidence}%
+    </span>
   </div>
   <div className="h-[2px] md:h-[3px] bg-zinc-900 w-full relative">
-    <motion.div initial={{ width: 0 }} animate={{ width: `${stock.confidence}%` }} className="absolute h-full bg-[#00ff4e] shadow-[0_0_15px_#00ff4e]" />
+    <div 
+      className="absolute h-full bg-[#00ff4e] shadow-[0_0_15px_#00ff4e]" 
+      style={{ width: `${stock.confidence}%` }}
+    />
   </div>
 </div>
   <div>
     <div className="flex justify-between items-end mb-2">
       <span className="text-[8px] md:text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center">
-  Volatility Index
-  <Tooltip content="Historical Volatility (HV) calculated using annualized standard deviation of daily returns over 30 days. Higher volatility indicates larger price swings and higher risk/reward potential. Values above 60% are considered highly volatile." />
-</span>
+        Volatility Index
+        <Tooltip content="Historical Volatility (HV) calculated using annualized standard deviation of daily returns over 30 days. Higher volatility indicates larger price swings and higher risk/reward potential. Values above 60% are considered highly volatile." />
+      </span>
       <span className="text-[10px] md:text-xs font-mono text-[#00ff4e] bg-[#00ff4e]/10 px-2 py-0.5 rounded">{stock.volatility}%</span>
     </div>
     <div className="h-[2px] bg-zinc-800 rounded-full overflow-hidden">
-      <motion.div initial={{ width: 0 }} animate={{ width: `${stock.volatility}%` }} transition={{ duration: 1.5, ease: "circOut" }} className={`h-full shadow-[0_0_15px] ${stock.volatility > 35 ? 'bg-red-500 shadow-red-500' : 'bg-[#00ff4e] shadow-[#00ff4e]'}`} />
+      <div 
+        className={`h-full shadow-[0_0_15px] ${stock.volatility > 35 ? 'bg-red-500 shadow-red-500' : 'bg-[#00ff4e] shadow-[#00ff4e]'}`} 
+        style={{ width: `${stock.volatility}%` }}
+      />
     </div>
   </div>
 </div>
@@ -2559,17 +2588,7 @@ useEffect(() => {
       </div>
     </div>
   );
-}, (prevProps, nextProps) => {
-  // Only re-render if these specific props change
-  return (
-    prevProps.stock.symbol === nextProps.stock.symbol &&
-    prevProps.stock.price === nextProps.stock.price &&
-    prevProps.isMarketOpen === nextProps.isMarketOpen &&
-    prevProps.showAddToListMenu === nextProps.showAddToListMenu &&
-    prevProps.user === nextProps.user
-  );
-});
-
+}
 // NEWS CARD COMPONENT
 function NewsCard({ article }) {
   const categoryColors = {
