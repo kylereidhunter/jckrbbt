@@ -494,8 +494,8 @@ const fetchPositions = useCallback(async () => {
   try {
     const idToken = await auth.currentUser.getIdToken();
     
-    const response = await fetch('/api/getHoldings', {
-      method: 'POST',
+    const response = await fetch('https://us-central1-jckrbbt-869de.cloudfunctions.net/getHoldings', {
+      method: 'GET',
       headers: {
         'Authorization': `Bearer ${idToken}`
       }
