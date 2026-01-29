@@ -582,9 +582,6 @@ const [watchlist, setWatchlist] = useState(() => {
   return saved ? JSON.parse(saved) : [];
 });
 
-function MobileSnapScroll({ children }) {
-  return <div className="space-y-8">{children}</div>;
-}
 
 // --- FETCH NEWS FUNCTION ---
 const fetchNews = useCallback(async () => {
@@ -864,6 +861,9 @@ useEffect(() => {
   if (stocks.length === 0 && watchlists.length === 0) return;
 
   const liveTimer = setInterval(async () => {
+    // Clear the stock cache so new prices get picked up
+    stockCache.current = {};
+    
     const updateList = async (list) => {
       return Promise.all(list.map(async (stock) => {
         try {
@@ -881,7 +881,8 @@ useEffect(() => {
     };
 
     if (stocks.length > 0) {
-      setStocks(await updateList(stocks));
+      const updated = await updateList(stocks);
+      setStocks(updated);
     }
     
     if (watchlists.length > 0) {
@@ -896,7 +897,7 @@ useEffect(() => {
   }, 30000);
 
   return () => clearInterval(liveTimer);
-}, [isMarketOpen, FINNHUB_KEY]); // REMOVED stocks, watchlists, watchlist from dependencies!
+}, [isMarketOpen, FINNHUB_KEY, stocks, watchlists]); // Add stocks and watchlists back
 
   // --- NEURAL SCANNER LOGIC ---
 const runScanner = useCallback(async (tickerToSearch = null) => {
@@ -1270,8 +1271,7 @@ const newStock = {
 }, [aiModel, sourceString, scanPriceLimit, scanMarketCap, scanSector]);
 
 
-// --- SORT AND FILTER LOGIC ---
-const getSortedAndFilteredStocks = (stockList) => {
+const getSortedAndFilteredStocks = useCallback((stockList) => {
   let filtered = [...stockList];
   
   if (filterSignal !== "all") {
@@ -1313,9 +1313,31 @@ const getSortedAndFilteredStocks = (stockList) => {
   });
   
   return sorted;
-};
+}, [sortBy, filterSignal, filterPriceRange, filterVolatility]);
 
-const displayedStocks = useMemo(() => getSortedAndFilteredStocks(stocks), [stocks, sortBy, filterSignal, filterPriceRange, filterVolatility]);
+// Create a stable reference cache for stock objects
+const stockCache = useRef({});
+
+const getStableStock = useCallback((stock) => {
+  const key = stock.symbol;
+  const cached = stockCache.current[key];
+  
+  // If stock data hasn't changed, return cached version
+  if (cached && cached.price === stock.price && cached.change === stock.change) {
+    return cached;
+  }
+  
+  // Otherwise cache and return new version
+  stockCache.current[key] = stock;
+  return stock;
+}, []);
+
+// Then change your displayedStocks to use this:
+const displayedStocks = useMemo(() => 
+  getSortedAndFilteredStocks(stocks).map(getStableStock), 
+  [stocks, getSortedAndFilteredStocks, getStableStock]
+);
+
 const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
 
@@ -1661,11 +1683,10 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           <SkeletonCard />
         </>
       )}
-<MobileSnapScroll>
   {displayedStocks.map((stock, index) => (
     <MetricCard 
       key={stock.symbol}
-      stock={stock} 
+      stock={getStableStock(stock)}  // <- Use getStableStock here too
       isMarketOpen={isMarketOpen} 
       onAction={(stock) => setShowAddToListMenu(stock)}
       removeFromWatchlist={removeStockFromList}
@@ -1678,7 +1699,6 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       user={user}
     />
   ))}
-</MobileSnapScroll>
     </>
   ) : activeTab === "MY LISTS" ? (
     <>
@@ -1798,25 +1818,25 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
                       {list.stocks.length === 0 ? (
                         <p className="text-zinc-600 text-sm text-center py-4">No stocks in this list yet</p>
                       ) : (
-                        <MobileSnapScroll>
-                          {list.stocks.map((stock) => (
-                            <MetricCard 
-                              key={stock.symbol}
-                              stock={stock} 
-                              isMarketOpen={isMarketOpen} 
-                              onAction={(stock) => setShowAddToListMenu(stock)}
-                              removeFromWatchlist={(symbol) => removeStockFromList(list.id, symbol)}
-                              actionType="REMOVE"
-                              watchlist={flattenedWatchlist}
-                              showAddToListMenu={showAddToListMenu}
-                              onCloseMenu={() => setShowAddToListMenu(null)}
-                              watchlists={watchlists}
-                              onAddToList={addStockToList}
-                              user={user}
-                            />
-                          ))}
-                        </MobileSnapScroll>
-                      )}
+  <>
+                            {list.stocks.map((stock) => (
+                              <MetricCard 
+                                key={stock.symbol}
+                                stock={getStableStock(stock)}
+                                isMarketOpen={isMarketOpen} 
+                                onAction={(stock) => setShowAddToListMenu(stock)}
+                                removeFromWatchlist={(symbol) => removeStockFromList(list.id, symbol)}
+                                actionType="REMOVE"
+                                watchlist={flattenedWatchlist}
+                                showAddToListMenu={showAddToListMenu}
+                                onCloseMenu={() => setShowAddToListMenu(null)}
+                                watchlists={watchlists}
+                                onAddToList={addStockToList}
+                                user={user}
+                              />
+                            ))}
+                          </>
+                        )}
                     </div>
                   </motion.div>
                 )}
@@ -2251,13 +2271,19 @@ function CustomDropdown({ value, onChange, options, label }) {
   );
 }
 
-function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user }) {  
+const MetricCard = React.memo(function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user }) {  
+  
+  // Generate a unique ID for this component instance
+  const instanceId = useRef(Math.random().toString(36).substr(2, 9));
+  
+  console.log(`MetricCard ${stock.symbol} [${instanceId.current}] rendered`);
+
   const [isOpen, setIsOpen] = useState(false);  
   const [isHoveringButton, setIsHoveringButton] = useState(false);
   const cardRef = useRef(null);
-  const prevPrice = useRef(null); // Changed: Start with null
-  const prevChange = useRef(null); // Changed: Start with null
-  
+  const prevPrice = useRef(null); // Start with null
+  const prevChange = useRef(null); // Start with null
+  const hasAnimatedRef = useRef(false); // Track if we've animated once
   
   const accent = stock.isPositive ? '#00ff4e' : '#FF4B2B';
   const isPositive = parseFloat(stock.change) >= 0;
@@ -2266,17 +2292,18 @@ function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [],
   const prefix = isPositive ? '+' : '';
   const isAlreadyAdded = watchlist.some(s => s.symbol === stock.symbol);
   
-  // Changed: Check for first render OR actual changes
-  const shouldAnimate = prevPrice.current === null || prevPrice.current !== stock.price || prevChange.current !== stock.change;
+  // Only animate if: (1) first time seeing this stock, OR (2) price/change actually changed
+  const shouldAnimate = !hasAnimatedRef.current || 
+                       (prevPrice.current !== null && prevPrice.current !== stock.price) ||
+                       (prevChange.current !== null && prevChange.current !== stock.change);
 
-  // Update the refs after render only when values actually change
+  // Update refs after render
   useEffect(() => {
-    if (stock.price !== prevPrice.current || stock.change !== prevChange.current) {
-      prevPrice.current = stock.price;
-      prevChange.current = stock.change;
-    }
+    prevPrice.current = stock.price;
+    prevChange.current = stock.change;
+    hasAnimatedRef.current = true; // Mark as animated
   }, [stock.price, stock.change]);
-  
+
 useEffect(() => {
     if (!isOpen) return;
 
@@ -2588,7 +2615,18 @@ useEffect(() => {
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => {
+  // Only re-render if these specific props change
+  return (
+    prevProps.stock.price === nextProps.stock.price &&
+    prevProps.stock.change === nextProps.stock.change &&
+    prevProps.stock.symbol === nextProps.stock.symbol &&
+    prevProps.isMarketOpen === nextProps.isMarketOpen &&
+    prevProps.showAddToListMenu?.symbol === nextProps.showAddToListMenu?.symbol
+  );
+});
+
+
 // NEWS CARD COMPONENT
 function NewsCard({ article }) {
   const categoryColors = {
