@@ -30,6 +30,7 @@ const genAI = new GoogleGenerativeAI(GEN_AI_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 const ALPHA_VANTAGE_KEY = process.env.REACT_APP_ALPHA_VANTAGE_KEY;
 const TWELVE_DATA_KEY = process.env.REACT_APP_TWELVE_DATA_KEY;
+const livePriceCache = useRef({});
 
 
 const isMobile = () => window.innerWidth < 768;
@@ -360,6 +361,7 @@ const [trendingInterval, setTrendingInterval] = useState('weekly');
 const [loadingTrending, setLoadingTrending] = useState(false);
 const [loadingDiscover, setLoadingDiscover] = useState(false);
 const [hoveringPositionSymbol, setHoveringPositionSymbol] = useState(null);
+const watchlistIntervalRef = useRef(null);
 
 
 const flattenedWatchlist = useMemo(() => {
@@ -426,6 +428,27 @@ const addStockToList = async (stock, listId) => {
   }
 };
 
+const updateList = useCallback(async (list) => {
+  // Safety check - return empty array if list is undefined or not an array
+  if (!list || !Array.isArray(list)) {
+    return [];
+  }
+  
+  return Promise.all(list.map(async (stock) => {
+    try {
+      const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${stock.symbol}&token=${FINNHUB_KEY}`);
+      const data = await res.json();
+      if (!data.c) return stock; 
+      return {
+        ...stock,
+        price: data.c.toFixed(2),
+        change: data.dp?.toFixed(2) || stock.change,
+        isPositive: data.dp >= 0
+      };
+    } catch (e) { return stock; }
+  }));
+}, [FINNHUB_KEY]);
+
 const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
   setLoadingTrending(true);
   try {
@@ -445,6 +468,8 @@ const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
       cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     }
     
+    
+
     const trending = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
@@ -489,6 +514,8 @@ const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
     setLoadingTrending(false);
   }
 }, []);
+
+
 
 // Fetch trending stocks when tab changes or interval changes
 useEffect(() => {
@@ -1026,26 +1053,28 @@ useEffect(() => {
   if (!isMarketOpen) return;
   if (stocks.length === 0 && watchlists.length === 0) return;
 
+  // Define updateList function
+  const updateList = async (list) => {
+    return Promise.all(list.map(async (stock) => {
+      try {
+        const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${stock.symbol}&token=${FINNHUB_KEY}`);
+        const data = await res.json();
+        if (!data.c) return stock; 
+        return {
+          ...stock,
+          price: data.c.toFixed(2),
+          change: data.dp?.toFixed(2) || stock.change,
+          isPositive: data.dp >= 0
+        };
+      } catch (e) { return stock; }
+    }));
+  };
+
+  // Start the interval
   const liveTimer = setInterval(async () => {
     // Clear the stock cache so new prices get picked up
     stockCache.current = {};
     
-    const updateList = async (list) => {
-      return Promise.all(list.map(async (stock) => {
-        try {
-          const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${stock.symbol}&token=${FINNHUB_KEY}`);
-          const data = await res.json();
-          if (!data.c) return stock; 
-          return {
-            ...stock,
-            price: data.c.toFixed(2),
-            change: data.dp?.toFixed(2) || stock.change,
-            isPositive: data.dp >= 0
-          };
-        } catch (e) { return stock; }
-      }));
-    };
-
     if (stocks.length > 0) {
       const updated = await updateList(stocks);
       setStocks(updated);
@@ -1060,14 +1089,15 @@ useEffect(() => {
       );
       setWatchlists(updatedLists);
     }
-  }, 30000);
+  }, 60000); // 1 minute
 
   return () => clearInterval(liveTimer);
-}, [isMarketOpen, FINNHUB_KEY, stocks, watchlists]); // Add stocks and watchlists back
+}, [isMarketOpen, FINNHUB_KEY, stocks, watchlists]);
 
   // --- NEURAL SCANNER LOGIC ---
 const runScanner = useCallback(async (tickerToSearch = null) => {
   setLoading(true);
+  clearInterval(watchlistIntervalRef.current);
   setStocks([]); 
   setScanStatus("INITIALIZING...");
 
@@ -1209,8 +1239,7 @@ DO NOT include tickers unless you found SPECIFIC catalyst information.
         tickersToProcess = [...new Set(foundSymbols)];
       }
 
-const blacklist = ["CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", "FDA", "JAN", "FEB"];
-const foreignSuffixes = [".L", ".HK", ".TO", ".AX", ".PA", ".DE"]; // London, Hong Kong, Toronto, Australia, Paris, Germany
+const blacklist = ["CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", "FDA", "JAN", "FEB", "AI", "ML", "EV", "CEO", "CFO", "IPO", "ETF", "ESG"];const foreignSuffixes = [".L", ".HK", ".TO", ".AX", ".PA", ".DE"]; // London, Hong Kong, Toronto, Australia, Paris, Germany
 
 const tickers = tickersToProcess.filter(t => {
   if (blacklist.includes(t)) return false;
@@ -1252,6 +1281,7 @@ try {
     ]);
   } catch (fetchError) {
     console.log(`${ticker} - Finnhub API error, skipping:`, fetchError.message);
+    console.log(`${ticker} - Finnhub quote data:`, { c: q.c, v: q.v, av: q.av, dp: q.dp });
     rejectedTickers.add(ticker);
     continue;
   }
@@ -1273,7 +1303,8 @@ if (volatilityCache[ticker]) {
 } else {
   try {
     // Twelve Data API - much better free tier
-    const twelveUrl = `https://api.twelvedata.com/time_series?symbol=${ticker}&interval=1day&outputsize=30&apikey=${TWELVE_DATA_KEY}`;
+    console.log('Twelve Data Key:', TWELVE_DATA_KEY?.substring(0, 10) + '...');
+    const twelveUrl = `https://api.twelvedata.com/time_series?symbol=${ticker}&interval=1day&outputsize=90&apikey=${TWELVE_DATA_KEY}`;
     const twelveRes = await fetch(twelveUrl);
     const twelveData = await twelveRes.json();
     
@@ -1505,8 +1536,16 @@ const newStock = {
       }
       if (isManual) break;
     }
-  } catch (err) { console.error(err); }
-  finally { setLoading(false); setScanStatus("COMPLETE"); }
+ } catch (err) { console.error(err); }
+  finally { 
+    setLoading(false); 
+    setScanStatus("COMPLETE");
+    // Restart watchlist updates after scan completes
+    if (watchlistIntervalRef.current) {
+      clearInterval(watchlistIntervalRef.current);
+    }
+    watchlistIntervalRef.current = setInterval(updateList, 60000);
+  }
 }, [aiModel, sourceString, scanPriceLimit, scanMarketCap, scanSector]);
 
 
@@ -3126,7 +3165,10 @@ onClick={(e) => {
                     <h4 className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-zinc-500">Intraday Pulse</h4>
                     <span className="text-[8px] md:text-[10px] font-bold text-[#00ff4e]">LIVE</span>
                   </div>
-                  <MiniChart symbol={stock.symbol} />
+                  <MiniChart 
+  symbol={stock.symbol} 
+  livePriceCache={livePriceCache}
+/>
                 </div>
               </div>
             </motion.div>
