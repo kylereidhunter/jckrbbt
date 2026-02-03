@@ -159,7 +159,7 @@ return Math.min(Math.max(annualizedVolatility, 10), 120);
 };
 
 // Calculate Signal Strength based on quantifiable factors
-const calculateSignalStrength = (newsData, priceData, currentPrice, volatility, aiCatalystScore) => {
+const calculateSignalStrength = (newsData, priceData, currentPrice, volatility, aiCatalystScore, volumeRatio = 1) => {
   let score = 0;
   
   // 1. NEWS RECENCY (25 points max) - More generous
@@ -229,6 +229,23 @@ const calculateSignalStrength = (newsData, priceData, currentPrice, volatility, 
   // BONUS: If we have both news AND volatility, add synergy bonus
   if (newsCount >= 1 && vol >= 30) {
     score += 5;
+  }
+  
+  // Ensure score is between 0-100
+  return Math.min(Math.max(Math.round(score), 15), 95);
+
+    // 6. VOLUME SURGE FACTOR (10 points max) - NEW
+  if (volumeRatio >= 3) {
+    score += 10; // Major volume spike
+  } else if (volumeRatio >= 2) {
+    score += 7; // Strong volume
+  } else if (volumeRatio >= 1.5) {
+    score += 4; // Elevated volume
+  }
+  
+  // BONUS: If we have both news AND elevated volume, add synergy bonus
+  if (newsCount >= 1 && volumeRatio >= 2) {
+    score += 5; // News + volume = stronger signal
   }
   
   // Ensure score is between 0-100
@@ -1082,10 +1099,17 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
         setScanStatus(`GATHERING...`);
         const excludeStr = rejectedTickers.size > 0 ? `EXCLUDE: ${Array.from(rejectedTickers).slice(-20).join(", ")}` : "";
 
-        const discoveryPrompt = `
+const discoveryPrompt = `
 You are a quantitative analyst scanning for US stocks under $${scanPriceLimit} with MAJOR catalysts for ${currentMonthName} ${currentYear}.
 
-CRITICAL: Return ONLY valid stock tickers (2-5 letters, US-traded). No company names, no explanations.
+IMPORTANT: Provide DIVERSE results across different sectors and catalyst types. Don't focus on just one sector.
+RANDOMIZATION: Include a mix of biotech, tech, finance, energy, and consumer stocks.
+
+CRITICAL RULES:
+1. Return ONLY valid US-traded stock tickers (2-5 letters, listed on NYSE/NASDAQ/AMEX)
+2. NO ADRs, NO foreign stocks, NO Chinese companies
+3. Every stock MUST have a SPECIFIC catalyst from the past 7 days OR upcoming in next 14 days
+4. NO stocks based solely on "near 52-week high" or "technical setup"
 
 ${scanMarketCap !== 'all' ? `MARKET CAP FILTER: Focus ONLY on ${
   scanMarketCap === 'small' ? 'small-cap stocks ($300M - $2B market cap)' :
@@ -1105,73 +1129,74 @@ ${scanSector !== 'all' ? `SECTOR FILTER: Focus ONLY on ${
   'Utilities sector (electric, water, gas utilities)'
 } companies.` : ''}
 
-SEARCH STRATEGY (prioritize in this order):
+REQUIRED CATALYST TYPES (stock must have at least ONE):
 
-1. BIOTECH CATALYSTS (Top Priority - Jan 2026 is peak season):
-   - "FDA PDUFA approval January 2026"
-   - "Phase 3 clinical trial results ${currentMonthName} 2026"
-   - "Biosecure Act beneficiaries manufacturing"
-   - "ASCO GU genitourinary conference ${currentMonthName} 2026"
-   Search biotech stocks under $20 with binary events this month.
+1. BIOTECH/PHARMA BINARY EVENTS (Highest Priority):
+   - "FDA PDUFA approval decision date [specific date in next 14 days]"
+   - "Phase 3 clinical trial data readout [specific date]"
+   - "FDA panel meeting scheduled [date]"
+   - "Oncology conference presentation [specific date]"
+   Must include SPECIFIC DATE within next 2 weeks
 
-2. EARNINGS MOMENTUM:
-   - "Earnings beat revenue surprise ${currentMonthName} 2026"
-   - "Guidance raised forward outlook"
-   - "Stocks reporting earnings this week"
-   - "Pre-earnings option activity unusual volume"
-   Search companies with earnings in next 2 weeks or recent beats.
+2. EARNINGS WITH MOMENTUM:
+   - "Earnings report [date] analyst expects beat"
+   - "Earnings this week strong guidance expected"
+   - "Earnings surprise last quarter revenue growth"
+   Must have earnings within 7 days OR recent beat within 14 days
 
-3. INSIDER BUYING & INSTITUTIONAL ACTIVITY:
-   - "Insider buying Form 4 SEC filing this week"
-   - "Hedge fund 13F new position ${currentMonthName}"
-   - "Institutional ownership increase accumulation"
-   - "Director CEO insider purchases recent"
-   Search stocks with significant insider/institutional buying.
+3. INSIDER/INSTITUTIONAL BUYING:
+   - "CEO insider buying Form 4 filed [date within 7 days]"
+   - "Hedge fund 13F new position disclosed [recent date]"
+   - "Director purchased shares [date within 14 days]"
+   Must show RECENT insider buying (not months ago)
 
-4. TECHNICAL BREAKOUTS WITH VOLUME:
-   - "Volume surge 3x average unusual trading"
-   - "Short squeeze high short interest"
-   - "RSI oversold bounce technical setup"
-   - "Golden cross moving average breakout"
-   Search for technical setups with confirmation volume.
+4. M&A/ACQUISITION NEWS:
+   - "Merger announced [date within 30 days]"
+   - "Acquisition target rumored [recent report]"
+   - "Activist investor stake revealed [date within 14 days]"
+   Must have concrete M&A news/rumor from past month
 
-5. LEGISLATIVE & POLICY WINNERS:
-   - "DOGE government efficiency contract winners"
-   - "Corporate tax cut small cap beneficiaries 2026"
-   - "Defense spending increase 2026 small caps"
-   Search companies benefiting from new regulations.
+5. ANALYST UPGRADES (Recent):
+   - "Upgraded to buy [analyst firm] [date within 7 days]"
+   - "Price target raised [date within 14 days]"
+   - "Initiated coverage outperform [recent]"
+   Must be RECENT upgrade (not old)
 
-6. ANALYST ACTIVITY:
-   - "Analyst upgrade strong buy rating this week"
-   - "Price target raised ${currentMonthName} 2026"
-   - "Initiated coverage outperform rating"
-   Search for fresh analyst attention.
+6. REGULATORY/GOVERNMENT CATALYSTS:
+   - "Contract awarded [specific contract] [date]"
+   - "Regulatory approval granted [date within 30 days]"
+   - "Policy change benefits [specific company]"
+   Must have specific government/regulatory news
 
-7. M&A / SPECIAL SITUATIONS:
-   - "Merger acquisition target ${currentMonthName} 2026"
-   - "Activist investor stake announcement"
-   - "Buyout rumor takeover candidate"
-   Search companies with acquisition potential.
+7. PRODUCT LAUNCHES/PARTNERSHIPS:
+   - "New product launched [date within 30 days]"
+   - "Partnership announced with [major company] [date]"
+   - "Revenue guidance raised [date within 30 days]"
+   Must have concrete business development news
 
-QUALITY FILTERS (REQUIRED):
-- Must have SPECIFIC catalyst (not just "approaching 52-week high")
-- Must have NEWS or VOLUME SURGE in past 7 days
-- Only stocks under $${scanPriceLimit}
-- Prioritize small/mid caps ($100M - $10B market cap)
-- Avoid penny stocks under $2
-- Prefer stocks with unusual volume or insider activity
+STRICT REJECTION CRITERIA:
+✗ Only "approaching 52-week high" with no other catalyst
+✗ Only "technical breakout" without news
+✗ Generic "sector momentum" without company-specific catalyst
+✗ ADRs or foreign stocks (ending in .L, .HK, etc)
+✗ News older than 30 days with nothing recent
+✗ "Potential" or "could" catalysts - need CONFIRMED events
 
-REJECT stocks that ONLY have:
-- ✗ Generic "technical setup" without volume confirmation
-- ✗ Just near 52-week high/low without other catalysts
-- ✗ Only sector momentum without company-specific news
-
-TRUSTED SOURCES ONLY: ${sourceString}
+TRUSTED NEWS SOURCES ONLY: ${sourceString}
 
 ${excludeStr}
 
-OUTPUT FORMAT: Return ONLY a comma-separated list of 100-150 stock tickers.
+SEARCH PROCESS:
+1. Search for "biotech FDA approval January 2026 PDUFA date"
+2. Search for "earnings this week analyst upgrades"
+3. Search for "insider buying Form 4 filed this week"
+4. Search for "merger acquisition announced January 2026"
+5. For each result, verify it has a SPECIFIC catalyst and is US-traded
+
+OUTPUT FORMAT: Return ONLY a comma-separated list of 100-150 US stock tickers.
 Example: ABCD, EFGH, IJKL, MNOP
+
+DO NOT include tickers unless you found SPECIFIC catalyst information.
 `;
 
         const aiRes = await aiModel.generateContent({
@@ -1184,14 +1209,21 @@ Example: ABCD, EFGH, IJKL, MNOP
         tickersToProcess = [...new Set(foundSymbols)];
       }
 
-      const blacklist = ["CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", "FDA", "JAN", "FEB"];
-      const tickers = tickersToProcess.filter(t => !blacklist.includes(t));
+const blacklist = ["CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", "FDA", "JAN", "FEB"];
+const foreignSuffixes = [".L", ".HK", ".TO", ".AX", ".PA", ".DE"]; // London, Hong Kong, Toronto, Australia, Paris, Germany
 
-      for (const ticker of tickers) {
-        if (localStocks.length >= targetGoal) break;
-        if (displayedTickers.has(ticker) || rejectedTickers.has(ticker)) continue;
+const tickers = tickersToProcess.filter(t => {
+  if (blacklist.includes(t)) return false;
+  if (foreignSuffixes.some(suffix => t.includes(suffix))) return false;
+  if (t.length > 5) return false;
+  return true;
+});
 
-        setScanStatus(`ANALYZING: ${ticker}`);
+// Shuffle to randomize order
+const shuffledTickers = tickers.sort(() => Math.random() - 0.5);
+
+for (const ticker of shuffledTickers) {
+  if (localStocks.length >= targetGoal) break;
 
 try {
   // Add delay BEFORE making requests to avoid rate limiting
@@ -1262,6 +1294,22 @@ if (volatilityCache[ticker]) {
   }
 }
 
+// ADD TECHNICAL BREAKOUT CONFIRMATION HERE:
+// Calculate technical setup
+const fiftyTwoWeekHigh = q.h;
+const fiftyTwoWeekLow = q.l;
+const currentPrice = q.c;
+const priceNearHigh = (currentPrice / fiftyTwoWeekHigh) > 0.95; // Within 5% of highs
+const priceFromLow = ((currentPrice - fiftyTwoWeekLow) / fiftyTwoWeekLow) * 100; // % above low
+
+const technicalContext = `
+TECHNICAL SETUP:
+- Current: $${currentPrice.toFixed(2)}
+- 52W High: $${fiftyTwoWeekHigh.toFixed(2)}
+- 52W Low: $${fiftyTwoWeekLow.toFixed(2)}
+- Near Highs: ${priceNearHigh ? 'YES - Within 5%, potential breakout zone' : 'NO'}
+- From Low: +${priceFromLow.toFixed(1)}%
+`;
 
 if (!isManual) {
   if (q.c < 2) {
@@ -1272,6 +1320,29 @@ if (!isManual) {
   if (q.c > scanPriceLimit) {
     rejectedTickers.add(ticker);
     continue;
+  }
+  
+  // Volume check - only apply if we have valid average volume data
+  const currentVolume = q.v || 0;
+  const avgVolume = q.av || 0;
+  
+  // Only check volume if avgVolume exists and is meaningful
+  if (avgVolume > 0) {
+    const volumeRatio = currentVolume / avgVolume;
+    
+    // Reject if volume is significantly below average (less than 0.5x)
+    // Changed from 1.5x to be less strict
+    if (volumeRatio < 0.5) {
+      console.log(`${ticker} - Very low volume (${volumeRatio.toFixed(2)}x avg), skipping`);
+      rejectedTickers.add(ticker);
+      continue;
+    }
+    
+    if (volumeRatio >= 1.5) {
+      console.log(`${ticker} - Volume check passed (${volumeRatio.toFixed(2)}x avg) ✓`);
+    }
+  } else {
+    console.log(`${ticker} - No average volume data, skipping volume check`);
   }
 }
 
@@ -1284,6 +1355,7 @@ const analysisPrompt = isManual
     TICKER: ${ticker}
     CURRENT PRICE: $${q.c}
     52-WEEK RANGE: $${q.l} - $${q.h}
+    ${technicalContext}
     NEWS (Past 7 Days): ${headlines}
     COMPANY: ${p.name || ticker}
     
@@ -1294,6 +1366,7 @@ const analysisPrompt = isManual
     2. Recent news developments (even if minor)
     3. Sector trends and peer comparison
     4. Risk factors and potential headwinds
+    5. TIMING - When should traders act?
     
     FORMAT (Use EXACT tags):
     NAME: ${p.name || 'Unknown'}
@@ -1301,17 +1374,25 @@ const analysisPrompt = isManual
     [SIG] BULLISH or BEARISH [/SIG]
     [MOM] Positive, Steady, or Uncertain [/MOM]
     [CAT] Brief description of main driver or "Routine Trading" [/CAT]
+    [TIMING] ENTER_NOW or WATCH_FOR_PULLBACK or WAIT_FOR_BREAKOUT [/TIMING]
     [CONF] XX.XX [/CONF] (20-95 range, higher = more confident)
     [VOLATILITY] XX.XX [/VOLATILITY]
     [INSIGHTS]
     | First insight about price action or technical setup
     | Second insight about fundamentals or news
     | Third insight about risks or catalysts
+    | Fourth insight about TIMING - explain your [TIMING] choice
     [/INSIGHTS]
+    
+    TIMING GUIDELINES:
+    - ENTER_NOW: Catalyst imminent (0-3 days) OR breaking out with volume confirmation
+    - WATCH_FOR_PULLBACK: Strong setup but extended (near resistance, overbought)
+    - WAIT_FOR_BREAKOUT: Consolidating near highs, needs volume trigger
   `
   : `
     TICKER: ${ticker}
     PRICE: $${q.c} (52W: $${q.l} - $${q.h})
+    ${technicalContext}
     NEWS: ${headlines}
     COMPANY: ${p.name || ticker}
     
@@ -1349,13 +1430,20 @@ const analysisPrompt = isManual
     [SIG] BULLISH or BEARISH [/SIG]
     [MOM] Positive, Steady, or Uncertain [/MOM]
     [CAT] Specific catalyst (NOT generic) - max 10 words [/CAT]
+    [TIMING] ENTER_NOW or WATCH_FOR_PULLBACK or WAIT_FOR_BREAKOUT [/TIMING]
     [CONF] XX.XX [/CONF]
     [VOLATILITY] XX.XX [/VOLATILITY]
     [INSIGHTS]
     | Insight about catalyst or price action
     | Supporting technical or fundamental point
     | Risk consideration or alternative view
+    | TIMING insight - explain when to enter based on setup
     [/INSIGHTS]
+    
+    TIMING GUIDELINES:
+    - ENTER_NOW: Catalyst imminent (0-3 days) OR breaking out with volume
+    - WATCH_FOR_PULLBACK: Strong setup but extended or overbought
+    - WAIT_FOR_BREAKOUT: Consolidating, needs volume confirmation
     
     Only mark [SIG] NEUTRAL [/SIG] if there's truly zero relevant information.
   `;
@@ -1372,6 +1460,8 @@ if (!isManual && resText.includes("NEUTRAL")) {
 // Get AI's catalyst assessment
 const aiConfidence = getScore(extract("CONF", resText), 65);
 
+const volumeRatio = (q.v || 0) / (q.av || 1);
+
 console.log(`${ticker} - Historical data points:`, h.c?.length);
 console.log(`${ticker} - Calculated HV:`, h.c && h.c.length >= 2 ? calculateHV(h.c) : 'FALLBACK');
 console.log(`${ticker} - AI Confidence:`, aiConfidence);
@@ -1384,7 +1474,7 @@ const newStock = {
   change: q.dp?.toFixed(2) || "0.00",
   isPositive: extract("SIG", resText).toUpperCase().includes("BULLISH"),
   range: clean(extract("RANGE", resText)),
-  confidence: calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence),
+  confidence: calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence, volumeRatio),
   volatility: h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : (() => {
   // Intelligent fallback based on price change and sector
   const priceChange = Math.abs(parseFloat(q.dp || 0));
@@ -1902,8 +1992,8 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 {/* Rank Badge */}
-                <div className="flex items-center justify-center w-12 h-12 bg-zinc-900 rounded-full">
-                  <span className="text-2xl font-black text-[#00ff4e]">#{index + 1}</span>
+                <div className="flex items-center justify-center min-w-[48px] w-12 h-12 bg-zinc-900 rounded-full px-2">
+                  <span className="text-2xl font-black text-[#00ff4e] leading-none">#{index + 1}</span>
                 </div>
                 
                 {/* Stock Info */}
@@ -2173,30 +2263,24 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
-                    <div className="border-t-2 border-zinc-900 pt-4 mt-4">
-                      {list.stocks.length === 0 ? (
-                        <p className="text-zinc-600 text-sm text-center py-4">No stocks in this list yet</p>
-                      ) : (
-  <>
-                            {list.stocks.map((stock) => (
-                              <MetricCard 
-                                key={stock.symbol}
-                                stock={getStableStock(stock)}
-                                isMarketOpen={isMarketOpen} 
-                                onAction={(stock) => setShowAddToListMenu(stock)}
-                                removeFromWatchlist={(symbol) => removeStockFromList(list.id, symbol)}
-                                actionType="REMOVE"
-                                watchlist={flattenedWatchlist}
-                                showAddToListMenu={showAddToListMenu}
-                                onCloseMenu={() => setShowAddToListMenu(null)}
-                                watchlists={watchlists}
-                                onAddToList={addStockToList}
-                                user={user}
-                              />
-                            ))}
-                          </>
-                        )}
-                    </div>
+                   <div className="space-y-6 md:space-y-8">
+                    {list.stocks.map((stock) => (
+                      <MetricCard 
+                        key={stock.symbol}
+                        stock={getStableStock(stock)}
+                        isMarketOpen={isMarketOpen} 
+                        onAction={(stock) => setShowAddToListMenu(stock)}
+                        removeFromWatchlist={(symbol) => removeStockFromList(list.id, symbol)}
+                        actionType="REMOVE"
+                        watchlist={flattenedWatchlist}
+                        showAddToListMenu={showAddToListMenu}
+                        onCloseMenu={() => setShowAddToListMenu(null)}
+                        watchlists={watchlists}
+                        onAddToList={addStockToList}
+                        user={user}
+                      />
+                    ))}
+                  </div>
                   </motion.div>
                 )}
               </AnimatePresence>
