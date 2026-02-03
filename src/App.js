@@ -1047,29 +1047,11 @@ useEffect(() => {
   }
 }, [activeTab, fetchNews]);
 
-// --- LIVE PRICE UPDATES (Every 30 Seconds) ---
+// --- LIVE PRICE UPDATES (Every 60 Seconds) ---
 useEffect(() => {
-  if (!isMarketOpen) return;
+  // Allow updates even when market is closed (for after-hours tracking)
   if (stocks.length === 0 && watchlists.length === 0) return;
 
-  // Define updateList function
-  const updateList = async (list) => {
-    return Promise.all(list.map(async (stock) => {
-      try {
-        const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${stock.symbol}&token=${FINNHUB_KEY}`);
-        const data = await res.json();
-        if (!data.c) return stock; 
-        return {
-          ...stock,
-          price: data.c.toFixed(2),
-          change: data.dp?.toFixed(2) || stock.change,
-          isPositive: data.dp >= 0
-        };
-      } catch (e) { return stock; }
-    }));
-  };
-
-  // Start the interval
   const liveTimer = setInterval(async () => {
     // Clear the stock cache so new prices get picked up
     stockCache.current = {};
@@ -1088,10 +1070,10 @@ useEffect(() => {
       );
       setWatchlists(updatedLists);
     }
-  }, 60000); // 1 minute
+  }, 60000); // Every 60 seconds
 
   return () => clearInterval(liveTimer);
-}, [isMarketOpen, FINNHUB_KEY, stocks, watchlists]);
+}, [updateList, stocks, watchlists]); // Removed isMarketOpen check
 
   // --- NEURAL SCANNER LOGIC ---
 const runScanner = useCallback(async (tickerToSearch = null) => {
@@ -1727,7 +1709,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       <TypewriterGreeting />
 
       <div className="flex gap-2 md:gap-4 mb-6 md:mb-8 border-b border-zinc-900 pb-4 overflow-x-auto">
-       {["DASHBOARD", "MY LISTS", "MY POSITIONS", "TRENDING", "DISCOVER", "NEWS"].map((tab) => (
+       {["DASHBOARD", "TRENDING", "DISCOVER", "MY LISTS", "MY POSITIONS", "NEWS"].map(tab => (
   <button
     key={tab}
     onClick={() => setActiveTab(tab)}
@@ -1977,98 +1959,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     />
   ))}
     </>
- ) : activeTab === "TRENDING" ? (
-  <>
-    {/* Interval Filter */}
-    <div className="mb-6">
-      <div className="bg-[#050505] border border-zinc-900 p-4 rounded-xl">
-        <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
-          Time Period
-        </h3>
-        <div className="flex gap-2">
-          {['daily', 'weekly', 'monthly'].map((interval) => (
-            <button
-              key={interval}
-              onClick={() => setTrendingInterval(interval)}
-              className={`flex-1 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-tight transition-all ${
-                trendingInterval === interval
-                  ? 'bg-[#00ff4e] text-black'
-                  : 'bg-zinc-900 text-zinc-500 hover:text-white'
-              }`}
-            >
-              {interval}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
 
-    {/* Trending Stocks List */}
-    {loadingTrending ? (
-      <div className="py-32 text-center">
-        <p className="text-zinc-500 text-sm uppercase tracking-widest font-black">Loading Trending Stocks...</p>
-      </div>
-    ) : trendingStocks.length === 0 ? (
-      <div className="py-32 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-        <p className="text-xs md:text-sm tracking-[0.4em] uppercase font-black">No Trending Stocks Yet</p>
-      </div>
-    ) : (
-      <div className="space-y-4">
-        {trendingStocks.map((stock, index) => (
-          <motion.div
-            key={stock.symbol}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05, duration: 0.3 }}
-            className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all cursor-pointer"
-            onClick={() => {
-              setManualSearch(stock.symbol);
-              setActiveTab("DASHBOARD");
-              runScanner(stock.symbol);
-            }}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                {/* Rank Badge */}
-                <div className="flex items-center justify-center min-w-[48px] w-12 h-12 bg-zinc-900 rounded-full px-2">
-                  <span className="text-2xl font-black text-[#00ff4e] leading-none">#{index + 1}</span>
-                </div>
-                
-                {/* Stock Info */}
-                <div>
-                  <h3 className="text-2xl font-black text-white uppercase tracking-tight">{stock.symbol}</h3>
-                  <p className="text-sm text-zinc-500">{stock.name}</p>
-                </div>
-              </div>
-
-              {/* Watch Stats */}
-              <div className="text-right">
-                <p className="text-3xl font-black text-[#00ff4e] mb-1">{stock.watchCount}</p>
-                <p className="text-xs text-zinc-600 uppercase tracking-wider">
-                  {trendingInterval === 'daily' ? 'Adds Today' : 
-                   trendingInterval === 'weekly' ? 'Adds This Week' : 
-                   'Adds This Month'}
-                </p>
-                <p className="text-[10px] text-zinc-700 mt-1">
-                  {stock.totalWatches} total watches
-                </p>
-              </div>
-            </div>
-
-            {/* Progress Bar */}
-            <div className="mt-4 h-2 bg-zinc-900 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-[#00ff4e] shadow-[0_0_10px_#00ff4e]"
-                style={{ 
-                  width: `${Math.min((stock.watchCount / (trendingStocks[0]?.watchCount || 1)) * 100, 100)}%` 
-                }}
-              />
-            </div>
-          </motion.div>
-        ))}
-      </div>
-    )}
-  </>
 ) : activeTab === "DISCOVER" ? (
   <>
     {/* Search Bar */}
@@ -2187,6 +2078,99 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       )}
     </div>
   </>
+ ) : activeTab === "TRENDING" ? (
+  <>
+    {/* Interval Filter */}
+    <div className="mb-6">
+      <div className="bg-[#050505] border border-zinc-900 p-4 rounded-xl">
+        <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
+          Time Period
+        </h3>
+        <div className="flex gap-2">
+          {['daily', 'weekly', 'monthly'].map((interval) => (
+            <button
+              key={interval}
+              onClick={() => setTrendingInterval(interval)}
+              className={`flex-1 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-tight transition-all ${
+                trendingInterval === interval
+                  ? 'bg-[#00ff4e] text-black'
+                  : 'bg-zinc-900 text-zinc-500 hover:text-white'
+              }`}
+            >
+              {interval}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    {/* Trending Stocks List */}
+    {loadingTrending ? (
+      <div className="py-32 text-center">
+        <p className="text-zinc-500 text-sm uppercase tracking-widest font-black">Loading Trending Stocks...</p>
+      </div>
+    ) : trendingStocks.length === 0 ? (
+      <div className="py-32 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+        <p className="text-xs md:text-sm tracking-[0.4em] uppercase font-black">No Trending Stocks Yet</p>
+      </div>
+    ) : (
+      <div className="space-y-4">
+        {trendingStocks.map((stock, index) => (
+          <motion.div
+            key={stock.symbol}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.05, duration: 0.3 }}
+            className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all cursor-pointer"
+            onClick={() => {
+              setManualSearch(stock.symbol);
+              setActiveTab("DASHBOARD");
+              runScanner(stock.symbol);
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                {/* Rank Badge */}
+                <div className="flex items-center justify-center min-w-[48px] w-12 h-12 bg-zinc-900 rounded-full px-2">
+                  <span className="text-2xl font-black text-[#00ff4e] leading-none">#{index + 1}</span>
+                </div>
+                
+                {/* Stock Info */}
+                <div>
+                  <h3 className="text-2xl font-black text-white uppercase tracking-tight">{stock.symbol}</h3>
+                  <p className="text-sm text-zinc-500">{stock.name}</p>
+                </div>
+              </div>
+
+              {/* Watch Stats */}
+              <div className="text-right">
+                <p className="text-3xl font-black text-[#00ff4e] mb-1">{stock.watchCount}</p>
+                <p className="text-xs text-zinc-600 uppercase tracking-wider">
+                  {trendingInterval === 'daily' ? 'Adds Today' : 
+                   trendingInterval === 'weekly' ? 'Adds This Week' : 
+                   'Adds This Month'}
+                </p>
+                <p className="text-[10px] text-zinc-700 mt-1">
+                  {stock.totalWatches} total watches
+                </p>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="mt-4 h-2 bg-zinc-900 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-[#00ff4e] shadow-[0_0_10px_#00ff4e]"
+                style={{ 
+                  width: `${Math.min((stock.watchCount / (trendingStocks[0]?.watchCount || 1)) * 100, 100)}%` 
+                }}
+              />
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    )}
+  </>
+
 ) : activeTab === "MY LISTS" ? (
   <>
     {/* Create New List Button */}
@@ -3164,10 +3148,7 @@ onClick={(e) => {
                     <h4 className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-zinc-500">Intraday Pulse</h4>
                     <span className="text-[8px] md:text-[10px] font-bold text-[#00ff4e]">LIVE</span>
                   </div>
-                  <MiniChart 
-  symbol={stock.symbol} 
-  livePriceCache={livePriceCache}
-/>
+                  <MiniChart  symbol={stock.symbol} />
                 </div>
               </div>
             </motion.div>
