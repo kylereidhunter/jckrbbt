@@ -338,6 +338,11 @@ const [positions, setPositions] = useState([]);
 const [loadingPositions, setLoadingPositions] = useState(false);
 const [brokerageConnected, setBrokerageConnected] = useState(false);
 const [showPlaidConsent, setShowPlaidConsent] = useState(false);
+const [trendingStocks, setTrendingStocks] = useState([]);
+const [trendingInterval, setTrendingInterval] = useState('weekly');
+const [loadingTrending, setLoadingTrending] = useState(false);
+const [loadingDiscover, setLoadingDiscover] = useState(false);
+const [hoveringPositionSymbol, setHoveringPositionSymbol] = useState(null);
 
 
 const flattenedWatchlist = useMemo(() => {
@@ -353,21 +358,155 @@ const addStockToList = async (stock, listId) => {
   }
   
   try {
+    // Add to watchlist first
     await addStockToWatchlist(listId, stock);
-    // Refresh lists
+    
+    // Track this stock being watched in Firestore
+    try {
+      const watchRef = doc(db, 'trending', stock.symbol);
+      const watchDoc = await getDoc(watchRef);
+      
+      const now = new Date();
+      
+      if (watchDoc.exists()) {
+        const data = watchDoc.data();
+        await setDoc(watchRef, {
+          symbol: stock.symbol,
+          name: stock.name,
+          totalCount: (data.totalCount || 0) + 1,
+          dailyAdds: [...(data.dailyAdds || []), now],
+          weeklyAdds: [...(data.weeklyAdds || []), now],
+          monthlyAdds: [...(data.monthlyAdds || []), now],
+          lastUpdated: now
+        }, { merge: true });
+      } else {
+        await setDoc(watchRef, {
+          symbol: stock.symbol,
+          name: stock.name,
+          totalCount: 1,
+          dailyAdds: [now],
+          weeklyAdds: [now],
+          monthlyAdds: [now],
+          lastUpdated: now
+        });
+      }
+    } catch (trendingError) {
+      // Log trending error but don't fail the whole operation
+      console.log('Trending update failed (non-critical):', trendingError.message);
+    }
+    
+    // Refresh lists - this updates the UI
     const lists = await getUserWatchlists(user.uid);
     setWatchlists(lists);
     setShowAddToListMenu(null);
+    
+    // Optional: Show success message
+    console.log(`✓ Added ${stock.symbol} to watchlist`);
+    
   } catch (error) {
     console.error('Error adding stock:', error);
+    alert('Failed to add stock to watchlist. Please try again.');
   }
 };
 
+const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
+  setLoadingTrending(true);
+  try {
+    const { collection, query, getDocs } = await import('firebase/firestore');
+    const trendingRef = collection(db, 'trending');
+    const snapshot = await getDocs(trendingRef);
+    
+    const now = new Date();
+    let cutoffDate;
+    
+    // Determine cutoff date based on interval
+    if (interval === 'daily') {
+      cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    } else if (interval === 'weekly') {
+      cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else { // monthly
+      cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    }
+    
+    const trending = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      let adds = [];
+      
+      // Filter adds based on interval
+      if (interval === 'daily' && data.dailyAdds) {
+        adds = data.dailyAdds.filter(add => {
+          const addDate = add.toDate ? add.toDate() : new Date(add);
+          return addDate >= cutoffDate;
+        });
+      } else if (interval === 'weekly' && data.weeklyAdds) {
+        adds = data.weeklyAdds.filter(add => {
+          const addDate = add.toDate ? add.toDate() : new Date(add);
+          return addDate >= cutoffDate;
+        });
+      } else if (interval === 'monthly' && data.monthlyAdds) {
+        adds = data.monthlyAdds.filter(add => {
+          const addDate = add.toDate ? add.toDate() : new Date(add);
+          return addDate >= cutoffDate;
+        });
+      }
+      
+      if (adds.length > 0) {
+        trending.push({
+          symbol: data.symbol,
+          name: data.name,
+          watchCount: adds.length,
+          totalWatches: data.totalCount || 0
+        });
+      }
+    });
+    
+    // Sort by watch count
+    trending.sort((a, b) => b.watchCount - a.watchCount);
+    
+    // Take top 20
+    setTrendingStocks(trending.slice(0, 20));
+  } catch (error) {
+    console.error('Error fetching trending stocks:', error);
+  } finally {
+    setLoadingTrending(false);
+  }
+}, []);
+
+// Fetch trending stocks when tab changes or interval changes
+useEffect(() => {
+  if (activeTab === 'TRENDING') {
+    fetchTrendingStocks(trendingInterval);
+  }
+}, [activeTab, trendingInterval, fetchTrendingStocks]);
+
+// Load public watchlists for DISCOVER tab
+useEffect(() => {
+  if (activeTab === 'DISCOVER') {
+    const loadPublicLists = async () => {
+      setLoadingDiscover(true);
+      try {
+        const lists = await getPublicWatchlists();
+        setPublicWatchlists(lists);
+      } catch (error) {
+        console.error('Error loading public watchlists:', error);
+      } finally {
+        setLoadingDiscover(false);
+      }
+    };
+    
+    loadPublicLists();
+  }
+}, [activeTab]);
+
 const removeStockFromList = async (listId, stockSymbol) => {
   try {
+    console.log('Removing:', stockSymbol, 'from list:', listId);
     await removeStockFromWatchlist(listId, stockSymbol);
     // Refresh lists
     const lists = await getUserWatchlists(user.uid);
+    console.log('Updated watchlists after remove:', lists);
+    console.log('Flattened stocks:', lists.flatMap(l => l.stocks).map(s => s.symbol));
     setWatchlists(lists);
   } catch (error) {
     console.error('Error removing stock:', error);
@@ -791,7 +930,17 @@ useEffect(() => {
   setSelectedWatchlist(null);
 }, [activeTab]);
 
-
+// Close add-to-list menu on scroll (for positions and dashboard)
+useEffect(() => {
+  if (!showAddToListMenu) return;
+  
+  const handleScroll = () => {
+    setShowAddToListMenu(null);
+  };
+  
+  window.addEventListener('scroll', handleScroll, { passive: true });
+  return () => window.removeEventListener('scroll', handleScroll);
+}, [showAddToListMenu]);
 
 // --- MARKET HOURS & CLOCK ---
   useEffect(() => {
@@ -1450,7 +1599,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       <TypewriterGreeting />
 
       <div className="flex gap-2 md:gap-4 mb-6 md:mb-8 border-b border-zinc-900 pb-4 overflow-x-auto">
-       {["DASHBOARD", "MY LISTS", "MY POSITIONS", "DISCOVER", "NEWS"].map((tab) => (
+       {["DASHBOARD", "MY LISTS", "MY POSITIONS", "TRENDING", "DISCOVER", "NEWS"].map((tab) => (
   <button
     key={tab}
     onClick={() => setActiveTab(tab)}
@@ -1516,7 +1665,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       </div>
     </div>
 
-    {/* AI SCANNER SECTION */}
+  
 {/* AI SCANNER SECTION */}
 <div className="bg-[#050505] border border-zinc-900 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
   <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
@@ -1700,10 +1849,220 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     />
   ))}
     </>
-  ) : activeTab === "MY LISTS" ? (
-    <>
-      {/* Create New List Button */}
-      {user && (
+ ) : activeTab === "TRENDING" ? (
+  <>
+    {/* Interval Filter */}
+    <div className="mb-6">
+      <div className="bg-[#050505] border border-zinc-900 p-4 rounded-xl">
+        <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
+          Time Period
+        </h3>
+        <div className="flex gap-2">
+          {['daily', 'weekly', 'monthly'].map((interval) => (
+            <button
+              key={interval}
+              onClick={() => setTrendingInterval(interval)}
+              className={`flex-1 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-tight transition-all ${
+                trendingInterval === interval
+                  ? 'bg-[#00ff4e] text-black'
+                  : 'bg-zinc-900 text-zinc-500 hover:text-white'
+              }`}
+            >
+              {interval}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    {/* Trending Stocks List */}
+    {loadingTrending ? (
+      <div className="py-32 text-center">
+        <p className="text-zinc-500 text-sm uppercase tracking-widest font-black">Loading Trending Stocks...</p>
+      </div>
+    ) : trendingStocks.length === 0 ? (
+      <div className="py-32 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+        <p className="text-xs md:text-sm tracking-[0.4em] uppercase font-black">No Trending Stocks Yet</p>
+      </div>
+    ) : (
+      <div className="space-y-4">
+        {trendingStocks.map((stock, index) => (
+          <motion.div
+            key={stock.symbol}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.05, duration: 0.3 }}
+            className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all cursor-pointer"
+            onClick={() => {
+              setManualSearch(stock.symbol);
+              setActiveTab("DASHBOARD");
+              runScanner(stock.symbol);
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                {/* Rank Badge */}
+                <div className="flex items-center justify-center w-12 h-12 bg-zinc-900 rounded-full">
+                  <span className="text-2xl font-black text-[#00ff4e]">#{index + 1}</span>
+                </div>
+                
+                {/* Stock Info */}
+                <div>
+                  <h3 className="text-2xl font-black text-white uppercase tracking-tight">{stock.symbol}</h3>
+                  <p className="text-sm text-zinc-500">{stock.name}</p>
+                </div>
+              </div>
+
+              {/* Watch Stats */}
+              <div className="text-right">
+                <p className="text-3xl font-black text-[#00ff4e] mb-1">{stock.watchCount}</p>
+                <p className="text-xs text-zinc-600 uppercase tracking-wider">
+                  {trendingInterval === 'daily' ? 'Adds Today' : 
+                   trendingInterval === 'weekly' ? 'Adds This Week' : 
+                   'Adds This Month'}
+                </p>
+                <p className="text-[10px] text-zinc-700 mt-1">
+                  {stock.totalWatches} total watches
+                </p>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="mt-4 h-2 bg-zinc-900 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-[#00ff4e] shadow-[0_0_10px_#00ff4e]"
+                style={{ 
+                  width: `${Math.min((stock.watchCount / (trendingStocks[0]?.watchCount || 1)) * 100, 100)}%` 
+                }}
+              />
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    )}
+  </>
+) : activeTab === "DISCOVER" ? (
+  <>
+    {/* Search Bar */}
+    <div className="mb-6">
+      <div className="bg-[#050505] border border-zinc-900 p-4 rounded-xl">
+        <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
+          Find Users
+        </h3>
+        <input
+          type="text"
+          placeholder="Search by username..."
+          value={userSearchTerm}
+          onChange={(e) => handleSearchUsers(e.target.value)}
+          className="w-full bg-black border border-zinc-800 text-white px-4 py-3 rounded-lg outline-none transition-all font-mono text-sm placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
+        />
+        
+        {/* Search Results */}
+        {searchResults.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {searchResults.map(searchUser => (
+              <div
+                key={searchUser.id}
+                className="flex items-center justify-between p-3 bg-zinc-900 rounded-lg hover:bg-zinc-800 transition-all cursor-pointer"
+                onClick={() => handleViewUserProfile(searchUser.id)}
+              >
+                <div className="flex items-center gap-3">
+                  {searchUser.profilePicUrl ? (
+                    <img 
+                      src={searchUser.profilePicUrl} 
+                      alt={searchUser.username}
+                      className="w-10 h-10 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black">
+                      {searchUser.username?.[0]?.toUpperCase()}
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm font-bold text-white">{searchUser.username}</p>
+                    <p className="text-xs text-zinc-500">{searchUser.followerCount || 0} followers</p>
+                  </div>
+                </div>
+                <Users size={16} className="text-zinc-500" />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+
+    {/* Public Watchlists */}
+    <div>
+      <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-4">
+        Public Watchlists
+      </h3>
+      
+      {loadingDiscover ? (
+        <div className="py-32 text-center">
+          <p className="text-zinc-500 text-sm uppercase tracking-widest font-black">Loading...</p>
+        </div>
+      ) : publicWatchlists.length === 0 ? (
+        <div className="py-32 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+          <p className="text-xs md:text-sm tracking-[0.4em] uppercase font-black">No Public Lists Yet</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {publicWatchlists.map((list, index) => (
+            <motion.div
+              key={list.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05, duration: 0.3 }}
+              className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex-1">
+                  <h3 className="text-xl font-black text-white uppercase tracking-tight mb-2">
+                    {list.name}
+                  </h3>
+                  {list.description && (
+                    <p className="text-sm text-zinc-400 mb-2">{list.description}</p>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <p className="text-xs text-zinc-600">{list.stocks?.length || 0} stocks</p>
+                    <button
+                      onClick={() => handleViewUserProfile(list.userId)}
+                      className="text-xs text-[#00ff4e] hover:underline font-bold"
+                    >
+                      by {list.ownerUsername || 'Anonymous'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stock previews */}
+              {list.stocks && list.stocks.length > 0 && (
+                <div className="flex gap-2 flex-wrap">
+                  {list.stocks.slice(0, 5).map((stock) => (
+                    <span
+                      key={stock.symbol}
+                      className="text-xs font-black bg-zinc-900 text-[#00ff4e] px-3 py-1 rounded border border-zinc-800 uppercase"
+                    >
+                      {stock.symbol}
+                    </span>
+                  ))}
+                  {list.stocks.length > 5 && (
+                    <span className="text-xs text-zinc-600 px-3 py-1">
+                      +{list.stocks.length - 5} more
+                    </span>
+                  )}
+                </div>
+              )}
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </div>
+  </>
+) : activeTab === "MY LISTS" ? (
+  <>
+    {/* Create New List Button */}
+    {user && (
         <div className="mb-6">
           <button
             onClick={() => setShowWatchlistModal(true)}
@@ -1847,6 +2206,23 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       )}
     </>
 
+) : activeTab === "NEWS" ? (
+  // NEWS tab content
+  <>
+    {loadingNews && newsArticles.length === 0 && (
+      <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+        <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Loading News...</p>
+      </div>
+    )}
+    {!loadingNews && newsArticles.length === 0 && (
+      <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
+        <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">No News Available</p>
+      </div>
+    )}
+    {newsArticles.map(article => (
+      <NewsCard key={article.id} article={article} />
+    ))}
+  </>
     
  ) : activeTab === "MY POSITIONS" ? (
   <>
@@ -1915,187 +2291,226 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         </div>
 
 {/* Position Cards */}
-{positions.map((position, index) => (
-  <motion.div
-    key={position.symbol}
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ delay: index * 0.05, duration: 0.3 }}
-    className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all cursor-pointer"
-    onClick={() => {
-      setManualSearch(position.symbol);
-      setActiveTab("DASHBOARD");
-      runScanner(position.symbol);
-    }}
-  >
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="text-2xl font-black text-white uppercase tracking-tight">{position.symbol}</h3>
-                <p className="text-sm text-zinc-500">{position.name}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-black text-white">${position.price?.toFixed(2) ?? '0.00'}</p>
-                <p className={`text-sm font-bold ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                  {position.gain >= 0 ? '+' : ''}{position.gainPercent?.toFixed(2) ?? '0.00'}%
-                </p>
-              </div>
-            </div>
+{positions.map((position, index) => {
+  const isPositionAdded = flattenedWatchlist.some(s => s.symbol === position.symbol);
+  const isHoveringThisPosition = hoveringPositionSymbol === position.symbol;
+  
+  return (
+    <motion.div
+      key={position.symbol}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05, duration: 0.3 }}
+      className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all relative"
+    >
+      {/* Add to List Button */}
+      <div className="absolute top-4 right-4 z-10">
+        <button 
+          data-add-button={`position-${position.symbol}`}
+          onMouseEnter={() => setHoveringPositionSymbol(position.symbol)}
+          onMouseLeave={() => setHoveringPositionSymbol(null)}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!user) {
+              alert('Please sign in to add stocks to lists');
+              return;
+            }
+            
+            // If already added and hovering, remove it
+            if (isPositionAdded && isHoveringThisPosition) {
+              const listWithStock = watchlists.find(list => 
+                list.stocks.some(s => s.symbol === position.symbol)
+              );
+              if (listWithStock) {
+                removeStockFromList(listWithStock.id, position.symbol);
+              }
+            } else if (!isPositionAdded) {
+              // Otherwise, show the add menu
+              const stockObj = {
+                symbol: position.symbol,
+                name: position.name,
+                price: position.price?.toFixed(2) || '0.00',
+                change: position.gainPercent?.toFixed(2) || '0.00',
+                isPositive: position.gain >= 0,
+                range: 'N/A',
+                confidence: 0,
+                volatility: 0,
+                rating: 'N/A',
+                momentum: 'N/A',
+                catalyst: 'Portfolio Position',
+                insights: []
+              };
+              setShowAddToListMenu(stockObj);
+            }
+          }}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all active:scale-95 ${
+            isPositionAdded
+              ? isHoveringThisPosition
+                ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]"
+              : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
+          }`}
+        >
+          <span className="text-xs font-black uppercase tracking-wider hidden sm:inline">
+            {isPositionAdded
+              ? isHoveringThisPosition ? "Remove" : "Added"
+              : "Add"
+            }
+          </span>
+          {isPositionAdded && isHoveringThisPosition ? (
+            <Trash2 size={14} />
+          ) : (
+            <Plus size={14} />
+          )}
+        </button>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t-2 border-zinc-900">
-              <div>
-                <p className="text-xs text-zinc-600 mb-1">Shares</p>
-                <p className="text-lg font-black text-white">{position.quantity ?? '0'}</p>
+        {/* Add to List Dropdown for Positions */}
+        {showAddToListMenu?.symbol === position.symbol && (() => {
+          const buttonElement = document.querySelector(`button[data-add-button="position-${position.symbol}"]`);
+          const rect = buttonElement?.getBoundingClientRect();
+          
+          return ReactDOM.createPortal(
+            <>
+              <div 
+                className="fixed inset-0 bg-transparent z-[99998]"
+                onClick={() => setShowAddToListMenu(null)}
+              />
+              <div 
+                className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
+                style={{
+                  top: rect ? `${rect.bottom + 8}px` : '100px',
+                  right: rect ? `${window.innerWidth - rect.right}px` : '20px',
+                  width: '280px'
+                }}
+              >
+                <div className="p-3 border-b border-zinc-800">
+                  <p className="text-xs font-black text-white uppercase">Add to List</p>
+                </div>
+                
+                {/* Create New List Option */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAddToListMenu(null);
+                    window.dispatchEvent(new CustomEvent('openWatchlistModal'));
+                  }}
+                  className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
+                >
+                  <div className="flex items-center gap-2">
+                    <Plus size={14} />
+                    <span className="uppercase tracking-wider">Create New List</span>
+                  </div>
+                </button>
+                
+                {watchlists.length === 0 ? (
+                  <div className="p-4 text-center">
+                    <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
+                  </div>
+                ) : (
+                  watchlists.map((list) => {
+                    const isInList = list.stocks.some(s => s.symbol === position.symbol);
+                    return (
+                      <button
+                        key={list.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isInList) {
+                            addStockToList(showAddToListMenu, list.id);
+                          }
+                        }}
+                        disabled={isInList}
+                        className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
+                          isInList
+                            ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
+                            : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="uppercase tracking-wider">{list.name}</span>
+                          {isInList && (
+                            <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
+                      </button>
+                    );
+                  })
+                )}
               </div>
-              <div>
-                <p className="text-xs text-zinc-600 mb-1">Market Value</p>
-                <p className="text-lg font-black text-white">${position.value?.toLocaleString() ?? '0'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
-                <p className="text-lg font-black text-white">${position.costBasis?.toLocaleString() ?? '0'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-zinc-600 mb-1">Gain/Loss</p>
-                <p className={`text-lg font-black ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                  {position.gain >= 0 ? '+' : ''}${Math.abs(position.gain ?? 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
-                </p>
-              </div>
-            </div>
-          </motion.div>
-        ))}
+            </>,
+            document.body
+          );
+        })()}
+      </div>
 
-        {/* Disconnect Button */}
-        <div className="pt-8 text-center">
-          <button
-            onClick={async () => {
-  if (window.confirm('Are you sure you want to disconnect your brokerage account?')) {
-    try {
-      const idToken = await auth.currentUser.getIdToken();
-      
-      await fetch('/api/disconnectPlaid', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`
-        }
-      });
-      
-      setBrokerageConnected(false);
-      setPositions([]);
-    } catch (error) {
-      console.error('Error disconnecting:', error);
-    }
-  }
-}}
-            className="text-red-500 hover:text-red-400 text-xs font-bold uppercase tracking-wider transition-colors"
-          >
-            Disconnect Brokerage Account
-          </button>
+      <div 
+        className="cursor-pointer"
+        onClick={() => {
+          setManualSearch(position.symbol);
+          setActiveTab("DASHBOARD");
+          runScanner(position.symbol);
+        }}
+      >
+        {/* Header - Symbol, Name, Price, Change */}
+        <div className="mb-6">
+          <p className="text-xs text-zinc-500 font-black uppercase tracking-widest mb-2">{position.name}</p>
+          
+          {/* Mobile: Stacked layout */}
+          <div className="flex flex-col md:hidden gap-3">
+            <h3 className="text-4xl font-black text-white uppercase tracking-tighter leading-none">{position.symbol}</h3>
+            <div className="flex items-baseline gap-3">
+              <p className="text-3xl font-black text-white tabular-nums leading-none">
+                ${position.price?.toFixed(2) ?? '0.00'}
+              </p>
+              <p className={`text-xl font-black tabular-nums leading-none ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                {position.gain >= 0 ? '+' : ''}{position.gainPercent?.toFixed(2) ?? '0.00'}%
+                <span className="ml-2 align-middle">{position.gain >= 0 ? '▲' : '▼'}</span>
+              </p>
+            </div>
+          </div>
+          
+          {/* Desktop: Horizontal layout */}
+          <div className="hidden md:flex items-baseline gap-6">
+            <h3 className="text-5xl font-black text-white uppercase tracking-tighter leading-none">{position.symbol}</h3>
+            <div className="flex items-baseline gap-3">
+              <p className="text-3xl font-black text-white tabular-nums leading-none">
+                ${position.price?.toFixed(2) ?? '0.00'}
+              </p>
+              <p className={`text-xl font-black tabular-nums ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                {position.gain >= 0 ? '+' : ''}{position.gainPercent?.toFixed(2) ?? '0.00'}%
+                <span className="ml-2 align-middle">{position.gain >= 0 ? '▲' : '▼'}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t-2 border-zinc-900">
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Shares</p>
+            <p className="text-lg font-black text-white">{position.quantity ?? '0'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Market Value</p>
+            <p className="text-lg font-black text-white">${position.value?.toLocaleString() ?? '0'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
+            <p className="text-lg font-black text-white">${position.costBasis?.toLocaleString() ?? '0'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Gain/Loss</p>
+            <p className={`text-lg font-black ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+              {position.gain >= 0 ? '+' : ''}${Math.abs(position.gain ?? 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
+            </p>
+          </div>
         </div>
       </div>
-    )}
-  </>
-) : activeTab === "DISCOVER" ? (
-  <>
-    {/* Search Bar */}
-    <div className="mb-6">
-      <div className="bg-[#050505] border border-zinc-900 p-4 rounded-xl">
-        <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3 flex items-center gap-2">
-          <Users size={16} />
-          Discover Traders
-        </h3>
-        <input
-          type="text"
-          placeholder="Search by username..."
-          value={userSearchTerm}
-          onChange={(e) => handleSearchUsers(e.target.value)}
-          className="w-full bg-black border border-zinc-800 text-white px-4 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
-          style={{ caretColor: '#00ff4e' }}
-        />
-      </div>
-    </div>
-
-    {/* Search Results */}
-    {!user ? (
-      <div className="py-32 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-        <p className="text-xs md:text-sm tracking-[0.4em] uppercase font-black mb-4">Sign in to discover traders</p>
-        <button
-          onClick={() => setShowAuthModal(true)}
-          className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-6 py-3 rounded-lg text-xs uppercase tracking-tight transition-all"
-        >
-          Sign In
-        </button>
-      </div>
-    ) : userSearchTerm.length < 2 ? (
-      <div className="py-32 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-        <p className="text-xs md:text-sm tracking-[0.4em] uppercase font-black">Search for traders by username</p>
-      </div>
-    ) : searchResults.length === 0 ? (
-      <div className="py-32 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-        <p className="text-xs md:text-sm tracking-[0.4em] uppercase font-black">No users found</p>
-      </div>
-    ) : (
-      <div className="space-y-4">
-        {searchResults.map((searchUser, index) => (
-          <motion.div
-            key={searchUser.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05, duration: 0.3 }}
-            className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
-          >
-            <div className="flex items-start gap-4">
-  {searchUser.profilePicUrl ? (
-    <img 
-      src={searchUser.profilePicUrl} 
-      alt={searchUser.username} 
-      className="w-12 h-12 rounded-full object-cover flex-shrink-0"
-    />
-  ) : (
-    <div className="w-12 h-12 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black text-lg flex-shrink-0">
-      {searchUser.username?.[0]?.toUpperCase() || searchUser.email?.[0]?.toUpperCase()}
-    </div>
-  )}
-  
-  <div className="flex-1 min-w-0">
-    <h3 className="text-base md:text-lg font-black text-white uppercase tracking-tight break-words mb-2">
-      {searchUser.username || 'Anonymous User'}
-    </h3>
-    <div className="flex items-center gap-2 text-xs text-zinc-500 mb-3">
-      <span>{searchUser.followerCount || 0} followers</span>
-      <span>·</span>
-      <span>{searchUser.followingCount || 0} following</span>
-    </div>
-    
-    <div className="flex gap-2">
-      <button
-        onClick={() => handleViewUserProfile(searchUser.id)}
-        className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all border border-zinc-800"
-      >
-        View
-      </button>
-      
-      {searchUser.id !== user.uid && (
-        followingUsers.has(searchUser.id) ? (
-          <button
-            onClick={() => handleUnfollowUser(searchUser.id)}
-            className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all border border-zinc-700"
-          >
-            Following
-          </button>
-        ) : (
-          <button
-            onClick={() => handleFollowUser(searchUser.id)}
-            className="flex-1 bg-[#00ff4e] hover:opacity-90 text-black font-black px-4 py-2 rounded-lg text-xs uppercase tracking-tight transition-all"
-          >
-            Follow
-          </button>
-        )
-      )}
-    </div>
-  </div>
-</div>
-          </motion.div>
-        ))}
+    </motion.div>
+  );
+})}
       </div>
     )}
   </>
@@ -2342,7 +2757,6 @@ useEffect(() => {
       ref={cardRef}
       className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-8 relative hover:border-zinc-600 transition-all overflow-hidden group"
     >
-      
  {/* WATCHLIST BUTTON */}
 <div className="absolute top-3 right-3 md:top-4 md:right-8 z-10">
   {actionType === "REMOVE" ? (
@@ -2362,114 +2776,136 @@ useEffect(() => {
     </button>
   ) : (
     <>
-<button 
-  data-add-button="true"
-  onClick={(e) => {
-    e.stopPropagation();
-    if (!user) {
-      alert('Please sign in to add stocks to lists');
-      return;
+      <button 
+        data-add-button="true"
+        onMouseEnter={() => setIsHoveringButton(true)}
+        onMouseLeave={() => setIsHoveringButton(false)}
+onClick={(e) => {
+  e.stopPropagation();
+  if (!user) {
+    alert('Please sign in to add stocks to lists');
+    return;
+  }
+  
+  // If already added AND hovering (showing Remove), remove it
+  if (isAlreadyAdded && isHoveringButton) {
+    const listWithStock = watchlists.find(list => 
+      list.stocks.some(s => s.symbol === stock.symbol)
+    );
+    console.log('Removing stock:', stock.symbol, 'from list:', listWithStock?.id);
+    if (listWithStock) {
+      removeFromWatchlist(listWithStock.id, stock.symbol);
     }
+  } else if (!isAlreadyAdded) {
+    // Only show menu if NOT already added
     onAction(stock);
-  }}
+  }
+  // If added but NOT hovering (showing "Added"), do nothing
+}}
         className={`flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 rounded-lg border transition-all active:scale-95 ${
           isAlreadyAdded 
-            ? "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]" 
+            ? isHoveringButton
+              ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
+              : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]"
             : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
         }`}
       >
         <span className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.2em] leading-none hidden sm:inline">
-          {isAlreadyAdded ? "Added" : "Add"}
+          {isAlreadyAdded 
+            ? isHoveringButton ? "Remove" : "Added"
+            : "Add"
+          }
         </span>
-        <Plus size={12} className="md:w-3.5 md:h-3.5" />
+        {isAlreadyAdded && isHoveringButton ? (
+          <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
+        ) : (
+          <Plus size={12} className="md:w-3.5 md:h-3.5" />
+        )}
       </button>
 
-{/* Add to List Dropdown */}
-{showAddToListMenu?.symbol === stock.symbol && (() => {
-  // Find the button element to position relative to it
-  const buttonElement = cardRef.current?.querySelector('button[data-add-button="true"]');
-  const rect = buttonElement?.getBoundingClientRect();
-  
-  return ReactDOM.createPortal(
-    <>
-      <div 
-        className="fixed inset-0 bg-transparent z-[99998]"
-        onClick={() => onCloseMenu()}
-      />
-      <div 
-        className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
-        style={{
-  top: rect ? `${rect.bottom + 8}px` : '100px',
-  right: rect ? `${window.innerWidth - rect.right}px` : '20px',
-  width: '280px'
-}}
-      >
-        <div className="p-3 border-b border-zinc-800">
-          <p className="text-xs font-black text-white uppercase">Add to List</p>
-        </div>
+      {/* Add to List Dropdown */}
+      {showAddToListMenu?.symbol === stock.symbol && (() => {
+        // Find the button element to position relative to it
+        const buttonElement = cardRef.current?.querySelector('button[data-add-button="true"]');
+        const rect = buttonElement?.getBoundingClientRect();
         
-        {/* Create New List Option */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onCloseMenu();
-            window.dispatchEvent(new CustomEvent('openWatchlistModal'));
-          }}
-          className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
-        >
-          <div className="flex items-center gap-2">
-            <Plus size={14} />
-            <span className="uppercase tracking-wider">Create New List</span>
-          </div>
-        </button>
-        
-        {watchlists.length === 0 ? (
-          <div className="p-4 text-center">
-            <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
-          </div>
-        ) : (
-          watchlists.map((list) => {
-            const isInList = list.stocks.some(s => s.symbol === stock.symbol);
-            return (
+        return ReactDOM.createPortal(
+          <>
+            <div 
+              className="fixed inset-0 bg-transparent z-[99998]"
+              onClick={() => onCloseMenu()}
+            />
+            <div 
+              className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
+              style={{
+                top: rect ? `${rect.bottom + 8}px` : '100px',
+                right: rect ? `${window.innerWidth - rect.right}px` : '20px',
+                width: '280px'
+              }}
+            >
+              <div className="p-3 border-b border-zinc-800">
+                <p className="text-xs font-black text-white uppercase">Add to List</p>
+              </div>
+              
+              {/* Create New List Option */}
               <button
-                key={list.id}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!isInList) {
-                    onAddToList(stock, list.id);
-                  }
+                  onCloseMenu();
+                  window.dispatchEvent(new CustomEvent('openWatchlistModal'));
                 }}
-                disabled={isInList}
-                className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
-                  isInList
-                    ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
-                    : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
-                }`}
+                className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
               >
-                <div className="flex items-center justify-between">
-                  <span className="uppercase tracking-wider">{list.name}</span>
-                  {isInList && (
-                    <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
+                <div className="flex items-center gap-2">
+                  <Plus size={14} />
+                  <span className="uppercase tracking-wider">Create New List</span>
                 </div>
-                <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
               </button>
-            );
-          })
-        )}
-      </div>
-    </>,
-    document.body
-  );
-})
-()}
-
+              
+              {watchlists.length === 0 ? (
+                <div className="p-4 text-center">
+                  <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
+                </div>
+              ) : (
+                watchlists.map((list) => {
+                  const isInList = list.stocks.some(s => s.symbol === stock.symbol);
+                  return (
+                    <button
+                      key={list.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!isInList) {
+                          onAddToList(stock, list.id);
+                        }
+                      }}
+                      disabled={isInList}
+                      className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
+                        isInList
+                          ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
+                          : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="uppercase tracking-wider">{list.name}</span>
+                        {isInList && (
+                          <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                      <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </>,
+          document.body
+        );
+      })()}
     </>
   )}
 </div>
-
      
 
 {/* MAIN CONTENT */}
@@ -2622,7 +3058,8 @@ useEffect(() => {
     prevProps.stock.change === nextProps.stock.change &&
     prevProps.stock.symbol === nextProps.stock.symbol &&
     prevProps.isMarketOpen === nextProps.isMarketOpen &&
-    prevProps.showAddToListMenu?.symbol === nextProps.showAddToListMenu?.symbol
+    prevProps.showAddToListMenu?.symbol === nextProps.showAddToListMenu?.symbol &&
+    prevProps.watchlist.length === nextProps.watchlist.length  // Add this line
   );
 });
 
