@@ -30,7 +30,6 @@ const genAI = new GoogleGenerativeAI(GEN_AI_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 const ALPHA_VANTAGE_KEY = process.env.REACT_APP_ALPHA_VANTAGE_KEY;
 const TWELVE_DATA_KEY = process.env.REACT_APP_TWELVE_DATA_KEY;
-const livePriceCache = useRef({});
 
 
 const isMobile = () => window.innerWidth < 768;
