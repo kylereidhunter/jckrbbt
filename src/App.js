@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Trash2, Plus, } from 'lucide-react';
 import { motion, AnimatePresence } from "framer-motion";
 import ReactDOM from 'react-dom';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -14,11 +13,10 @@ import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
-import { Users } from 'lucide-react';
+import { Users, Trash2, Plus, MessageCircle, Search } from 'lucide-react';
 import UserProfileModal from './UserProfileModal';
 import PlaidLink from './PlaidLink';
 import StockChatModal from './StockChatModal';
-import { MessageCircle } from 'lucide-react';
 
 
 
@@ -369,6 +367,9 @@ const [recentlyScanned, setRecentlyScanned] = useState(() => {
   const saved = localStorage.getItem('recentlyScanned');
   return saved ? new Set(JSON.parse(saved)) : new Set();
 });
+const [showSearch, setShowSearch] = useState(false);
+const [stockSearchResults, setStockSearchResults] = useState([]);
+const [isManualResult, setIsManualResult] = useState(false);
 
 
 
@@ -1008,6 +1009,26 @@ useEffect(() => {
   return () => window.removeEventListener('openWatchlistModal', handleOpenModal);
 }, []);
 
+// Close search on scroll and clear input
+useEffect(() => {
+  const handleScroll = () => {
+    if (showSearch) {
+      setShowSearch(false);
+    }
+  };
+  
+  window.addEventListener('scroll', handleScroll);
+  return () => window.removeEventListener('scroll', handleScroll);
+}, [showSearch]);
+
+// Clear search when closing
+useEffect(() => {
+  if (!showSearch) {
+    setUserSearchTerm('');
+    setSearchResults([]);
+  }
+}, [showSearch]);
+
 // Close selected watchlist when switching tabs
 useEffect(() => {
   setSelectedWatchlist(null);
@@ -1117,10 +1138,9 @@ useEffect(() => {
 
   // --- NEURAL SCANNER LOGIC ---
 const runScanner = useCallback(async (tickerToSearch = null) => {
+  const isManual = Boolean(tickerToSearch);
+  setIsManualResult(isManual);
   setLoading(true);
-  clearInterval(watchlistIntervalRef.current);
-  setStocks([]); 
-  setScanStatus("INITIALIZING...");
 
   const rejectedTickers = new Set();
   const displayedTickers = new Set(); 
@@ -1133,20 +1153,19 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
   const currentMonthName = now.toLocaleString('default', { month: 'long' }); 
   const currentYear = now.getFullYear();
 
-  const isManual = !!tickerToSearch;
-  let attempts = 0;
+let attempts = 0;
 
-  try {
-    const targetGoal = isManual ? 1 : 5; // Changed from 10
+try {
+  const targetGoal = isManual ? 1 : 5;
 
-    while (localStocks.length < targetGoal && attempts < 15) {
-      attempts++;
-      let tickersToProcess = [];
+  while (localStocks.length < targetGoal && attempts < 15) {
+    attempts++;
+    let tickersToProcess = [];
 
-      if (isManual) {
-        setScanStatus(`LOCKING ON: ${tickerToSearch.toUpperCase()}...`);
-        tickersToProcess = [tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "")];
-      } else {
+    if (isManual) {
+      setScanStatus(`LOCKING ON: ${tickerToSearch.toUpperCase()}...`);
+      tickersToProcess = [tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "")];
+    } else {
         setScanStatus(`GATHERING...`);
         const excludeStr = rejectedTickers.size > 0 ? `EXCLUDE: ${Array.from(rejectedTickers).slice(-20).join(", ")}` : "";
 
@@ -1273,9 +1292,11 @@ const tickers = tickersToProcess.filter(t => {
   if (blacklist.includes(t)) return false;
   if (foreignSuffixes.some(suffix => t.includes(suffix))) return false;
   if (t.length > 5) return false;
-  if (recentlyScanned.has(t)) return false; // NEW: Skip recently scanned
+  if (!isManual && recentlyScanned.has(t)) return false; // Only check cooldown for auto scans
   return true;
 });
+
+console.log('Tickers after filtering:', tickers);  // ADD THIS
 
 // NEW: User-specific randomization for legal compliance
 const seed = user?.uid ? `${user.uid}-${new Date().toDateString()}` : Date.now().toString();
@@ -1283,8 +1304,11 @@ const shuffledTickers = tickers.sort((a, b) => {
   return hashCode(seed + a) - hashCode(seed + b);
 }).slice(0, 50); // Take first 50 for processing
 
+console.log('shuffledTickers:', shuffledTickers);  // ADD THIS
+console.log('Starting for loop, targetGoal:', targetGoal);  // ADD THIS
+
 for (const ticker of shuffledTickers) {
-  if (localStocks.length >= targetGoal) break;
+  console.log('Processing ticker:', ticker);  // ADD THIS
 
 try {
   // Add delay BEFORE making requests to avoid rate limiting
@@ -1677,93 +1701,213 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 `}</style>
       
 {/* HEADER */}
-<header className="flex justify-between items-center mb-8 md:mb-12 border-b-2 border-zinc-900 pb-6 md:pb-8 gap-4">
-  {/* Left side - Logo and Status */}
-  <div className="flex items-center gap-4 md:gap-6">
-    <button onClick={() => setActiveTab("DASHBOARD")} className="cursor-pointer hover:opacity-80 transition-opacity">
-      <img src="/jckrbbt_logo.png" alt="Logo" className="h-12 md:h-16 w-auto object-contain" />
-    </button>
-    <div className="border-l-2 border-zinc-900 pl-4 md:pl-6 hidden md:block">
-      <p className="text-zinc-600 text-[8px] md:text-[10px] tracking-[0.3em] md:tracking-[0.4em] uppercase flex items-center gap-2 font-black flex-wrap">
-        <span className="hidden sm:inline">Status:</span>
-        <span className="hidden lg:inline">{scanStatus}</span>
-        {isMarketOpen && <span className="h-2 w-2 bg-[#00ff4e] rounded-full animate-pulse shadow-[0_0_10px_#00ff4e]"/>}
-      </p>
-    </div>
-  </div>
-  
-{/* Right side - Clock and Auth */}
-  <div className="flex items-center gap-4 md:gap-6">
-    {/* Clock - hidden on mobile */}
-    <div className="text-right hidden md:block">
-      <Clock />
+<header className="flex flex-col mb-8 md:mb-12 border-b-2 border-zinc-900 pb-6 md:pb-8">
+  {/* Top row - Logo, Status, Search, Clock, Auth */}
+  <div className="flex justify-between items-center gap-4 mb-0">
+    {/* Left side - Logo and Status */}
+    <div className="flex items-center gap-4 md:gap-6">
+      <button onClick={() => setActiveTab("DASHBOARD")} className="cursor-pointer hover:opacity-80 transition-opacity">
+        <img src="/jckrbbt_logo.png" alt="Logo" className="h-12 md:h-16 w-auto object-contain" />
+      </button>
+      <div className="border-l-2 border-zinc-900 pl-4 md:pl-6 hidden md:block">
+        <p className="text-zinc-600 text-[8px] md:text-[10px] tracking-[0.3em] md:tracking-[0.4em] uppercase flex items-center gap-2 font-black flex-wrap">
+          <span className="hidden sm:inline">Status:</span>
+          <span className="hidden lg:inline">{scanStatus}</span>
+          {isMarketOpen && <span className="h-2 w-2 bg-[#00ff4e] rounded-full animate-pulse shadow-[0_0_10px_#00ff4e]"/>}
+        </p>
+      </div>
     </div>
     
-    {/* Auth Button */}
-    {authLoading ? (
-      <div className="w-10 h-10 bg-zinc-900 rounded-full animate-pulse" />
-    ) : user ? (
-      <div className="relative group">
-        <button className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-[#00ff4e]/50 px-3 md:px-4 py-2 rounded-lg transition-all">
-          {userProfile?.profilePicUrl ? (
-            <img 
-              src={userProfile.profilePicUrl} 
-              alt="Profile" 
-              className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-              onError={(e) => {
-                e.target.style.display = 'none';
-                e.target.nextSibling.style.display = 'flex';
-              }}
-            />
-          ) : null}
-          <div 
-            className={`w-8 h-8 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black text-sm flex-shrink-0 ${userProfile?.profilePicUrl ? 'hidden' : ''}`}
-          >
-            {userProfile?.username?.[0]?.toUpperCase() || user.email?.[0].toUpperCase()}
-          </div>
-          <div className="hidden md:block">
-  <span className="text-white text-sm font-bold whitespace-nowrap block">
-    {userProfile?.username || user.email}
-  </span>
-  {userProfile && (
-    <span className="text-zinc-500 text-[10px] font-bold">
-      {userProfile.followerCount || 0} followers · {userProfile.followingCount || 0} following
-    </span>
-  )}
-</div>
-        </button>
-        
-        {/* Dropdown */}
-        <div className="absolute right-0 top-full mt-2 w-48 bg-black border-2 border-zinc-800 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-          <button
-            onClick={() => setShowProfileSettings(true)}
-            className="w-full text-left px-4 py-3 text-sm font-bold text-white hover:bg-zinc-900 transition-all border-b border-zinc-800"
-          >
-            Profile Settings
-          </button>
-          <button
-            onClick={handleLogout}
-            className="w-full text-left px-4 py-3 text-sm font-bold text-red-500 hover:bg-zinc-900 transition-all rounded-b-lg"
-          >
-            Sign Out
-          </button>
-        </div>
-      </div>
-    ) : (
+    {/* Right side - Search, Clock and Auth */}
+    <div className="flex items-center gap-4 md:gap-6">
+      {/* Search Icon */}
       <button
-        onClick={() => setShowAuthModal(true)}
-        className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-4 md:px-6 py-2 rounded-lg text-xs md:text-sm uppercase tracking-tight transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)]"
+        onClick={() => setShowSearch(!showSearch)}
+        className="p-2 md:p-3 rounded-lg border-2 border-zinc-800 bg-black hover:border-[#00ff4e]/50 transition-all active:scale-95"
       >
-        Sign In
+        <Search size={18} className="md:w-5 md:h-5 text-zinc-500 hover:text-[#00ff4e] transition-colors" />
       </button>
-    )}
+
+      {/* Clock - hidden on mobile */}
+      <div className="text-right hidden md:block">
+        <Clock />
+      </div>
+      
+      {/* Auth Button */}
+      {authLoading ? (
+        <div className="w-10 h-10 bg-zinc-900 rounded-full animate-pulse" />
+      ) : user ? (
+        <div className="relative group">
+          <button className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-[#00ff4e]/50 px-3 md:px-4 py-2 rounded-lg transition-all">
+            {userProfile?.profilePicUrl ? (
+              <img 
+                src={userProfile.profilePicUrl} 
+                alt="Profile" 
+                className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  e.target.nextSibling.style.display = 'flex';
+                }}
+              />
+            ) : null}
+            <div 
+              className={`w-8 h-8 bg-[#00ff4e] rounded-full flex items-center justify-center text-black font-black text-sm flex-shrink-0 ${userProfile?.profilePicUrl ? 'hidden' : ''}`}
+            >
+              {userProfile?.username?.[0]?.toUpperCase() || user.email?.[0].toUpperCase()}
+            </div>
+            <div className="hidden md:block">
+              <span className="text-white text-sm font-bold whitespace-nowrap block">
+                {userProfile?.username || user.email}
+              </span>
+              {userProfile && (
+                <span className="text-zinc-500 text-[10px] font-bold">
+                  {userProfile.followerCount || 0} followers · {userProfile.followingCount || 0} following
+                </span>
+              )}
+            </div>
+          </button>
+          
+          {/* Dropdown */}
+          <div className="absolute right-0 top-full mt-2 w-48 bg-black border-2 border-zinc-800 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+            <button
+              onClick={() => setShowProfileSettings(true)}
+              className="w-full text-left px-4 py-3 text-sm font-bold text-white hover:bg-zinc-900 transition-all border-b border-zinc-800"
+            >
+              Profile Settings
+            </button>
+            <button
+              onClick={handleLogout}
+              className="w-full text-left px-4 py-3 text-sm font-bold text-red-500 hover:bg-zinc-900 transition-all rounded-b-lg"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowAuthModal(true)}
+          className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-4 md:px-6 py-2 rounded-lg text-xs md:text-sm uppercase tracking-tight transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)]"
+        >
+          Sign In
+        </button>
+      )}
+    </div>
   </div>
+
+  {/* Search Dropdown - appears below the header content */}
+  <AnimatePresence>
+    {showSearch && (
+      <motion.div
+        initial={{ height: 0, opacity: 0 }}
+        animate={{ height: 'auto', opacity: 1 }}
+        exit={{ height: 0, opacity: 0 }}
+        transition={{ duration: 0.3 }}
+        className="overflow-hidden mt-6"
+      >
+        <div className="bg-[#050505] border-2 border-zinc-800 rounded-xl p-4 md:p-6">
+          <div className="mb-4">
+            <input
+              type="text"
+              value={userSearchTerm}
+              onChange={(e) => {
+                setUserSearchTerm(e.target.value);
+                if (e.target.value.length >= 2) {
+                  handleSearchUsers(e.target.value);
+                } else {
+                  setSearchResults([]);
+                }
+              }}
+              placeholder="Search for users and watchlists..."
+              className="w-full bg-zinc-900 border-2 border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#00ff4e]/50 transition-colors"
+            />
+          </div>
+
+          {/* Search Results */}
+          {loadingDiscover ? (
+            <div className="py-8 text-center">
+              <p className="text-xs text-zinc-500 uppercase tracking-wider">Searching...</p>
+            </div>
+          ) : searchResults.length > 0 ? (
+            <div className="space-y-3">
+              {searchResults.map(user => (
+                <div
+                  key={user.id}
+                  onClick={() => {
+                      handleViewUserProfile(user.id);
+                      setShowSearch(false);
+                    }}
+                  className="flex items-center justify-between p-4 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    {user.profilePicUrl ? (
+                      <img src={user.profilePicUrl} alt={user.username} className="w-10 h-10 rounded-full" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center">
+                        <Users size={20} className="text-zinc-600" />
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-black text-white">{user.username}</p>
+                      <p className="text-xs text-zinc-500">{user.followerCount || 0} followers</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {user.watchlistCount > 0 && (
+                      <span className="text-xs px-2 py-1 bg-[#00ff4e]/10 text-[#00ff4e] rounded">
+                        {user.watchlistCount} {user.watchlistCount === 1 ? 'list' : 'lists'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : userSearchTerm.length >= 2 ? (
+            <div className="py-8 text-center">
+              <p className="text-xs text-zinc-500">No users found</p>
+            </div>
+          ) : null}
+
+          {/* Public Watchlists */}
+          {!userSearchTerm && publicWatchlists.length > 0 && (
+            <div className="mt-6">
+              <p className="text-xs font-black text-zinc-500 uppercase tracking-wider mb-3">Popular Watchlists</p>
+              <div className="space-y-3">
+                {publicWatchlists.slice(0, 5).map(list => (
+                  <div
+                    key={list.id}
+                    className="p-4 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
+                    onClick={() => {
+                      handleViewUserProfile(list.ownerId);
+                      setShowSearch(false);
+                    }}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="text-sm font-black text-white">{list.name}</p>
+                      <span className="text-xs text-zinc-500">{list.stocks?.length || 0} stocks</span>
+                    </div>
+                    {list.description && (
+                      <p className="text-xs text-zinc-600 mb-2">{list.description}</p>
+                    )}
+                    <p className="text-xs text-zinc-500">
+                      by {list.ownerUsername || 'Anonymous'} • {list.followerCount || 0} followers
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    )}
+  </AnimatePresence>
 </header>
 
-      <TypewriterGreeting />
 
-      <div className="flex gap-2 md:gap-4 mb-6 md:mb-8 border-b border-zinc-900 pb-4 overflow-x-auto">
-       {["DASHBOARD", "TRENDING", "DISCOVER", "MY LISTS", "MY POSITIONS", "NEWS"].map(tab => (
+<TypewriterGreeting />
+
+
+<div className="flex gap-2 md:gap-4 mb-6 md:mb-8 border-b border-zinc-900 pb-4 overflow-x-auto">
+  {["DASHBOARD", "TRENDING", "MY LISTS", "MY POSITIONS", "NEWS"].map(tab => (
   <button
     key={tab}
     onClick={() => setActiveTab(tab)}
@@ -1803,31 +1947,119 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
  {activeTab === "DASHBOARD" && (
   <div className="space-y-4 md:space-y-6 mb-6 md:mb-8">
-    {/* MANUAL SEARCH SECTION */}
-    <div className="bg-[#050505] border border-zinc-900 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
-      <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
-        Analyze Any Stock
-      </h3>
-      <div className="flex flex-col sm:flex-row gap-3">
-        <input
-            type="text"
-            placeholder="Enter ticker (e.g. AAPL, TSLA)..."
-            value={manualSearch}
-            onChange={(e) => setManualSearch(e.target.value.toUpperCase())}
-            onKeyDown={(e) => e.key === 'Enter' && runScanner(manualSearch)}
-            className="flex-1 bg-black border border-zinc-800 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
-            style={{ caretColor: '#00ff4e' }}
-          />
-        <button 
-          onClick={() => runScanner(manualSearch)}
-          disabled={loading || !manualSearch}
-          className="hover:opacity-90 disabled:opacity-20 text-black px-6 md:px-8 py-3 rounded-lg text-xs md:text-sm font-black tracking-tighter transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)] active:scale-95 whitespace-nowrap"
-          style={{ backgroundColor: '#00ff4e' }}
-        >
-          {loading ? 'ANALYZING...' : 'ANALYZE STOCK'}
-        </button>
-      </div>
+{/* MANUAL SEARCH SECTION */}
+<div className="bg-[#050505] border border-zinc-900 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden transition-all duration-300">
+  <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
+    Analyze Any Stock
+  </h3>
+  <div className="flex flex-col sm:flex-row gap-3">
+    <div className="flex-1 relative">
+      <input
+        type="text"
+        placeholder="Enter ticker or company name (e.g. AAPL, Apple)..."
+        value={manualSearch}
+        onChange={async (e) => {
+          const value = e.target.value.toUpperCase();
+          setManualSearch(value);
+          
+          // Search for matching stocks if user types 2+ characters
+          if (value.length >= 2) {
+            try {
+              const res = await fetch(`https://finnhub.io/api/v1/search?q=${value}&token=${FINNHUB_KEY}`);
+              const data = await res.json();
+              setStockSearchResults(data.result?.slice(0, 5) || []); // Show top 5 matches
+            } catch (err) {
+              console.error('Search failed:', err);
+            }
+          } else {
+            setStockSearchResults([]);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && manualSearch) {
+            runScanner(manualSearch);
+            setStockSearchResults([]);
+          }
+        }}
+        className="w-full bg-black border border-zinc-800 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
+        style={{ caretColor: '#00ff4e' }}
+      />
     </div>
+    
+    <button 
+      onClick={() => {
+        runScanner(manualSearch);
+        setStockSearchResults([]);
+      }}
+      disabled={loading || !manualSearch}
+      className="hover:opacity-90 disabled:opacity-20 text-black px-6 md:px-8 py-3 rounded-lg text-xs md:text-sm font-black tracking-tighter transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)] active:scale-95 whitespace-nowrap"
+      style={{ backgroundColor: '#00ff4e' }}
+    >
+      {loading ? 'ANALYZING...' : 'ANALYZE STOCK'}
+    </button>
+  </div>
+  
+  {/* Search results - inside the same container, pushes everything down */}
+  <AnimatePresence>
+    {stockSearchResults.length > 0 && (
+      <motion.div
+        initial={{ height: 0, opacity: 0 }}
+        animate={{ height: 'auto', opacity: 1 }}
+        exit={{ height: 0, opacity: 0 }}
+        transition={{ duration: 0.3 }}
+        className="overflow-hidden"
+      >
+        <div className="mt-3 space-y-1 max-h-60 overflow-y-auto">
+          {stockSearchResults.map((result) => (
+            <button
+  key={result.symbol}
+  onClick={() => {
+    console.log('Clicked stock:', result.symbol);  // ADD THIS
+    setManualSearch(result.symbol);
+    setStockSearchResults([]);
+    console.log('About to call runScanner');  // ADD THIS
+    runScanner(result.symbol);
+    console.log('Called runScanner');  // ADD THIS
+  }}
+  className="w-full text-left px-4 py-3 bg-zinc-900 hover:bg-zinc-800 transition-all rounded-lg border border-zinc-800 hover:border-[#00ff4e]/50"
+>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-black text-white">{result.symbol}</p>
+                  <p className="text-xs text-zinc-500">{result.description}</p>
+                </div>
+                <span className="text-xs text-zinc-600">{result.type}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+</div>
+
+{/* MANUAL SEARCH RESULTS - Shows right after search box */}
+{isManualResult && displayedStocks.length > 0 && (
+  <div className="space-y-6 md:space-y-8 mb-6">
+    {displayedStocks.map((stock) => (
+      <MetricCard 
+        key={stock.symbol}
+        stock={getStableStock(stock)}
+        isMarketOpen={isMarketOpen} 
+        onAction={(stock) => setShowAddToListMenu(stock)}
+        removeFromWatchlist={removeStockFromList}
+        actionType="ADD"
+        watchlist={flattenedWatchlist}
+        showAddToListMenu={showAddToListMenu}
+        onCloseMenu={() => setShowAddToListMenu(null)}
+        watchlists={watchlists}
+        onAddToList={addStockToList}
+        user={user}
+        onOpenChat={(stock) => setShowStockChat(stock)}
+      />
+    ))}
+  </div>
+)}
 
   
 {/* AI SCANNER SECTION */}
@@ -1901,8 +2133,12 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     </button>
   </div>
 </div>
+
+
+
   </div>
 )}
+
 
       {/* SORT & FILTER BAR */}
       {activeTab === "DASHBOARD" && stocks.length > 0 && (
@@ -1996,7 +2232,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           <SkeletonCard />
         </>
       )}
-  {displayedStocks.map((stock, index) => (
+  {!isManualResult && displayedStocks.map((stock, index) => (
     <MetricCard 
   key={stock.symbol}
   stock={getStableStock(stock)}
