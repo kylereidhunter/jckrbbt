@@ -17,6 +17,8 @@ import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, sear
 import { Users } from 'lucide-react';
 import UserProfileModal from './UserProfileModal';
 import PlaidLink from './PlaidLink';
+import StockChatModal from './StockChatModal';
+import { MessageCircle } from 'lucide-react';
 
 
 
@@ -361,6 +363,7 @@ const [loadingTrending, setLoadingTrending] = useState(false);
 const [loadingDiscover, setLoadingDiscover] = useState(false);
 const [hoveringPositionSymbol, setHoveringPositionSymbol] = useState(null);
 const watchlistIntervalRef = useRef(null);
+const [showStockChat, setShowStockChat] = useState(null);
 
 
 const flattenedWatchlist = useMemo(() => {
@@ -1944,19 +1947,20 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       )}
   {displayedStocks.map((stock, index) => (
     <MetricCard 
-      key={stock.symbol}
-      stock={getStableStock(stock)}  // <- Use getStableStock here too
-      isMarketOpen={isMarketOpen} 
-      onAction={(stock) => setShowAddToListMenu(stock)}
-      removeFromWatchlist={removeStockFromList}
-      actionType="ADD"
-      watchlist={flattenedWatchlist}      
-      showAddToListMenu={showAddToListMenu}
-      onCloseMenu={() => setShowAddToListMenu(null)}
-      watchlists={watchlists}
-      onAddToList={addStockToList}
-      user={user}
-    />
+  key={stock.symbol}
+  stock={getStableStock(stock)}
+  isMarketOpen={isMarketOpen} 
+  onAction={(stock) => setShowAddToListMenu(stock)}
+  removeFromWatchlist={removeStockFromList}
+  actionType="ADD"
+  watchlist={flattenedWatchlist}
+  showAddToListMenu={showAddToListMenu}
+  onCloseMenu={() => setShowAddToListMenu(null)}
+  watchlists={watchlists}
+  onAddToList={addStockToList}
+  user={user}
+  onOpenChat={(stock) => setShowStockChat(stock)}  // ADD THIS LINE
+/>
   ))}
     </>
 
@@ -2300,6 +2304,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
                         watchlists={watchlists}
                         onAddToList={addStockToList}
                         user={user}
+                        onOpenChat={(stock) => setShowStockChat(stock)}  // ADD THIS LINE
                       />
                     ))}
                   </div>
@@ -2676,6 +2681,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         editList={editingWatchlist}
       />
 
+
       {/* USER PROFILE MODAL */}
 <UserProfileModal
   isOpen={showUserProfileModal}
@@ -2688,6 +2694,14 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
   isFollowing={viewingUser ? followingUsers.has(viewingUser.id) : false}
   onFollow={handleFollowUser}
   onUnfollow={handleUnfollowUser}
+/>
+
+{/* STOCK CHAT MODAL */}
+<StockChatModal
+  isOpen={!!showStockChat}
+  onClose={() => setShowStockChat(null)}
+  stock={showStockChat}
+  aiModel={aiModel}
 />
 
 {/* Footer */}
@@ -2792,7 +2806,7 @@ function CustomDropdown({ value, onChange, options, label }) {
   );
 }
 
-const MetricCard = React.memo(function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user }) {  
+const MetricCard = React.memo(function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user, onOpenChat }) {
   
   // Generate a unique ID for this component instance
   const instanceId = useRef(Math.random().toString(36).substr(2, 9));
@@ -2863,8 +2877,23 @@ useEffect(() => {
       ref={cardRef}
       className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-8 relative hover:border-zinc-600 transition-all overflow-hidden group"
     >
- {/* WATCHLIST BUTTON */}
-<div className="absolute top-3 right-3 md:top-4 md:right-8 z-10">
+{/* ACTION BUTTONS */}
+<div className="absolute top-3 right-3 md:top-4 md:right-8 z-10 flex gap-2">
+  {/* Ask AI Button */}
+  <button 
+    onClick={(e) => {
+      e.stopPropagation();
+      onOpenChat && onOpenChat(stock);
+    }}
+    className="flex items-center gap-2 px-3 md:px-5 py-2 rounded-lg border border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50 transition-all active:scale-95"
+  >
+    <span className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.2em] leading-none hidden sm:inline">
+      Ask AI
+    </span>
+    <MessageCircle size={12} className="md:w-3.5 md:h-3.5" />
+  </button>
+
+  {/* Existing Add/Remove Button */}
   {actionType === "REMOVE" ? (
     <button 
       onMouseEnter={() => setIsHoveringButton(true)}
@@ -2886,28 +2915,24 @@ useEffect(() => {
         data-add-button="true"
         onMouseEnter={() => setIsHoveringButton(true)}
         onMouseLeave={() => setIsHoveringButton(false)}
-onClick={(e) => {
-  e.stopPropagation();
-  if (!user) {
-    alert('Please sign in to add stocks to lists');
-    return;
-  }
-  
-  // If already added AND hovering (showing Remove), remove it
-  if (isAlreadyAdded && isHoveringButton) {
-    const listWithStock = watchlists.find(list => 
-      list.stocks.some(s => s.symbol === stock.symbol)
-    );
-    console.log('Removing stock:', stock.symbol, 'from list:', listWithStock?.id);
-    if (listWithStock) {
-      removeFromWatchlist(listWithStock.id, stock.symbol);
-    }
-  } else if (!isAlreadyAdded) {
-    // Only show menu if NOT already added
-    onAction(stock);
-  }
-  // If added but NOT hovering (showing "Added"), do nothing
-}}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!user) {
+            alert('Please sign in to add stocks to lists');
+            return;
+          }
+          
+          if (isAlreadyAdded && isHoveringButton) {
+            const listWithStock = watchlists.find(list => 
+              list.stocks.some(s => s.symbol === stock.symbol)
+            );
+            if (listWithStock) {
+              removeFromWatchlist(listWithStock.id, stock.symbol);
+            }
+          } else if (!isAlreadyAdded) {
+            onAction(stock);
+          }
+        }}
         className={`flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 rounded-lg border transition-all active:scale-95 ${
           isAlreadyAdded 
             ? isHoveringButton
