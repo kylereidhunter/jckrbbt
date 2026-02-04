@@ -364,12 +364,22 @@ const [loadingDiscover, setLoadingDiscover] = useState(false);
 const [hoveringPositionSymbol, setHoveringPositionSymbol] = useState(null);
 const watchlistIntervalRef = useRef(null);
 const [showStockChat, setShowStockChat] = useState(null);
+const [recentlyScanned, setRecentlyScanned] = useState(() => {
+  // Load from localStorage on mount
+  const saved = localStorage.getItem('recentlyScanned');
+  return saved ? new Set(JSON.parse(saved)) : new Set();
+});
+
+
+
 
 
 const flattenedWatchlist = useMemo(() => {
   return watchlists.flatMap(l => l.stocks);
 }, [watchlists]);
   
+
+
   
 
 const addStockToList = async (stock, listId) => {
@@ -451,6 +461,16 @@ const updateList = useCallback(async (list) => {
   }));
 }, [FINNHUB_KEY]);
 
+// User-specific seeded shuffle for legal compliance
+const hashCode = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+};
+
 const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
   setLoadingTrending(true);
   try {
@@ -504,6 +524,8 @@ const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
         });
       }
     });
+
+
     
     // Sort by watch count
     trending.sort((a, b) => b.watchCount - a.watchCount);
@@ -517,7 +539,22 @@ const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
   }
 }, []);
 
+// Clear recently scanned stocks every 24 hours
+useEffect(() => {
+  const timer = setInterval(() => {
+    setRecentlyScanned(new Set());
+    localStorage.removeItem('recentlyScanned');
+  }, 24 * 60 * 60 * 1000); // 24 hours
+  
+  return () => clearInterval(timer);
+}, []);
 
+// Persist recently scanned to localStorage
+useEffect(() => {
+  if (recentlyScanned.size > 0) {
+    localStorage.setItem('recentlyScanned', JSON.stringify([...recentlyScanned]));
+  }
+}, [recentlyScanned]);
 
 // Fetch trending stocks when tab changes or interval changes
 useEffect(() => {
@@ -1196,6 +1233,12 @@ STRICT REJECTION CRITERIA:
 ✗ News older than 30 days with nothing recent
 ✗ "Potential" or "could" catalysts - need CONFIRMED events
 
+DIVERSITY REQUIREMENTS:
+- Include mix of small-cap ($300M-$2B), mid-cap ($2B-$10B), and large-cap (>$10B)
+- At least 3 different sectors represented
+- Include at least 2 stocks over $50 per share for diversification
+- Avoid penny stocks under $2
+
 TRUSTED NEWS SOURCES ONLY: ${sourceString}
 
 ${excludeStr}
@@ -1207,7 +1250,7 @@ SEARCH PROCESS:
 4. Search for "merger acquisition announced January 2026"
 5. For each result, verify it has a SPECIFIC catalyst and is US-traded
 
-OUTPUT FORMAT: Return ONLY a comma-separated list of 100-150 US stock tickers.
+OUTPUT FORMAT: Return ONLY a comma-separated list of 200-300 US stock tickers.
 Example: ABCD, EFGH, IJKL, MNOP
 
 DO NOT include tickers unless you found SPECIFIC catalyst information.
@@ -1223,17 +1266,22 @@ DO NOT include tickers unless you found SPECIFIC catalyst information.
         tickersToProcess = [...new Set(foundSymbols)];
       }
 
-const blacklist = ["CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", "FDA", "JAN", "FEB", "AI", "ML", "EV", "CEO", "CFO", "IPO", "ETF", "ESG"];const foreignSuffixes = [".L", ".HK", ".TO", ".AX", ".PA", ".DE"]; // London, Hong Kong, Toronto, Australia, Paris, Germany
+const blacklist = ["CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", "FDA", "JAN", "FEB", "AI", "ML", "EV", "CEO", "CFO", "IPO", "ETF", "ESG"];
+const foreignSuffixes = [".L", ".HK", ".TO", ".AX", ".PA", ".DE"];
 
 const tickers = tickersToProcess.filter(t => {
   if (blacklist.includes(t)) return false;
   if (foreignSuffixes.some(suffix => t.includes(suffix))) return false;
   if (t.length > 5) return false;
+  if (recentlyScanned.has(t)) return false; // NEW: Skip recently scanned
   return true;
 });
 
-// Shuffle to randomize order
-const shuffledTickers = tickers.sort(() => Math.random() - 0.5);
+// NEW: User-specific randomization for legal compliance
+const seed = user?.uid ? `${user.uid}-${new Date().toDateString()}` : Date.now().toString();
+const shuffledTickers = tickers.sort((a, b) => {
+  return hashCode(seed + a) - hashCode(seed + b);
+}).slice(0, 50); // Take first 50 for processing
 
 for (const ticker of shuffledTickers) {
   if (localStocks.length >= targetGoal) break;
@@ -1510,9 +1558,12 @@ const newStock = {
   insights: extract("INSIGHTS", resText).split('|').map(i => formatText(clean(i))).filter(i => i.length > 5)
 };
 
-          localStocks.push(newStock);
-          displayedTickers.add(ticker); 
-          setStocks([...localStocks]); 
+        localStocks.push(newStock);
+        displayedTickers.add(ticker); 
+        setStocks([...localStocks]); 
+
+        // NEW: Add to recently scanned cooldown
+        setRecentlyScanned(prev => new Set([...prev, ticker]));
 
         } catch (e) {
           rejectedTickers.add(ticker);
