@@ -13,10 +13,10 @@ import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
-import { Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw } from 'lucide-react';
-import UserProfileModal from './UserProfileModal';
-import PlaidLink from './PlaidLink';
+import { Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper } from 'lucide-react';import PlaidLink from './PlaidLink';
 import StockChatModal from './StockChatModal';
+import UserProfileModal from './UserProfileModal';
+
 
 
 
@@ -38,6 +38,7 @@ const isMobile = () => window.innerWidth < 768;
 
 
 const REPUTABLE_SOURCES = [
+  // === MAJOR FINANCIAL NEWS ===
   "Wall Street Journal", "Bloomberg", "Financial Times", "Reuters", "CNBC", 
   "Barron's", "MarketWatch", "Seeking Alpha", "The Economist", "Forbes",
   "Investor's Business Daily", "Yahoo Finance", "Benzinga", "Morningstar",
@@ -49,14 +50,55 @@ const REPUTABLE_SOURCES = [
   "LiveMint", "The Globe and Mail", "Australian Financial Review", "WhaleWisdom",
   "Dataroma", "OpenInsider", "ETF.com", "Project Syndicate", "ValueWalk",
   "Institutional Investor", "Morning Brew",
+  
+  // === RESEARCH & ANALYTICS ===
   "GuruFocus", "Simply Wall St", "Alpha Spread", "Stocktwits", "Trade Ideas",
   "Fintel", "Ortex", "Unusual Whales", "Market Chameleon", "Bamsec",
   "AlphaSense", "Sentieo", "S&P Global", "FactSet", "Capital IQ",
-  "Pitchbook", "CB Insights", "Crunchbase", "BioPharma Dive", "FiercePharma",
-  "MedCity News", "Endpoints News", "STAT News", "Clinical Trials Arena",
-  "FDA.gov", "ClinicalTrials.gov", "BioSpace", "GlobeNewswire", "PR Newswire",
-  "Business Wire", "EIN Presswire", "Shareholder.com", "Insider Monkey",
-  "13F filings", "Form 4 filings", "8-K filings", "Hedge Fund Tracker"
+  "Pitchbook", "CB Insights", "Crunchbase",
+  
+  // === BIOTECH & PHARMA ===
+  "BioPharma Dive", "FiercePharma", "MedCity News", "Endpoints News", 
+  "STAT News", "Clinical Trials Arena", "FDA.gov", "ClinicalTrials.gov", 
+  "BioSpace", "BioWorld", "Evaluate Pharma", "Drug Discovery Today",
+  "Pharmaceutical Technology", "PharmaLive", "Fierce Biotech",
+  
+  // === PRESS RELEASES & FILINGS ===
+  "GlobeNewswire", "PR Newswire", "Business Wire", "EIN Presswire", 
+  "Shareholder.com", "Insider Monkey", "13F filings", "Form 4 filings", 
+  "8-K filings", "Hedge Fund Tracker", "Accesswire", "Cision",
+  
+  // === TECH & STARTUPS ===
+  "TechCrunch", "The Verge", "Ars Technica", "Wired", "VentureBeat",
+  "The Information", "Protocol", "Techmeme", "Hacker News", "SiliconANGLE",
+  "ZDNet", "CNET", "Engadget", "MIT Technology Review",
+  
+  // === ENERGY & COMMODITIES ===
+  "Oil Price", "Rigzone", "Energy Intelligence", "Platts", "Argus Media",
+  "Natural Gas Intelligence", "World Oil", "Upstream", "Hart Energy",
+  "Mining.com", "Kitco", "Metal Bulletin",
+  
+  // === REAL ESTATE ===
+  "Commercial Observer", "The Real Deal", "CoStar", "Bisnow", "GlobeSt",
+  "Real Capital Analytics", "PERE News", "National Real Estate Investor",
+  
+  // === MACRO & ECONOMICS ===
+  "Zero Hedge", "MacroVoices", "Real Vision", "Grant's Interest Rate Observer",
+  "Evergreen Gavekal", "Mauldin Economics", "Bridgewater Daily Observations",
+  "Bank for International Settlements", "IMF", "World Bank",
+  
+  // === OPTIONS & DERIVATIVES ===
+  "Options Clearing Corporation", "CBOE", "CME Group", "tastylive",
+  "Option Alpha", "Options Insider",
+  
+  // === EARNINGS & TRANSCRIPTS ===
+  "Earnings Whispers", "Estimize", "The Transcript", "AlphaStreet",
+  "Quartr", "Tikr Terminal",
+  
+  // === INTERNATIONAL ===
+  "Caixin", "Economic Times India", "Handelsblatt", "Les Echos",
+  "Il Sole 24 Ore", "Nikkei", "Yonhap News", "Korea Herald",
+  "The Edge Malaysia", "Straits Times", "AFR", "NZX"
 ];
 
 const sourceString = REPUTABLE_SOURCES.map(s => `site:${s}`).join(" OR ");
@@ -392,6 +434,7 @@ function CurrentTime() {  // Changed name from Clock to CurrentTime
   );
 }
 
+
 export default function App() {
   const [stocks, setStocks] = useState([]);
   const [newsArticles, setNewsArticles] = useState([]);
@@ -450,6 +493,34 @@ const [showSearch, setShowSearch] = useState(false);
 const [stockSearchResults, setStockSearchResults] = useState([]);
 const [isManualResult, setIsManualResult] = useState(false);
 const [scanProgress, setScanProgress] = useState(0);
+const [scanComplete, setScanComplete] = useState(true);
+const [marketIndices, setMarketIndices] = useState(null);
+const [loadingIndices, setLoadingIndices] = useState(false);
+const [indicesLastUpdated, setIndicesLastUpdated] = useState(null);
+
+// Sector mapping for filtering
+const SECTOR_MAP = {
+  'technology': ['Technology', 'Software', 'Semiconductors', 'IT Services', 'Hardware'],
+  'healthcare': ['Healthcare', 'Biotechnology', 'Pharmaceuticals', 'Medical Devices', 'Health Care'],
+  'finance': ['Financial Services', 'Banks', 'Banking', 'Insurance', 'Asset Management', 'Finance', 'Capital Markets', 'Credit Services'],
+  'energy': ['Energy', 'Oil & Gas', 'Renewable Energy'],
+  'consumer': ['Consumer Cyclical', 'Consumer Defensive', 'Retail', 'Consumer Goods'],
+  'industrial': ['Industrials', 'Manufacturing', 'Aerospace', 'Defense', 'Industrial'],
+  'materials': ['Basic Materials', 'Chemicals', 'Mining', 'Materials'],
+  'real estate': ['Real Estate', 'REIT'],
+  'communications': ['Communication Services', 'Media', 'Telecom', 'Communications'],
+  'utilities': ['Utilities', 'Electric', 'Gas', 'Water']
+};
+
+const matchesSector = (finnhubIndustry, selectedSector) => {
+  if (selectedSector === 'all') return true;
+  if (!finnhubIndustry) return false;
+  
+  const sectorKeywords = SECTOR_MAP[selectedSector.toLowerCase()] || [];
+  return sectorKeywords.some(keyword => 
+    finnhubIndustry.toLowerCase().includes(keyword.toLowerCase())
+  );
+};
 
 
 
@@ -542,18 +613,18 @@ const updateList = useCallback(async (list) => {
   
   return Promise.all(list.map(async (stock) => {
     try {
-      const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${stock.symbol}&token=${FINNHUB_KEY}`);
+      const res = await fetch(`https://api.twelvedata.com/quote?symbol=${stock.symbol}&apikey=${TWELVE_DATA_KEY}`);
       const data = await res.json();
-      if (!data.c) return stock; 
+      if (!data.close || data.status === 'error') return stock;
       return {
         ...stock,
-        price: data.c.toFixed(2),
-        change: data.dp?.toFixed(2) || stock.change,
-        isPositive: data.dp >= 0
+        price: parseFloat(data.close).toFixed(2),
+        change: parseFloat(data.percent_change)?.toFixed(2) || stock.change,
+        isPositive: parseFloat(data.percent_change) >= 0
       };
     } catch (e) { return stock; }
   }));
-}, [FINNHUB_KEY]);
+}, []);
 
 // User-specific seeded shuffle for legal compliance
 const hashCode = (str) => {
@@ -564,6 +635,50 @@ const hashCode = (str) => {
   }
   return Math.abs(hash);
 };
+
+// Fetch major market indices - uses batch endpoint (1 API call for all)
+const fetchMarketIndices = useCallback(async () => {
+  setLoadingIndices(true);
+  try {
+    // Batch request - counts as 1 API call for all symbols
+    const symbols = 'SPY,QQQ,DIA,IWM';
+    const res = await fetch(
+      `https://api.twelvedata.com/quote?symbol=${symbols}&apikey=${TWELVE_DATA_KEY}`
+    );
+    const data = await res.json();
+    
+    if (data.status === 'error') {
+      console.error('Market indices fetch error:', data.message);
+      return;
+    }
+    
+    // Transform the response
+    const indices = {};
+    ['SPY', 'QQQ', 'DIA', 'IWM'].forEach(symbol => {
+  const quote = data[symbol];
+  if (quote && quote.close) {
+    indices[symbol] = {
+      symbol,
+      name: symbol === 'SPY' ? 'S&P 500' : 
+            symbol === 'QQQ' ? 'NASDAQ' : 
+            symbol === 'DIA' ? 'DOW' : 'RUSSELL',
+          price: parseFloat(quote.close),
+          change: parseFloat(quote.change),
+          changePercent: parseFloat(quote.percent_change),
+          previousClose: parseFloat(quote.previous_close),
+          isPositive: parseFloat(quote.percent_change) >= 0
+        };
+      }
+    });
+    
+    setMarketIndices(indices);
+    setIndicesLastUpdated(new Date());
+  } catch (error) {
+    console.error('Error fetching market indices:', error);
+  } finally {
+    setLoadingIndices(false);
+  }
+}, []);
 
 const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
   setLoadingTrending(true);
@@ -642,6 +757,21 @@ useEffect(() => {
   
   return () => clearInterval(timer);
 }, []);
+
+// Fetch market indices on load and refresh every 5 minutes
+useEffect(() => {
+  // Fetch on mount
+  fetchMarketIndices();
+  
+  // Auto-refresh every 5 minutes (300000ms) - only when market is open
+  const interval = setInterval(() => {
+    if (isMarketOpen) {
+      fetchMarketIndices();
+    }
+  }, 300000); // 5 minutes
+  
+  return () => clearInterval(interval);
+}, [fetchMarketIndices, isMarketOpen]);
 
 // Persist recently scanned to localStorage
 useEffect(() => {
@@ -1525,6 +1655,7 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
   setIsManualResult(isManual);
   setLoading(true);
   setScanProgress(0);
+  setScanComplete(false);
 
   const rejectedTickers = new Set();
   const displayedTickers = new Set(); 
@@ -1542,7 +1673,10 @@ let attempts = 0;
 try {
   const targetGoal = isManual ? 1 : 5;
 
-  while (localStocks.length < targetGoal && attempts < 3) {
+// Cache discovered tickers outside the loop
+let cachedTickers = null;
+
+while (localStocks.length < targetGoal && attempts < 5) {
     attempts++;
     let tickersToProcess = [];
 
@@ -1550,19 +1684,30 @@ try {
       setScanStatus(`LOCKING ON: ${tickerToSearch.toUpperCase()}...`);
       tickersToProcess = [tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "")];
 } else {
-  setScanStatus(`SCANNING NEWS SOURCES...`);
-  
-  // Discover tickers from recent financial news
-  const foundSymbols = await discoverNewsArticles(scanSector, scanMarketCap, scanPriceLimit);
-  console.log(`📰 Discovered ${foundSymbols.length} stocks from recent news`);
-  
-  if (foundSymbols.length === 0) {
-    setScanStatus(`NO STOCKS IN RECENT NEWS`);
-    setLoading(false);
-    return;
+  // Only fetch news on first attempt
+  if (attempts === 1) {
+    setScanStatus(`SCANNING NEWS SOURCES...`);
+    
+    // Discover tickers from recent financial news
+    const foundSymbols = await discoverNewsArticles(scanSector, scanMarketCap, scanPriceLimit);
+    console.log(`📰 Discovered ${foundSymbols.length} stocks from recent news`);
+    
+    if (foundSymbols.length === 0) {
+      setScanStatus(`NO STOCKS IN RECENT NEWS`);
+      setLoading(false);
+      setScanComplete(true);
+      return;
+    }
+    
+    tickersToProcess = foundSymbols;
+  } else {
+    // On retry attempts, we'll use the same pool but different shuffle
+    setScanStatus(`RETRY ATTEMPT ${attempts}...`);
+    // Re-discover to get fresh shuffle (the shuffle is based on user+date so will be same, 
+    // but recentlyScanned will filter out already-processed ones)
+    const foundSymbols = await discoverNewsArticles(scanSector, scanMarketCap, scanPriceLimit);
+    tickersToProcess = foundSymbols;
   }
-  
-  tickersToProcess = foundSymbols;
 }
 
 const blacklist = [
@@ -1577,14 +1722,20 @@ const blacklist = [
 const foreignSuffixes = [".L", ".HK", ".TO", ".AX", ".PA", ".DE"];
 
 const tickers = tickersToProcess.filter(t => {
-  if (blacklist.includes(t)) return false;
+  if (!isManual && blacklist.includes(t)) return false;
   if (foreignSuffixes.some(suffix => t.includes(suffix))) return false;
-  if (t.length > 5) return false;
-  if (t.length < 3) return false;
   
-  // NEW: Filter obvious junk patterns
-  if (/\d/.test(t)) return false; // No numbers in tickers
-  if (t.endsWith('X') && t.length === 4) return false; // Often OTC junk
+  // Length checks - skip for manual searches (valid tickers can be 1-5 chars like F, PG, AAPL)
+  if (!isManual) {
+    if (t.length > 5) return false;
+    if (t.length < 3) return false;
+  }
+  
+  // Filter obvious junk patterns - skip for manual searches
+  if (!isManual) {
+    if (/\d/.test(t)) return false; // No numbers in tickers
+    if (t.endsWith('X') && t.length === 4) return false; // Often OTC junk
+  }
   
   if (!isManual && recentlyScanned.has(t)) return false;
   return true;
@@ -1596,7 +1747,7 @@ console.log('Tickers after filtering:', tickers);  // ADD THIS
 const seed = user?.uid ? `${user.uid}-${new Date().toDateString()}` : Date.now().toString();
 const shuffledTickers = tickers.sort((a, b) => {
   return hashCode(seed + a) - hashCode(seed + b);
-}).slice(0, 50); // Take first 50 for processing
+}).slice(0, 100); // Take first 100 for processing
 
 console.log('shuffledTickers:', shuffledTickers);  // ADD THIS
 console.log('Starting for loop, targetGoal:', targetGoal);  // ADD THIS
@@ -1606,47 +1757,120 @@ const batchSize = 2;
 for (let i = 0; i < shuffledTickers.length && localStocks.length < targetGoal; i += batchSize) {
   const batch = shuffledTickers.slice(i, i + batchSize);
   
-  console.log(`Processing batch ${Math.floor(i/batchSize) + 1}: ${batch.join(', ')}`);
-  setScanProgress(20 + (i / shuffledTickers.length) * 60);
+  const batchNumber = Math.floor(i/batchSize) + 1;
+const totalBatches = Math.ceil(shuffledTickers.length / batchSize);
+console.log(`Processing batch ${batchNumber}/${totalBatches}: ${batch.join(', ')}`);
+
+// Progress: 10% for news discovery, 10-90% for processing, 100% when complete
+const progressPercent = Math.min(10 + (i / shuffledTickers.length) * 80, 90);
+setScanProgress(Math.round(progressPercent));
+setScanStatus(`ANALYZING ${batch.join(', ')}...`);
   
-  const batchResults = await Promise.allSettled(
+const batchResults = await Promise.allSettled(
     batch.map(async (ticker) => {
       try {
-// Fetch quote and news (these change frequently)
-        const [q, n] = await Promise.all([
-          fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`).then(r => r.json()),
-          fetch(`https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`).then(r => r.json())
-        ]);
-
-        // Check profile cache (profiles don't change often)
-        let p;
-        if (profileCache[ticker]) {
-          console.log(`${ticker} - Using cached profile`);
-          p = profileCache[ticker];
-        } else {
-          p = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`).then(r => r.json());
-          if (p && p.name) {
-            setProfileCache(prev => ({ ...prev, [ticker]: p }));
-            console.log(`${ticker} - Cached profile for future scans`);
+        // 1. EARLY SECTOR CHECK - Skip immediately if cached profile doesn't match sector
+        if (!isManual && scanSector !== 'all' && profileCache[ticker]) {
+          const cachedIndustry = profileCache[ticker]?.finnhubIndustry || '';
+          if (!matchesSector(cachedIndustry, scanSector)) {
+            console.log(`${ticker} - Skipped (cached): Sector mismatch (${cachedIndustry} vs ${scanSector})`);
+            return null;
           }
+          console.log(`${ticker} - Cached sector match: ${cachedIndustry} ✓`);
         }
 
+// 2. Fetch quote from Twelve Data, news from Finnhub (only Finnhub has news)
+let twelveQuote, n;
+try {
+  [twelveQuote, n] = await Promise.all([
+    fetch(`https://api.twelvedata.com/quote?symbol=${ticker}&apikey=${TWELVE_DATA_KEY}`).then(r => r.json()),
+    fetch(`https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`).then(r => r.json())
+  ]);
+} catch (fetchError) {
+  console.log(`${ticker} - Fetch error:`, fetchError.message);
+  return null;
+}
+
+// Check for Twelve Data errors
+if (twelveQuote.code === 429 || twelveQuote.status === 'error') {
+  console.log(`${ticker} - Twelve Data rate limit or error:`, twelveQuote.message || 'Rate limited');
+  return null;
+}
+
+// Transform Twelve Data quote to match expected format
+const q = {
+  c: parseFloat(twelveQuote.close) || 0,
+  h: parseFloat(twelveQuote.fifty_two_week?.high) || 0,
+  l: parseFloat(twelveQuote.fifty_two_week?.low) || 0,
+  dp: parseFloat(twelveQuote.percent_change) || 0,
+  v: parseFloat(twelveQuote.volume) || 0,
+  av: parseFloat(twelveQuote.average_volume) || 1
+};
+
+        // 3. Check quote validity
         if (!q || !q.c || q.c === 0) {
           console.log(`${ticker} - Invalid quote data`);
           return null;
         }
 
-        if (!isManual) {
-          if (q.c < 2) {
-            console.log(`${ticker} - Rejected: Price too low ($${q.c})`);
+        // 4. Check price limits
+if (!isManual) {
+  // Dynamic minimum based on sector - tech/biotech have many legitimate sub-$2 stocks
+  const minPrice = (scanSector === 'technology' || scanSector === 'healthcare') ? 0.50 : 2;
+  if (q.c < minPrice) {
+    console.log(`${ticker} - Rejected: Price too low ($${q.c} < $${minPrice})`);
+    return null;
+  }
+  if (q.c > scanPriceLimit) {
+    console.log(`${ticker} - Rejected: Price above limit ($${q.c} > $${scanPriceLimit})`);
+    return null;
+  }
+}
+
+        // 5. Fetch or use cached profile (using Twelve Data)
+let p;
+if (profileCache[ticker]) {
+  console.log(`${ticker} - Using cached profile`);
+  p = profileCache[ticker];
+} else {
+  try {
+    // Use Twelve Data for profile info
+    const profileRes = await fetch(`https://api.twelvedata.com/profile?symbol=${ticker}&apikey=${TWELVE_DATA_KEY}`);
+    const twelveProfile = await profileRes.json();
+    
+    if (twelveProfile && twelveProfile.name) {
+      // Transform to match our expected format
+      p = {
+        name: twelveProfile.name,
+        finnhubIndustry: twelveProfile.sector || twelveProfile.industry || '',
+        ticker: ticker,
+        logo: twelveProfile.logo || '',
+        marketCapitalization: twelveProfile.market_cap || 0,
+        exchange: twelveProfile.exchange || ''
+      };
+      setProfileCache(prev => ({ ...prev, [ticker]: p }));
+      console.log(`${ticker} - Cached profile for future scans (${p.finnhubIndustry})`);
+    } else {
+      // Fallback to minimal profile
+      p = { name: ticker, finnhubIndustry: '' };
+    }
+  } catch (profileError) {
+    console.log(`${ticker} - Profile fetch error:`, profileError.message);
+    p = { name: ticker, finnhubIndustry: '' };
+  }
+}
+
+        // 6. SECTOR VALIDATION - Check sector for newly fetched profiles
+        if (!isManual && scanSector !== 'all') {
+          const industry = p?.finnhubIndustry || '';
+          if (!matchesSector(industry, scanSector)) {
+            console.log(`${ticker} - Rejected: Sector mismatch (${industry} vs ${scanSector})`);
             return null;
           }
-          if (q.c > scanPriceLimit) {
-            console.log(`${ticker} - Rejected: Price above limit ($${q.c} > $${scanPriceLimit})`);
-            return null;
-          }
+          console.log(`${ticker} - Sector match: ${industry} ✓`);
         }
 
+        // 7. Fetch or use cached volatility data
         let h = { c: [] };
         if (volatilityCache[ticker]) {
           h = { c: volatilityCache[ticker] };
@@ -1721,7 +1945,7 @@ const analysisPrompt = isManual
     
     FORMAT (Use EXACT tags):
     NAME: ${p.name || 'Unknown'}
-    [RANGE] $XX.XX - $XX.XX [/RANGE]
+    [HORIZON] SHORT_TERM or MEDIUM_TERM or LONG_TERM [/HORIZON]
     [SIG] BULLISH or BEARISH [/SIG]
     [MOM] Positive, Steady, or Uncertain [/MOM]
     [CAT] Primary catalyst - max 15 words [/CAT]
@@ -1736,6 +1960,12 @@ const analysisPrompt = isManual
     | RISK: Main downside (e.g., "Binary clinical trial event, intense competition")
     | TIMING: Entry strategy (e.g., "Wait for pullback to $8-9 support")
     [/INSIGHTS]
+    [SIMILAR] List 3-5 similar stock tickers in the same sector/industry with similar market cap - just the symbols comma-separated, e.g., "MRNA, BNTX, NVAX, PFE" [/SIMILAR]
+
+    HORIZON Guidelines:
+- SHORT_TERM: Binary event within 30 days (earnings, FDA decision, technical breakout, news momentum)
+- MEDIUM_TERM: Catalyst 1-6 months out (product launch, sector trend, guidance improvement, growth inflection)
+- LONG_TERM: Strong fundamentals, undervalued, multi-year growth story, compounding business
     
     CRITICAL: Each insight MUST start with the label followed by a COLON.
     Include specific numbers, dates, percentages, and concrete events.
@@ -1780,7 +2010,7 @@ const analysisPrompt = isManual
     
     FORMAT (Use EXACT tags):
     NAME: ${p.name || 'Unknown'}
-    [RANGE] $XX.XX - $XX.XX [/RANGE]
+    [HORIZON] SHORT_TERM or MEDIUM_TERM or LONG_TERM [/HORIZON]
     [SIG] BULLISH or BEARISH or NEUTRAL [/SIG]
     [MOM] Positive, Steady, or Uncertain [/MOM]
     [CAT] Primary catalyst with specifics - max 15 words [/CAT]
@@ -1795,6 +2025,12 @@ const analysisPrompt = isManual
     | RISK: Main downside consideration (e.g., "Clinical trial results binary event, competitive landscape intensifying")
     | TIMING: Specific entry/exit strategy based on setup (e.g., "Wait for pullback to $8-9 support before entry")
     [/INSIGHTS]
+    [SIMILAR] List 3-5 similar stock tickers in the same sector/industry with similar market cap - just the symbols comma-separated, e.g., "MRNA, BNTX, NVAX, PFE" [/SIMILAR]
+
+    HORIZON Guidelines:
+- SHORT_TERM: Binary event within 30 days (earnings, FDA decision, technical breakout, news momentum)
+- MEDIUM_TERM: Catalyst 1-6 months out (product launch, sector trend, guidance improvement, growth inflection)
+- LONG_TERM: Strong fundamentals, undervalued, multi-year growth story, compounding business
     
     CRITICAL: Each insight must be SPECIFIC and ACTIONABLE. No generic statements like "positive momentum" or "sector tailwinds."
     Include actual numbers, dates, percentages, price targets, and concrete events.
@@ -1805,28 +2041,40 @@ const analysisPrompt = isManual
         const analysis = await aiModel.generateContent(analysisPrompt);
         const resText = await analysis.response.text();
 
-        if (!isManual && resText.includes("NEUTRAL")) {
-          console.log(`${ticker} - Rejected: AI marked as NEUTRAL`);
-          return null;
-        }
+        const signal = extract("SIG", resText).toUpperCase();
+if (!isManual && signal.includes("NEUTRAL")) {
+  console.log(`${ticker} - Rejected: AI signal is NEUTRAL`);
+  return null;
+}
 
         const aiConfidence = getScore(extract("CONF", resText), 65);
         const volumeRatio = (q.v || 0) / (q.av || 1);
 
-        const newStock = {
-          symbol: ticker.trim().toUpperCase(),
-          name: p.name || clean(extract("NAME", resText)) || `${ticker} CORP`,
-          price: q.c.toFixed(2),
-          change: q.dp?.toFixed(2) || "0.00",
-          isPositive: extract("SIG", resText).toUpperCase().includes("BULLISH"),
-          range: clean(extract("RANGE", resText)),
-          confidence: calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence, volumeRatio),
-          volatility: h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40,
-          rating: clean(extract("SIG", resText)),
-          momentum: clean(extract("MOM", resText)),
-          catalyst: formatText(clean(extract("CAT", resText))),
-          insights: extract("INSIGHTS", resText).split('|').map(i => formatText(clean(i))).filter(i => i.length > 5)
-        };
+        // Extract similar stocks
+const similarRaw = extract("SIMILAR", resText);
+const similarStocks = similarRaw
+  ? similarRaw
+      .split(',')
+      .map(s => s.trim().toUpperCase().replace(/[^A-Z]/g, ''))
+      .filter(s => s.length >= 2 && s.length <= 5 && s !== ticker.toUpperCase())
+      .slice(0, 5)
+  : [];
+
+const newStock = {
+  symbol: ticker.trim().toUpperCase(),
+  name: p.name || clean(extract("NAME", resText)) || `${ticker} CORP`,
+  price: q.c.toFixed(2),
+  change: q.dp?.toFixed(2) || "0.00",
+  isPositive: extract("SIG", resText).toUpperCase().includes("BULLISH"),
+  horizon: clean(extract("HORIZON", resText)) || 'SHORT_TERM',
+  confidence: calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence, volumeRatio),
+  volatility: h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40,
+  rating: clean(extract("SIG", resText)),
+  momentum: clean(extract("MOM", resText)),
+  catalyst: formatText(clean(extract("CAT", resText))),
+  insights: extract("INSIGHTS", resText).split('|').map(i => formatText(clean(i))).filter(i => i.length > 5),
+  similarStocks: similarStocks
+};
 
         console.log(`✓ ${ticker} passed all filters`);
         return newStock;
@@ -1851,9 +2099,9 @@ for (const result of batchResults) {
   }
 }
 
-if (localStocks.length < targetGoal) {
-  await new Promise(r => setTimeout(r, 1500)); // Reduced to 1.5 seconds
-}
+// Always add delay between batches to avoid rate limits
+// Finnhub free tier: 60 calls/minute, Twelve Data: 8 calls/minute
+await new Promise(r => setTimeout(r, 3500));
 }
 
 if (isManual) break;
@@ -1862,7 +2110,8 @@ if (isManual) break;
   finally { 
     setLoading(false); 
     setScanProgress(100);
-    setScanStatus("COMPLETE");
+    setScanStatus("SCAN COMPLETE");
+    setScanComplete(true);
     // Restart watchlist updates after scan completes
     if (watchlistIntervalRef.current) {
       clearInterval(watchlistIntervalRef.current);
@@ -1871,6 +2120,18 @@ if (isManual) break;
   }
 }, [aiModel, sourceString, scanPriceLimit, scanMarketCap, scanSector]);
 
+// Handle clicking a similar stock ticker
+const handleScanSimilar = useCallback((ticker) => {
+  setStocks([]);
+  setManualSearch(ticker);
+  setIsManualResult(true);
+  
+  // Scroll to top
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  
+  // Run the scan
+  runScanner(ticker);
+}, [runScanner]);
 
 const getSortedAndFilteredStocks = useCallback((stockList) => {
   let filtered = [...stockList];
@@ -1945,7 +2206,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
  return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8 font-mono">
-      <style>{`
+<style>{`
   select option {
     background-color: #000 !important;
     color: #fff !important;
@@ -1958,9 +2219,15 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     color: #000 !important;
   }
   @keyframes shimmer {
-    100% {
-      transform: translateX(100%);
+    0% {
+      background-position: -200% 0;
     }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+  .animate-shimmer {
+    animation: shimmer 2s infinite linear;
   }
 `}</style>
       
@@ -2169,22 +2436,118 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
 <TypewriterGreeting />
 
-
-<div className="flex gap-2 md:gap-4 mb-6 md:mb-8 border-b border-zinc-900 pb-4 overflow-x-auto">
-  {["DASHBOARD", "TRENDING", "MY LISTS", "MY POSITIONS", "NEWS"].map(tab => (
-  <button
-    key={tab}
-    onClick={() => setActiveTab(tab)}
-    className={`text-[10px] md:text-xs font-black tracking-[0.2em] md:tracking-[0.3em] px-4 md:px-6 py-2 rounded-full transition-all whitespace-nowrap flex-shrink-0 ${
-      activeTab === tab 
-      ? "bg-[#00ff4e] text-black shadow-[0_0_20px_rgba(0,255,78,0.4)]" 
-      : "text-zinc-500 hover:text-white"
-    }`}
-  >
-    {tab === "MY LISTS" ? `MY LISTS` : tab}
-  </button>
-))}
+{/* Market Indices Bar */}
+<div className="mb-6 md:mb-8">
+  <div className={`bg-[#0a0a0a] rounded-xl p-3 md:p-4 overflow-hidden transition-all duration-500 ${
+    isMarketOpen 
+  ? 'border-2 border-[#00ff4e]/60 shadow-[0_0_30px_rgba(0,255,78,0.15)]' 
+  : 'border border-zinc-800'
+  }`}>
+    
+    {/* Header Row */}
+    <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center gap-2">
+        <span className={`h-1.5 w-1.5 rounded-full ${isMarketOpen ? 'bg-[#00ff4e] animate-pulse' : 'bg-zinc-600'}`} />
+        <span className="text-[9px] md:text-[10px] font-black text-zinc-500 uppercase tracking-wider">
+          {isMarketOpen ? 'Markets Open' : 'Markets Closed'}
+        </span>
       </div>
+      <button
+        onClick={fetchMarketIndices}
+        disabled={loadingIndices}
+        className="text-[9px] text-zinc-600 hover:text-[#00ff4e] transition-colors flex items-center gap-1.5 px-2 py-1 rounded border border-transparent hover:border-zinc-800"
+      >
+        <RefreshCw size={10} className={loadingIndices ? 'animate-spin' : ''} />
+        <span className="hidden sm:inline">
+          {loadingIndices ? 'Updating...' : indicesLastUpdated 
+            ? `Updated ${indicesLastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` 
+            : 'Refresh'}
+        </span>
+      </button>
+    </div>
+
+    {/* Indices Grid */}
+    {marketIndices ? (
+      <div className="grid grid-cols-4 gap-2 md:gap-3">
+        {['SPY', 'QQQ', 'DIA', 'IWM'].map(symbol => {
+          const index = marketIndices[symbol];
+          if (!index) return null;
+          
+          const color = index.isPositive ? '#00ff4e' : '#ef4444';
+          
+          return (
+            <div 
+              key={symbol}
+              className="text-center md:text-left"
+            >
+              <p className="text-[9px] md:text-[10px] font-black text-zinc-500 mb-0.5">
+                {index.name}
+              </p>
+              <p className="text-sm md:text-lg font-black text-white tabular-nums leading-tight">
+                ${index.price.toFixed(2)}
+              </p>
+              <p 
+                className="text-[10px] md:text-xs font-black tabular-nums"
+                style={{ color }}
+              >
+                {index.isPositive ? '▲' : '▼'} {index.isPositive ? '+' : ''}{index.changePercent.toFixed(2)}%
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    ) : loadingIndices ? (
+      <div className="grid grid-cols-4 gap-2 md:gap-3">
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="animate-pulse">
+            <div className="h-3 bg-zinc-800 rounded w-12 mb-1" />
+            <div className="h-5 bg-zinc-800 rounded w-16 mb-1" />
+            <div className="h-3 bg-zinc-800 rounded w-10" />
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div className="text-center py-2">
+        <button 
+          onClick={fetchMarketIndices}
+          className="text-[#00ff4e] text-xs hover:underline"
+        >
+          Load market data
+        </button>
+      </div>
+    )}
+    
+  </div>
+</div>
+
+
+{/* Tab Navigation - Icon Buttons */}
+<div className="flex gap-2 md:gap-3 mb-6 md:mb-8">
+  {[
+    { id: "DASHBOARD", icon: LayoutDashboard },
+    { id: "TRENDING", icon: Flame },
+    { id: "MY LISTS", icon: List },
+    { id: "MY POSITIONS", icon: Briefcase },
+    { id: "NEWS", icon: Newspaper },
+  ].map(tab => {
+    const Icon = tab.icon;
+    const isActive = activeTab === tab.id;
+    return (
+      <button
+        key={tab.id}
+        onClick={() => setActiveTab(tab.id)}
+        className={`flex-1 h-16 md:h-20 flex items-center justify-center rounded-xl transition-all ${
+          isActive 
+            ? "bg-[#00ff4e] text-black shadow-[0_0_20px_rgba(0,255,78,0.4)]" 
+            : "bg-zinc-900 text-zinc-500 hover:text-white hover:bg-zinc-800 border border-zinc-800"
+        }`}
+        title={tab.id}
+      >
+        <Icon size={28} className="md:w-8 md:h-8" />
+      </button>
+    );
+  })}
+</div>
 
       {/* NEWS TAB CONTROLS */}
 {activeTab === "NEWS" && (
@@ -2209,113 +2572,207 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         </div>
       )}
 
- {activeTab === "DASHBOARD" && (
+{activeTab === "DASHBOARD" && (
   <div className="space-y-4 md:space-y-6 mb-6 md:mb-8">
-{/* MANUAL SEARCH SECTION */}
-<div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden transition-all duration-300">
-  <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
-    Analyze Any Stock
-  </h3>
-  <div className="flex flex-col sm:flex-row gap-3">
-    <div className="flex-1 relative">
-      <input
-        type="text"
-        placeholder="Enter ticker or company name (e.g. AAPL, Apple)..."
-        value={manualSearch}
-onChange={(e) => {
-  const value = e.target.value.toUpperCase();
-  setManualSearch(value);
+    
+    {/* Page Title */}
+    <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight">
+      Dashboard
+    </h1>
+
+    {/* Desktop: Side by side | Mobile: Stacked */}
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
   
-  // Clear previous timeout
-  if (searchTimeoutRef.current) {
-    clearTimeout(searchTimeoutRef.current);
-  }
-  
-  // Only search after user stops typing for 500ms
-  searchTimeoutRef.current = setTimeout(async () => {
-    if (value.length >= 2) {
-      try {
-        const res = await fetch(`https://finnhub.io/api/v1/search?q=${value}&token=${FINNHUB_KEY}`);
-        const data = await res.json();
-        setStockSearchResults(data.result?.slice(0, 5) || []);
-      } catch (err) {
-        console.error('Search failed:', err);
-        setStockSearchResults([]);
-      }
-    } else {
-      setStockSearchResults([]);
-    }
-  }, 500);
-}}
-onKeyDown={(e) => {
-  if (e.key === 'Enter' && manualSearch) {
-    setStocks([]); // ADD THIS
-    setIsManualResult(true); // ADD THIS
-    runScanner(manualSearch);
-    setStockSearchResults([]);
-  }
-}}
-        className="w-full bg-black border border-zinc-800 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
-        style={{ caretColor: '#00ff4e' }}
-      />
+  {/* MANUAL SEARCH SECTION */}
+  <div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden transition-all duration-300">
+    <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
+      Analyze Any Stock
+    </h3>
+    <div className="flex flex-col gap-3">
+      <div className="flex-1 relative">
+        <input
+          type="text"
+          placeholder="Enter ticker or company name (e.g. AAPL, Apple)..."
+          value={manualSearch}
+          onChange={(e) => {
+            const value = e.target.value.toUpperCase();
+            setManualSearch(value);
+            
+            // Clear previous timeout
+            if (searchTimeoutRef.current) {
+              clearTimeout(searchTimeoutRef.current);
+            }
+            
+            // Only search after user stops typing for 500ms and has 2+ characters
+            if (value.length < 2) {
+              setStockSearchResults([]);
+              return;
+            }
+            
+            searchTimeoutRef.current = setTimeout(async () => {
+              try {
+                // Use Twelve Data instead of Finnhub for search
+                const res = await fetch(`https://api.twelvedata.com/symbol_search?symbol=${value}&outputsize=5&apikey=${TWELVE_DATA_KEY}`);
+                const data = await res.json();
+                
+                // Transform to match expected format
+                const results = data.data?.slice(0, 5).map(item => ({
+                  symbol: item.symbol,
+                  description: item.instrument_name
+                })) || [];
+                
+                setStockSearchResults(results);
+              } catch (err) {
+                console.error('Search failed:', err);
+                setStockSearchResults([]);
+              }
+            }, 500);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && manualSearch) {
+              setStocks([]); 
+              setIsManualResult(true); 
+              runScanner(manualSearch);
+              setStockSearchResults([]);
+            }
+          }}
+          className="w-full bg-black border border-zinc-800 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
+          style={{ caretColor: '#00ff4e' }}
+        />
+      </div>
+      
+      <button 
+        onClick={() => {
+          setStocks([]);
+          setIsManualResult(true);
+          runScanner(manualSearch);
+          setStockSearchResults([]);
+        }}
+        disabled={loading || !manualSearch}
+        className="w-full hover:opacity-90 disabled:opacity-20 text-black px-6 md:px-8 py-3 rounded-lg text-xs md:text-sm font-black tracking-tighter transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)] active:scale-95 whitespace-nowrap"
+        style={{ backgroundColor: '#00ff4e' }}
+      >
+        {loading && isManualResult ? 'ANALYZING...' : 'ANALYZE STOCK'}
+      </button>
     </div>
     
-    <button 
-  onClick={() => {
-    setStocks([]);
-    setIsManualResult(true);
-    runScanner(manualSearch);
-    setStockSearchResults([]);
-  }}
-      disabled={loading || !manualSearch}
-      className="hover:opacity-90 disabled:opacity-20 text-black px-6 md:px-8 py-3 rounded-lg text-xs md:text-sm font-black tracking-tighter transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)] active:scale-95 whitespace-nowrap"
-      style={{ backgroundColor: '#00ff4e' }}
-    >
-      {loading ? 'ANALYZING...' : 'ANALYZE STOCK'}
-    </button>
+    {/* Search results dropdown */}
+    <AnimatePresence>
+      {stockSearchResults.length > 0 && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.3 }}
+          className="overflow-hidden"
+        >
+          <div className="mt-3 space-y-1 max-h-60 overflow-y-auto">
+            {stockSearchResults.map((result) => (
+              <button
+                key={result.symbol}
+                onClick={async () => {
+                  setStocks([]);
+                  setManualSearch(result.symbol);
+                  setStockSearchResults([]);
+                  setIsManualResult(true);
+                  await new Promise(r => setTimeout(r, 500));
+                  runScanner(result.symbol);
+                }}
+                className="w-full text-left px-4 py-3 bg-black hover:bg-zinc-900 transition-all rounded-lg border border-zinc-800 hover:border-[#00ff4e]/50"
+              >
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-sm font-black text-white">{result.symbol}</p>
+                    <p className="text-xs text-zinc-500">{result.description}</p>
+                  </div>
+                  <span className="text-xs text-zinc-600">{result.type}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </div>
+
+  {/* AI SCANNER SECTION */}
+  <div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
+    <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
+      Analyze Market
+    </h3>
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+  <CustomDropdown
+    value={scanPriceLimit}
+          onChange={setScanPriceLimit}
+          label="Price Limit"
+          options={[
+            { value: 10, label: 'Under $10' },
+            { value: 25, label: 'Under $25' },
+            { value: 50, label: 'Under $50' },
+            { value: 100, label: 'Under $100' },
+            { value: 999999, label: 'Any Price' }
+          ]}
+        />
+        
+        <CustomDropdown
+          value={scanMarketCap}
+          onChange={setScanMarketCap}
+          label="Market Cap"
+          options={[
+            { value: 'all', label: 'Any Cap' },
+            { value: 'small', label: 'Small' },
+            { value: 'mid', label: 'Mid' },
+            { value: 'large', label: 'Large' }
+          ]}
+        />
+        
+        <CustomDropdown
+          value={scanSector}
+          onChange={setScanSector}
+          label="Sector"
+          options={[
+            { value: 'all', label: 'All Sectors' },
+            { value: 'technology', label: 'Technology' },
+            { value: 'healthcare', label: 'Healthcare' },
+            { value: 'finance', label: 'Finance' },
+            { value: 'energy', label: 'Energy' },
+            { value: 'consumer', label: 'Consumer' },
+            { value: 'industrial', label: 'Industrial' },
+            { value: 'materials', label: 'Materials' },
+            { value: 'realestate', label: 'Real Estate' },
+            { value: 'utilities', label: 'Utilities' }
+          ]}
+        />
+      </div>
+
+      <button 
+        onClick={() => { 
+          setStocks([]);
+          setManualSearch(""); 
+          setIsManualResult(false);
+          runScanner(null); 
+        }}
+        disabled={loading}
+        className="w-full hover:opacity-90 disabled:opacity-20 text-black px-6 md:px-8 py-3 rounded-lg text-xs md:text-sm font-black tracking-tighter transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)] active:scale-95 whitespace-nowrap"
+        style={{ backgroundColor: '#00ff4e' }}
+      >
+        {loading && !isManualResult ? (
+          <>
+            <span>SCANNING MARKET</span>
+            <span className="inline-flex gap-0.5 ml-2">
+              <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
+              <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
+              <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
+            </span>
+          </>
+        ) : (
+          'SCAN MARKET'
+        )}
+      </button>
+    </div>
   </div>
   
-  {/* Search results - inside the same container, pushes everything down */}
-  <AnimatePresence>
-    {stockSearchResults.length > 0 && (
-      <motion.div
-        initial={{ height: 0, opacity: 0 }}
-        animate={{ height: 'auto', opacity: 1 }}
-        exit={{ height: 0, opacity: 0 }}
-        transition={{ duration: 0.3 }}
-        className="overflow-hidden"
-      >
-        <div className="mt-3 space-y-1 max-h-60 overflow-y-auto">
-          {stockSearchResults.map((result) => (
-            <button
-  key={result.symbol}
-onClick={async () => {
-  console.log('Clicked stock:', result.symbol);
-  setStocks([]); // ADD THIS
-  setManualSearch(result.symbol);
-  setStockSearchResults([]);
-  setIsManualResult(true); // ADD THIS
-  
-  // Add small delay to avoid rate limiting
-  await new Promise(r => setTimeout(r, 500));
-  
-  runScanner(result.symbol);
-}}
-  className="w-full text-left px-4 py-3 bg-black hover:bg-zinc-900 transition-all rounded-lg border border-zinc-800 hover:border-[#00ff4e]/50"
->
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-sm font-black text-white">{result.symbol}</p>
-                  <p className="text-xs text-zinc-500">{result.description}</p>
-                </div>
-                <span className="text-xs text-zinc-600">{result.type}</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </motion.div>
-    )}
-  </AnimatePresence>
 </div>
 
 {/* MANUAL SEARCH RESULTS - Shows right after search box */}
@@ -2336,98 +2793,20 @@ onClick={async () => {
         onAddToList={addStockToList}
         user={user}
         onOpenChat={(stock) => setShowStockChat(stock)}
+        onScanSimilar={handleScanSimilar}
       />
     ))}
   </div>
 )}
 
   
-{/* AI SCANNER SECTION */}
-<div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
-    <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
-    ANALYZE MARKET
-  </h3>
-  <div className="flex flex-col sm:flex-row gap-3">
-    <CustomDropdown
-      value={scanPriceLimit}
-      onChange={setScanPriceLimit}
-      label="Price Limit"
-      options={[
-        { value: 10, label: 'Under $10' },
-        { value: 25, label: 'Under $25' },
-        { value: 50, label: 'Under $50' },
-        { value: 100, label: 'Under $100' },
-        { value: 999999, label: 'Any Price' }
-      ]}
-    />
-    
-    <CustomDropdown
-      value={scanMarketCap}
-      onChange={setScanMarketCap}
-      label="Market Cap"
-      options={[
-        { value: 'all', label: 'Any Market Cap' },
-        { value: 'small', label: 'Small Cap' },
-        { value: 'mid', label: 'Mid Cap' },
-        { value: 'large', label: 'Large Cap' }
-      ]}
-    />
-    
-    <CustomDropdown
-      value={scanSector}
-      onChange={setScanSector}
-      label="Sector"
-      options={[
-        { value: 'all', label: 'All Sectors' },
-        { value: 'technology', label: 'Technology' },
-        { value: 'healthcare', label: 'Healthcare' },
-        { value: 'finance', label: 'Finance' },
-        { value: 'energy', label: 'Energy' },
-        { value: 'consumer', label: 'Consumer' },
-        { value: 'industrial', label: 'Industrial' },
-        { value: 'materials', label: 'Materials' },
-        { value: 'realestate', label: 'Real Estate' },
-        { value: 'utilities', label: 'Utilities' }
-      ]}
-    />
-    
-
-<button 
-  onClick={() => { 
-    setStocks([]);
-    setManualSearch(""); 
-    setIsManualResult(false);
-    runScanner(null); 
-  }}
-  disabled={loading}
-  className="flex-1 hover:opacity-90 disabled:opacity-20 text-black px-6 md:px-8 py-3 rounded-lg text-xs md:text-sm font-black tracking-tighter transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)] active:scale-95 whitespace-nowrap"
-  style={{ backgroundColor: '#00ff4e' }}
->
-  {loading && !isManualResult ? (
-    <>
-      <span>ANALYZING MARKET</span>
-      <span className="inline-flex gap-0.5 ml-2">
-        <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
-        <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
-        <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
-      </span>
-    </>
-  ) : (
-    'ANALYZE MARKET'
-  )}
-</button>
-  </div>
-</div>
-
-
-
   </div>
 )}
 
 
       {/* SORT & FILTER BAR */}
       {activeTab === "DASHBOARD" && stocks.length > 0 && (
-        <div className="bg-[#0a0a0a] border border-zinc-900 rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4">
+        <div className="bg-[#111111] border border-zinc-900 rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4">
           <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
             Filters:
           </span>
@@ -2510,23 +2889,24 @@ onClick={async () => {
           <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Scanner Idle</p>
         </div>
       )}
+{/* Initial Loading State - No stocks yet */}
 {loading && stocks.length === 0 && (
   <div className="py-32 text-center">
-    {/* Animated Logo */}
-    <div className="flex justify-center mb-6">
+    <div className="flex justify-center mb-3">
       <img 
         src="/jckrbbt_logo_animated.svg" 
         alt="Loading" 
-        className="w-24 h-24"
+        className="w-40 h-40"
       />
     </div>
     
-    {/* Status Text */}
-    <p className="text-sm font-black text-white uppercase tracking-wider mb-6 animate-pulse">
+    <p className="text-sm font-black text-white uppercase tracking-wider mb-2 animate-pulse">
       {scanStatus}
     </p>
+    <p className="text-xs text-zinc-600 mb-6">
+      This may take a minute...
+    </p>
     
-    {/* Progress Bar */}
     <div className="max-w-md mx-auto px-4">
       <div className="relative h-2 bg-zinc-900 rounded-full overflow-hidden mb-2">
         <div 
@@ -2543,24 +2923,105 @@ onClick={async () => {
     </div>
   </div>
 )}
-  {!isManualResult && displayedStocks.map((stock, index) => (
+
+{/* Scanning Header - Shows while scanning WITH stocks already found */}
+{loading && stocks.length > 0 && !isManualResult && (
+  <div className="mb-6 bg-gradient-to-r from-[#00ff4e]/5 to-transparent border border-[#00ff4e]/30 rounded-xl p-4 md:p-6">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+      <div className="flex items-center gap-3">
+        {/* Spinning loader */}
+        <div className="relative flex-shrink-0">
+          <div className="w-10 h-10 rounded-full border-2 border-[#00ff4e]/20 border-t-[#00ff4e] animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-2 h-2 bg-[#00ff4e] rounded-full animate-pulse shadow-[0_0_10px_#00ff4e]" />
+          </div>
+        </div>
+        <div>
+          <p className="text-sm font-black text-white uppercase tracking-wider">
+            Still scanning...
+          </p>
+          <p className="text-xs text-zinc-500 font-mono truncate max-w-[200px] sm:max-w-none">
+            {scanStatus}
+          </p>
+        </div>
+      </div>
+      
+      {/* Found counter */}
+      <div className="flex items-center gap-4">
+        <div className="text-center">
+          <p className="text-3xl font-black text-[#00ff4e] leading-none">{stocks.length}</p>
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Found</p>
+        </div>
+        <div className="text-center">
+          <p className="text-3xl font-black text-zinc-600 leading-none">5</p>
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Target</p>
+        </div>
+      </div>
+    </div>
+    
+    {/* Progress bar */}
+    <div className="relative h-2 bg-zinc-900 rounded-full overflow-hidden">
+      <div 
+        className="absolute h-full bg-[#00ff4e] transition-all duration-500 ease-out"
+        style={{ 
+          width: `${scanProgress}%`,
+          boxShadow: '0 0 15px rgba(0,255,78,0.4)'
+        }}
+      />
+      {/* Animated shimmer effect */}
+      <div 
+        className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer"
+        style={{ 
+          backgroundSize: '200% 100%',
+          animation: 'shimmer 2s infinite'
+        }}
+      />
+    </div>
+    <p className="text-xs text-zinc-600 mt-2 text-center">
+      {scanProgress}% complete • Stocks appear as they're discovered
+    </p>
+  </div>
+)}
+
+{!isManualResult && displayedStocks.map((stock, index) => (
     <MetricCard 
-  key={stock.symbol}
-  stock={getStableStock(stock)}
-  isMarketOpen={isMarketOpen} 
-  onAction={(stock) => setShowAddToListMenu(stock)}
-  removeFromWatchlist={removeStockFromList}
-  actionType="ADD"
-  watchlist={flattenedWatchlist}
-  showAddToListMenu={showAddToListMenu}
-  onCloseMenu={() => setShowAddToListMenu(null)}
-  watchlists={watchlists}
-  onAddToList={addStockToList}
-  user={user}
-  onOpenChat={(stock) => setShowStockChat(stock)}  // ADD THIS LINE
-/>
+      key={stock.symbol}
+      stock={getStableStock(stock)}
+      isMarketOpen={isMarketOpen} 
+      onAction={(stock) => setShowAddToListMenu(stock)}
+      removeFromWatchlist={removeStockFromList}
+      actionType="ADD"
+      watchlist={flattenedWatchlist}
+      showAddToListMenu={showAddToListMenu}
+      onCloseMenu={() => setShowAddToListMenu(null)}
+      watchlists={watchlists}
+      onAddToList={addStockToList}
+      user={user}
+      onOpenChat={(stock) => setShowStockChat(stock)}
+      onScanSimilar={handleScanSimilar}
+    />
   ))}
-    </>
+
+  {/* Scan Complete Indicator */}
+  {!loading && scanComplete && stocks.length > 0 && !isManualResult && (
+    <div className="mt-8 py-6 border-t border-zinc-900 text-center">
+      <div className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#00ff4e]/10 border border-[#00ff4e]/30 rounded-full">
+        <svg className="w-4 h-4 text-[#00ff4e] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+        </svg>
+        <span className="text-xs font-black text-[#00ff4e] uppercase tracking-wider whitespace-nowrap">
+          Scan Complete
+        </span>
+        <span className="text-xs text-white whitespace-nowrap">
+          • {stocks.length} opportunities found
+        </span>
+      </div>
+      <p className="text-xs text-zinc-600 mt-3 px-4">
+        Run another scan or adjust<br />filters to discover more
+      </p>
+    </div>
+  )}
+</>
 
 ) : activeTab === "DISCOVER" ? (
   <>
@@ -2682,6 +3143,11 @@ onClick={async () => {
   </>
  ) : activeTab === "TRENDING" ? (
   <>
+    {/* Page Title */}
+    <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight mb-6">
+      Trending
+    </h1>
+
     {/* Interval Filter */}
     <div className="mb-6">
       <div className="bg-[#050505] border border-zinc-900 p-4 rounded-xl">
@@ -2775,6 +3241,11 @@ onClick={async () => {
 
 ) : activeTab === "MY LISTS" ? (
   <>
+    {/* Page Title */}
+    <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight mb-6">
+      My Lists
+    </h1>
+
     {/* Create New List Button */}
     {user && (
         <div className="mb-6">
@@ -2902,7 +3373,8 @@ onClick={async () => {
                         watchlists={watchlists}
                         onAddToList={addStockToList}
                         user={user}
-                        onOpenChat={(stock) => setShowStockChat(stock)}  // ADD THIS LINE
+                        onOpenChat={(stock) => setShowStockChat(stock)}
+                        onScanSimilar={handleScanSimilar}
                       />
                     ))}
                   </div>
@@ -2916,8 +3388,12 @@ onClick={async () => {
     </>
 
 ) : activeTab === "NEWS" ? (
-  // NEWS tab content
   <>
+    {/* Page Title */}
+    <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight mb-6">
+      News
+    </h1>
+
     {loadingNews && newsArticles.length === 0 && (
       <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
         <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Loading News...</p>
@@ -2935,7 +3411,11 @@ onClick={async () => {
     
 ) : activeTab === "MY POSITIONS" ? (
   <>
-    {/* MY POSITIONS Tab */}
+    {/* Page Title */}
+    <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight mb-6">
+      My Positions
+    </h1>
+
     {!user ? (
       <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
         <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black mb-4">Sign in to view positions</p>
@@ -2961,21 +3441,18 @@ onClick={async () => {
               </p>
             </div>
             
-{/* Add New Brokerage Button - only render when tab is active */}
-{activeTab === "MY POSITIONS" && (
-  <PlaidLink 
-    key="plaid-link-positions"
-    user={user}
-    onSuccess={handlePlaidSuccess}
-    onError={handlePlaidError}
-    buttonText={connectedBrokerages.length > 0 ? "Add Another Account" : "Connect Brokerage"}
-    buttonClassName={`flex items-center gap-2 ${
-      connectedBrokerages.length > 0 
-        ? 'bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 hover:border-[#00ff4e]/50' 
-        : 'bg-[#00ff4e] hover:opacity-90 text-black'
-    } font-black px-4 md:px-6 py-3 rounded-lg text-xs uppercase tracking-tight transition-all`}
-  />
-)}
+{/* Add New Brokerage Button */}
+<button
+  onClick={() => setShowPlaidConsent(true)}
+  className={`flex items-center gap-2 ${
+    connectedBrokerages.length > 0 
+      ? 'bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 hover:border-[#00ff4e]/50' 
+      : 'bg-[#00ff4e] hover:opacity-90 text-black'
+  } font-black px-4 md:px-6 py-3 rounded-lg text-xs uppercase tracking-tight transition-all`}
+>
+  <Link2 size={16} />
+  {connectedBrokerages.length > 0 ? "Add Another Account" : "Connect Brokerage"}
+</button>
           </div>
 
           {/* Connected Brokerages List */}
@@ -3150,207 +3627,30 @@ onClick={async () => {
                   </div>
                 )}
 
-                {/* Position Cards */}
+{/* Position Cards */}
                 {positions.map((position, index) => {
                   const isPositionAdded = flattenedWatchlist.some(s => s.symbol === position.symbol);
                   const isHoveringThisPosition = hoveringPositionSymbol === position.symbol;
                   
                   return (
-                    <motion.div
+                    <PositionCard
                       key={position.symbol}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05, duration: 0.3 }}
-                      className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all relative"
-                    >
-                      {/* Add to List Button */}
-                      <div className="absolute top-4 right-4 z-10">
-                        <button 
-                          data-add-button={`position-${position.symbol}`}
-                          onMouseEnter={() => setHoveringPositionSymbol(position.symbol)}
-                          onMouseLeave={() => setHoveringPositionSymbol(null)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (!user) {
-                              alert('Please sign in to add stocks to lists');
-                              return;
-                            }
-                            
-                            if (isPositionAdded && isHoveringThisPosition) {
-                              const listWithStock = watchlists.find(list => 
-                                list.stocks.some(s => s.symbol === position.symbol)
-                              );
-                              if (listWithStock) {
-                                removeStockFromList(listWithStock.id, position.symbol);
-                              }
-                            } else if (!isPositionAdded) {
-                              const stockObj = {
-                                symbol: position.symbol,
-                                name: position.name,
-                                price: position.price?.toFixed(2) || '0.00',
-                                change: position.gainPercent?.toFixed(2) || '0.00',
-                                isPositive: position.gain >= 0,
-                                range: 'N/A',
-                                confidence: 0,
-                                volatility: 0,
-                                rating: 'N/A',
-                                momentum: 'N/A',
-                                catalyst: 'Portfolio Position',
-                                insights: []
-                              };
-                              setShowAddToListMenu(stockObj);
-                            }
-                          }}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all active:scale-95 ${
-                            isPositionAdded
-                              ? isHoveringThisPosition
-                                ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                                : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]"
-                              : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
-                          }`}
-                        >
-                          <span className="text-xs font-black uppercase tracking-wider hidden sm:inline">
-                            {isPositionAdded
-                              ? isHoveringThisPosition ? "Remove" : "Added"
-                              : "Add"
-                            }
-                          </span>
-                          {isPositionAdded && isHoveringThisPosition ? (
-                            <Trash2 size={14} />
-                          ) : (
-                            <Plus size={14} />
-                          )}
-                        </button>
-
-                        {/* Add to List Dropdown for Positions */}
-                        {showAddToListMenu?.symbol === position.symbol && (() => {
-                          const buttonElement = document.querySelector(`button[data-add-button="position-${position.symbol}"]`);
-                          const rect = buttonElement?.getBoundingClientRect();
-                          
-                          return ReactDOM.createPortal(
-                            <>
-                              <div 
-                                className="fixed inset-0 bg-transparent z-[99998]"
-                                onClick={() => setShowAddToListMenu(null)}
-                              />
-                              <div 
-                                className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
-                                style={{
-                                  top: rect ? `${rect.bottom + 8}px` : '100px',
-                                  right: rect ? `${window.innerWidth - rect.right}px` : '20px',
-                                  width: '280px'
-                                }}
-                              >
-                                <div className="p-3 border-b border-zinc-800">
-                                  <p className="text-xs font-black text-white uppercase">Add to List</p>
-                                </div>
-                                
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShowAddToListMenu(null);
-                                    window.dispatchEvent(new CustomEvent('openWatchlistModal'));
-                                  }}
-                                  className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <Plus size={14} />
-                                    <span className="uppercase tracking-wider">Create New List</span>
-                                  </div>
-                                </button>
-                                
-                                {watchlists.length === 0 ? (
-                                  <div className="p-4 text-center">
-                                    <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
-                                  </div>
-                                ) : (
-                                  watchlists.map((list) => {
-                                    const isInList = list.stocks.some(s => s.symbol === position.symbol);
-                                    return (
-                                      <button
-                                        key={list.id}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (!isInList) {
-                                            addStockToList(showAddToListMenu, list.id);
-                                          }
-                                        }}
-                                        disabled={isInList}
-                                        className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
-                                          isInList
-                                            ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
-                                            : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
-                                        }`}
-                                      >
-                                        <div className="flex items-center justify-between">
-                                          <span className="uppercase tracking-wider">{list.name}</span>
-                                          {isInList && (
-                                            <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                            </svg>
-                                          )}
-                                        </div>
-                                        <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
-                                      </button>
-                                    );
-                                  })
-                                )}
-                              </div>
-                            </>,
-                            document.body
-                          );
-                        })()}
-                      </div>
-
-                      <div 
-                        className="cursor-pointer"
-                        onClick={() => {
-                          setManualSearch(position.symbol);
-                          setActiveTab("DASHBOARD");
-                          runScanner(position.symbol);
-                        }}
-                      >
-                        {/* Header */}
-                        <div className="mb-6">
-                          <p className="text-xs text-zinc-500 font-black uppercase tracking-widest mb-2">{position.name}</p>
-                          
-                          <div className="flex flex-col md:flex-row md:items-baseline gap-3 md:gap-6">
-                            <h3 className="text-4xl md:text-5xl font-black text-white uppercase tracking-tighter leading-none">{position.symbol}</h3>
-                            <div className="flex items-baseline gap-3">
-                              <p className="text-2xl md:text-3xl font-black text-white tabular-nums leading-none">
-                                ${position.price?.toFixed(2) ?? '0.00'}
-                              </p>
-                              <p className={`text-lg md:text-xl font-black tabular-nums leading-none ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                                {position.gain >= 0 ? '+' : ''}{position.gainPercent?.toFixed(2) ?? '0.00'}%
-                                <span className="ml-2 align-middle">{position.gain >= 0 ? '▲' : '▼'}</span>
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Stats Grid */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t-2 border-zinc-900">
-                          <div>
-                            <p className="text-xs text-zinc-600 mb-1">Shares</p>
-                            <p className="text-lg font-black text-white">{position.quantity ?? '0'}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-zinc-600 mb-1">Market Value</p>
-                            <p className="text-lg font-black text-white">${position.value?.toLocaleString() ?? '0'}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
-                            <p className="text-lg font-black text-white">${position.costBasis?.toLocaleString() ?? '0'}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-zinc-600 mb-1">Gain/Loss</p>
-                            <p className={`text-lg font-black ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                              {position.gain >= 0 ? '+' : ''}${Math.abs(position.gain ?? 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
+                      position={position}
+                      index={index}
+                      isPositionAdded={isPositionAdded}
+                      isHoveringThisPosition={isHoveringThisPosition}
+                      setHoveringPositionSymbol={setHoveringPositionSymbol}
+                      user={user}
+                      watchlists={watchlists}
+                      flattenedWatchlist={flattenedWatchlist}
+                      showAddToListMenu={showAddToListMenu}
+                      setShowAddToListMenu={setShowAddToListMenu}
+                      addStockToList={addStockToList}
+                      removeStockFromList={removeStockFromList}
+                      setManualSearch={setManualSearch}
+                      setActiveTab={setActiveTab}
+                      runScanner={runScanner}
+                    />
                   );
                 })}
               </div>
@@ -3541,8 +3841,7 @@ function CustomDropdown({ value, onChange, options, label }) {
   );
 }
 
-const MetricCard = React.memo(function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user, onOpenChat }) {
-  
+const MetricCard = React.memo(function MetricCard({ stock, isMarketOpen, onAction, actionType, watchlist = [], removeFromWatchlist, showAddToListMenu, onCloseMenu, watchlists = [], onAddToList, user, onOpenChat, onScanSimilar }) {  
   // Generate a unique ID for this component instance
   const instanceId = useRef(Math.random().toString(36).substr(2, 9));
   
@@ -3781,13 +4080,13 @@ useEffect(() => {
 {/* MAIN CONTENT */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-end mb-6 md:mb-8 gap-4">
         <div className="flex-1">
-          <p className="text-[8px] md:text-[10px] text-[#ffffff] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 flex items-center gap-2">
-            <span 
-              className={`h-1.5 w-1.5 md:h-2 md:w-2 rounded-full flex-shrink-0 ${isMarketOpen ? 'animate-pulse' : ''}`} 
-              style={{ backgroundColor: accent, boxShadow: isMarketOpen ? `0 0 15px ${accent}` : 'none' }} 
-            />
-            {stock.name}
-          </p>
+          <p className="text-[8px] md:text-[10px] text-[#ffffff] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 flex items-start gap-2 pr-24 md:pr-0">
+  <span 
+    className={`h-1.5 w-1.5 md:h-2 md:w-2 rounded-full flex-shrink-0 mt-1 ${isMarketOpen ? 'animate-pulse' : ''}`} 
+    style={{ backgroundColor: accent, boxShadow: isMarketOpen ? `0 0 15px ${accent}` : 'none' }} 
+  />
+  <span className="break-words leading-relaxed">{stock.name}</span>
+</p>
           
           <div className="flex flex-col sm:flex-row sm:items-end gap-3 md:gap-8">
             <h2 className="text-4xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">{stock.symbol}</h2>
@@ -3808,15 +4107,70 @@ useEffect(() => {
                 )}% <span className="text-lg md:text-2xl ml-1 md:ml-2 align-middle">{Triangle}</span>
               </span>
             </div>
-          </div>
+
+        </div>
+            {/* Similar Stocks */}
+            {stock.similarStocks && stock.similarStocks.length > 0 && (
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                <span className="text-[8px] md:text-[10px] text-zinc-600 font-black uppercase tracking-wider">
+                  Similar:
+                </span>
+                {stock.similarStocks.map((ticker) => (
+                  <button
+                    key={ticker}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onScanSimilar && onScanSimilar(ticker);
+                    }}
+                    className="text-[9px] md:text-[10px] font-black bg-[#00ff4e]/10 text-[#00ff4e] px-2 py-1 rounded border border-[#00ff4e]/30 uppercase tracking-wider hover:bg-[#00ff4e]/20 hover:border-[#00ff4e]/50 transition-all cursor-pointer"
+                  >
+                    ${ticker}
+                  </button>
+                ))}
+              </div>
+            )}
         </div>
         
-        <div className="flex gap-4 md:gap-8 md:text-right md:border-l-2 md:border-zinc-900 md:pl-8">
-          <div>
-            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-wider md:tracking-widest mb-2 md:mb-4">Predicted Range</p>
-            <p className="text-xl md:text-3xl font-black text-white tracking-tight tabular-nums leading-none whitespace-nowrap">{stock.range}</p>
-          </div>
+       <div className="flex gap-4 md:gap-8 md:text-right md:border-l-2 md:border-zinc-900 md:pl-8">
+  <div>
+    <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-wider md:tracking-widest mb-2 md:mb-2">Time Horizon</p>
+    {(() => {
+      let HorizonIcon = BarChart3;
+      let horizonColor = '#71717a';
+      let horizonBg = 'bg-zinc-800';
+      let horizonBorder = 'border-zinc-700';
+      let horizonLabel = 'Unknown';
+      
+      if (stock.horizon?.includes('SHORT')) {
+        HorizonIcon = Zap;
+        horizonColor = '#f59e0b';
+        horizonBg = 'bg-amber-500/20';
+        horizonBorder = 'border-amber-500/30';
+        horizonLabel = 'Short Term';
+      } else if (stock.horizon?.includes('MEDIUM')) {
+        HorizonIcon = TrendingUp;
+        horizonColor = '#3b82f6';
+        horizonBg = 'bg-blue-500/20';
+        horizonBorder = 'border-blue-500/30';
+        horizonLabel = 'Medium Term';
+      } else if (stock.horizon?.includes('LONG')) {
+        HorizonIcon = Sprout;
+        horizonColor = '#10b981';
+        horizonBg = 'bg-emerald-500/20';
+        horizonBorder = 'border-emerald-500/30';
+        horizonLabel = 'Long Term';
+      }
+      
+      return (
+        <div className={`inline-flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg font-black text-base md:text-xl uppercase tracking-tight ${horizonBg} border ${horizonBorder}`}
+             style={{ color: horizonColor }}>
+          <HorizonIcon size={20} className="md:w-6 md:h-6" style={{ color: horizonColor }} />
+          <span>{horizonLabel}</span>
         </div>
+      );
+    })()}
+  </div>
+</div>
       </div>
 
 {/* METRICS GRID */}
@@ -3995,6 +4349,269 @@ console.log('Label match:', labelMatch); // ADD THIS LINE
     prevProps.isMarketOpen === nextProps.isMarketOpen &&
     prevProps.showAddToListMenu?.symbol === nextProps.showAddToListMenu?.symbol &&
     prevProps.watchlist.length === nextProps.watchlist.length  // Add this line
+  );
+});
+
+
+// POSITION CARD COMPONENT WITH CHART TOGGLE
+const PositionCard = React.memo(function PositionCard({
+  position,
+  index,
+  isPositionAdded,
+  isHoveringThisPosition,
+  setHoveringPositionSymbol,
+  user,
+  watchlists,
+  flattenedWatchlist,
+  showAddToListMenu,
+  setShowAddToListMenu,
+  addStockToList,
+  removeStockFromList,
+  setManualSearch,
+  setActiveTab,
+  runScanner
+}) {
+  const [showChart, setShowChart] = useState(false);
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05, duration: 0.3 }}
+      className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all relative"
+    >
+      {/* Add to List Button */}
+      <div className="absolute top-4 right-4 z-10">
+        <button 
+          data-add-button={`position-${position.symbol}`}
+          onMouseEnter={() => setHoveringPositionSymbol(position.symbol)}
+          onMouseLeave={() => setHoveringPositionSymbol(null)}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!user) {
+              alert('Please sign in to add stocks to lists');
+              return;
+            }
+            
+            if (isPositionAdded && isHoveringThisPosition) {
+              const listWithStock = watchlists.find(list => 
+                list.stocks.some(s => s.symbol === position.symbol)
+              );
+              if (listWithStock) {
+                removeStockFromList(listWithStock.id, position.symbol);
+              }
+            } else if (!isPositionAdded) {
+              const stockObj = {
+                symbol: position.symbol,
+                name: position.name,
+                price: position.price?.toFixed(2) || '0.00',
+                change: position.gainPercent?.toFixed(2) || '0.00',
+                isPositive: position.gain >= 0,
+                range: 'N/A',
+                confidence: 0,
+                volatility: 0,
+                rating: 'N/A',
+                momentum: 'N/A',
+                catalyst: 'Portfolio Position',
+                insights: []
+              };
+              setShowAddToListMenu(stockObj);
+            }
+          }}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all active:scale-95 ${
+            isPositionAdded
+              ? isHoveringThisPosition
+                ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]"
+              : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
+          }`}
+        >
+          <span className="text-xs font-black uppercase tracking-wider hidden sm:inline">
+            {isPositionAdded
+              ? isHoveringThisPosition ? "Remove" : "Added"
+              : "Add"
+            }
+          </span>
+          {isPositionAdded && isHoveringThisPosition ? (
+            <Trash2 size={14} />
+          ) : (
+            <Plus size={14} />
+          )}
+        </button>
+
+        {/* Add to List Dropdown for Positions */}
+        {showAddToListMenu?.symbol === position.symbol && (() => {
+          const buttonElement = document.querySelector(`button[data-add-button="position-${position.symbol}"]`);
+          const rect = buttonElement?.getBoundingClientRect();
+          
+          return ReactDOM.createPortal(
+            <>
+              <div 
+                className="fixed inset-0 bg-transparent z-[99998]"
+                onClick={() => setShowAddToListMenu(null)}
+              />
+              <div 
+                className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
+                style={{
+                  top: rect ? `${rect.bottom + 8}px` : '100px',
+                  right: rect ? `${window.innerWidth - rect.right}px` : '20px',
+                  width: '280px'
+                }}
+              >
+                <div className="p-3 border-b border-zinc-800">
+                  <p className="text-xs font-black text-white uppercase">Add to List</p>
+                </div>
+                
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAddToListMenu(null);
+                    window.dispatchEvent(new CustomEvent('openWatchlistModal'));
+                  }}
+                  className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
+                >
+                  <div className="flex items-center gap-2">
+                    <Plus size={14} />
+                    <span className="uppercase tracking-wider">Create New List</span>
+                  </div>
+                </button>
+                
+                {watchlists.length === 0 ? (
+                  <div className="p-4 text-center">
+                    <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
+                  </div>
+                ) : (
+                  watchlists.map((list) => {
+                    const isInList = list.stocks.some(s => s.symbol === position.symbol);
+                    return (
+                      <button
+                        key={list.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isInList) {
+                            addStockToList(showAddToListMenu, list.id);
+                          }
+                        }}
+                        disabled={isInList}
+                        className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
+                          isInList
+                            ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
+                            : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="uppercase tracking-wider">{list.name}</span>
+                          {isInList && (
+                            <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </>,
+            document.body
+          );
+        })()}
+      </div>
+
+      <div 
+        className="cursor-pointer"
+        onClick={() => {
+          setManualSearch(position.symbol);
+          setActiveTab("DASHBOARD");
+          runScanner(position.symbol);
+        }}
+      >
+        {/* Header */}
+        <div className="mb-6">
+          <p className="text-xs text-zinc-500 font-black uppercase tracking-widest mb-2">{position.name}</p>
+          
+          <div className="flex flex-col md:flex-row md:items-baseline gap-3 md:gap-6">
+            <h3 className="text-4xl md:text-5xl font-black text-white uppercase tracking-tighter leading-none">{position.symbol}</h3>
+            <div className="flex items-baseline gap-3">
+              <p className="text-2xl md:text-3xl font-black text-white tabular-nums leading-none">
+                ${position.price?.toFixed(2) ?? '0.00'}
+              </p>
+              <p className={`text-lg md:text-xl font-black tabular-nums leading-none ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                {position.gain >= 0 ? '+' : ''}{position.gainPercent?.toFixed(2) ?? '0.00'}%
+                <span className="ml-2 align-middle">{position.gain >= 0 ? '▲' : '▼'}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t-2 border-zinc-900">
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Shares</p>
+            <p className="text-lg font-black text-white">{position.quantity ?? '0'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Market Value</p>
+            <p className="text-lg font-black text-white">${position.value?.toLocaleString() ?? '0'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
+            <p className="text-lg font-black text-white">${position.costBasis?.toLocaleString() ?? '0'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Gain/Loss</p>
+            <p className={`text-lg font-black ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+              {position.gain >= 0 ? '+' : ''}${Math.abs(position.gain ?? 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Chart Toggle Section */}
+      <div className="mt-6 pt-4 border-t-2 border-zinc-900">
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowChart(!showChart);
+          }}
+          className="group flex items-center gap-2 md:gap-3 transition-all"
+        >
+          <span className={`h-1 w-1 md:h-1.5 md:w-1.5 rounded-full ${showChart ? 'bg-[#00ff4e] shadow-[0_0_8px_#00ff4e]' : 'bg-zinc-700'}`} />
+          <span className={`text-[8px] md:text-[10px] font-black uppercase tracking-[0.25em] md:tracking-[0.3em] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+            {showChart ? "Hide Chart" : "Show Chart"}
+          </span>
+          <motion.span 
+            animate={{ rotate: showChart ? 180 : 0 }} 
+            className={`text-[8px] md:text-[10px] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500'}`}
+          >
+            ▼
+          </motion.span>
+        </button>
+
+        <AnimatePresence>
+          {showChart && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="overflow-hidden mt-4"
+            >
+              <div className="bg-zinc-950/50 border border-zinc-800 rounded-xl p-3 md:p-4">
+                <div className="flex justify-between items-center mb-3 md:mb-4">
+                  <h4 className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                    {position.symbol} - Intraday
+                  </h4>
+                  <span className="text-[8px] md:text-[10px] font-bold text-[#00ff4e]">LIVE</span>
+                </div>
+                <MiniChart symbol={position.symbol} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </motion.div>
   );
 });
 
