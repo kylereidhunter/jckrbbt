@@ -435,6 +435,7 @@ function CurrentTime() {  // Changed name from Clock to CurrentTime
 }
 
 
+
 export default function App() {
   const [stocks, setStocks] = useState([]);
   const [newsArticles, setNewsArticles] = useState([]);
@@ -2253,9 +2254,13 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     <div className="flex items-center gap-4 md:gap-6">
       {/* Search Icon */}
       <button
-        onClick={() => setShowSearch(!showSearch)}
-        className="p-2 md:p-3 rounded-lg border-2 border-zinc-800 bg-black hover:border-[#00ff4e]/50 transition-all active:scale-95"
-      >
+  onClick={() => setShowSearch(!showSearch)}
+  className={`p-2 md:p-3 rounded-lg border bg-black transition-all active:scale-95 ${
+    showSearch 
+      ? 'border-zinc-800' 
+      : 'border-zinc-800 hover:border-zinc-700'
+  }`}
+>
         <Search size={18} className="md:w-5 md:h-5 text-zinc-500 hover:text-[#00ff4e] transition-colors" />
       </button>
 
@@ -2335,25 +2340,26 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         transition={{ duration: 0.3 }}
         className="overflow-hidden mt-6"
       >
-        <div className="bg-[#050505] border-2 border-zinc-800 rounded-xl p-4 md:p-6">
-          <div className="mb-4">
-            <input
-              type="text"
-              value={userSearchTerm}
-              onChange={(e) => {
-                setUserSearchTerm(e.target.value);
-                if (e.target.value.length >= 2) {
-                  handleSearchUsers(e.target.value);
-                } else {
-                  setSearchResults([]);
-                }
-              }}
-              placeholder="Search for users and watchlists..."
-              className="w-full bg-zinc-900 border-2 border-zinc-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#00ff4e]/50 transition-colors"
-            />
-          </div>
+       <div className="bg-[#050505] border border-zinc-800 rounded-xl">
+  <div className="p-4">
+    <input
+      type="text"
+      value={userSearchTerm}
+      onChange={(e) => {
+        setUserSearchTerm(e.target.value);
+        if (e.target.value.length >= 2) {
+          handleSearchUsers(e.target.value);
+        } else {
+          setSearchResults([]);
+        }
+      }}
+      placeholder="Search for users and watchlists..."
+      className="w-full bg-transparent text-white text-sm focus:outline-none"
+    />
+  </div>
 
-          {/* Search Results */}
+  {/* Search Results */}
+  <div className="px-4 pb-4">
           {loadingDiscover ? (
             <div className="py-8 text-center">
               <p className="text-xs text-zinc-500 uppercase tracking-wider">Searching...</p>
@@ -2427,7 +2433,8 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
               </div>
             </div>
           )}
-        </div>
+  </div>
+</div>
       </motion.div>
     )}
   </AnimatePresence>
@@ -2522,13 +2529,13 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
 
 {/* Tab Navigation - Icon Buttons */}
-<div className="flex gap-2 md:gap-3 mb-6 md:mb-8">
+<div className="flex justify-center gap-2 md:gap-3 mb-6 md:mb-8">
   {[
-    { id: "DASHBOARD", icon: LayoutDashboard },
-    { id: "TRENDING", icon: Flame },
-    { id: "MY LISTS", icon: List },
-    { id: "MY POSITIONS", icon: Briefcase },
-    { id: "NEWS", icon: Newspaper },
+    { id: "DASHBOARD", icon: LayoutDashboard, label: "Dashboard" },
+    { id: "TRENDING", icon: Flame, label: "Trending" },
+    { id: "MY LISTS", icon: List, label: "Lists" },
+    { id: "MY POSITIONS", icon: Briefcase, label: "Positions" },
+    { id: "NEWS", icon: Newspaper, label: "News" },
   ].map(tab => {
     const Icon = tab.icon;
     const isActive = activeTab === tab.id;
@@ -2536,14 +2543,16 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       <button
         key={tab.id}
         onClick={() => setActiveTab(tab.id)}
-        className={`flex-1 h-16 md:h-20 flex items-center justify-center rounded-xl transition-all ${
+        className={`flex flex-col items-center gap-1 px-3 md:px-5 py-2 md:py-3 rounded-xl transition-all ${
           isActive 
             ? "bg-[#00ff4e] text-black shadow-[0_0_20px_rgba(0,255,78,0.4)]" 
             : "bg-zinc-900 text-zinc-500 hover:text-white hover:bg-zinc-800 border border-zinc-800"
         }`}
-        title={tab.id}
       >
-        <Icon size={28} className="md:w-8 md:h-8" />
+        <Icon size={20} className="md:w-6 md:h-6" />
+        <span className="text-[8px] md:text-[10px] font-black uppercase tracking-wider">
+          {tab.label}
+        </span>
       </button>
     );
   })}
@@ -3441,18 +3450,21 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
               </p>
             </div>
             
-{/* Add New Brokerage Button */}
-<button
-  onClick={() => setShowPlaidConsent(true)}
-  className={`flex items-center gap-2 ${
-    connectedBrokerages.length > 0 
-      ? 'bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 hover:border-[#00ff4e]/50' 
-      : 'bg-[#00ff4e] hover:opacity-90 text-black'
-  } font-black px-4 md:px-6 py-3 rounded-lg text-xs uppercase tracking-tight transition-all`}
->
-  <Link2 size={16} />
-  {connectedBrokerages.length > 0 ? "Add Another Account" : "Connect Brokerage"}
-</button>
+{/* Add New Brokerage Button - only render when tab is active */}
+{activeTab === "MY POSITIONS" && (
+  <PlaidLink 
+    key="plaid-link-positions"
+    user={user}
+    onSuccess={handlePlaidSuccess}
+    onError={handlePlaidError}
+    buttonText={connectedBrokerages.length > 0 ? "Add Another Account" : "Connect Brokerage"}
+    buttonClassName={`flex items-center gap-2 ${
+      connectedBrokerages.length > 0 
+        ? 'bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 hover:border-[#00ff4e]/50' 
+        : 'bg-[#00ff4e] hover:opacity-90 text-black'
+    } font-black px-4 md:px-6 py-3 rounded-lg text-xs uppercase tracking-tight transition-all`}
+  />
+)}
           </div>
 
           {/* Connected Brokerages List */}
