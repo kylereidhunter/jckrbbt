@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80.09 80.09" width="200" height="200" style="background: transparent;">
+  <defs>
+    <style>
+      svg {
+        background: transparent;
+      }
+      .cls-1 {
+        fill: none;
+        stroke: #00ff4e;
+        stroke-miterlimit: 10;
+        stroke-width: 1;
+        stroke-dasharray: 200;
+        stroke-dashoffset: 200;
+        animation: drawAndErase 4s ease-in-out infinite;
+      }
+      
+      @keyframes drawAndErase {
+        0% {
+          stroke-dashoffset: 200;
+        }
+        40% {
+          stroke-dashoffset: 0;
+        }
+        60% {
+          stroke-dashoffset: 0;
+        }
+        100% {
+          stroke-dashoffset: 200;
+        }
+      }
+    </style>
+  </defs>
+  <path class="cls-1" d="M46.21,11.43c.08-.46.72-.52.89-.08l8.63,23.17c.06.17.02.36-.11.49l-7.76,7.63c-.18.18-.18.48,0,.66l5.3,5.14c.14.14.18.35.1.52l-4.24,9.2c-.06.12-.17.22-.3.25l-23.24,6.29c-.18.05-.38-.02-.49-.17l-5.93-7.98c-.12-.16-.12-.38,0-.54l10.64-15c.04-.06.09-.1.15-.14l3.92-2.2-1-20.18c-.02-.48.62-.67.86-.25l8.16,14.13,4.41-20.96Z"/>
+</svg>

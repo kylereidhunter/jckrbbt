@@ -13,7 +13,7 @@ import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
-import { Users, Trash2, Plus, MessageCircle, Search } from 'lucide-react';
+import { Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock } from 'lucide-react';
 import UserProfileModal from './UserProfileModal';
 import PlaidLink from './PlaidLink';
 import StockChatModal from './StockChatModal';
@@ -36,7 +36,7 @@ const isMobile = () => window.innerWidth < 768;
 
 
 const REPUTABLE_SOURCES = [
- "Wall Street Journal", "Bloomberg", "Financial Times", "Reuters", "CNBC", 
+  "Wall Street Journal", "Bloomberg", "Financial Times", "Reuters", "CNBC", 
   "Barron's", "MarketWatch", "Seeking Alpha", "The Economist", "Forbes",
   "Investor's Business Daily", "Yahoo Finance", "Benzinga", "Morningstar",
   "Zacks Investment Research", "The Motley Fool", "Barchart", "Investing.com",
@@ -46,7 +46,15 @@ const REPUTABLE_SOURCES = [
   "SEC EDGAR", "CoinDesk", "The Block", "Glassnode", "South China Morning Post",
   "LiveMint", "The Globe and Mail", "Australian Financial Review", "WhaleWisdom",
   "Dataroma", "OpenInsider", "ETF.com", "Project Syndicate", "ValueWalk",
-  "Institutional Investor", "Morning Brew"
+  "Institutional Investor", "Morning Brew",
+  "GuruFocus", "Simply Wall St", "Alpha Spread", "Stocktwits", "Trade Ideas",
+  "Fintel", "Ortex", "Unusual Whales", "Market Chameleon", "Bamsec",
+  "AlphaSense", "Sentieo", "S&P Global", "FactSet", "Capital IQ",
+  "Pitchbook", "CB Insights", "Crunchbase", "BioPharma Dive", "FiercePharma",
+  "MedCity News", "Endpoints News", "STAT News", "Clinical Trials Arena",
+  "FDA.gov", "ClinicalTrials.gov", "BioSpace", "GlobeNewswire", "PR Newswire",
+  "Business Wire", "EIN Presswire", "Shareholder.com", "Insider Monkey",
+  "13F filings", "Form 4 filings", "8-K filings", "Hedge Fund Tracker"
 ];
 
 const sourceString = REPUTABLE_SOURCES.map(s => `site:${s}`).join(" OR ");
@@ -297,7 +305,7 @@ const MiniChart = ({ symbol }) => {
 };
 
 // Separate Clock component to isolate re-renders
-function Clock() {
+function CurrentTime() {  // Changed name from Clock to CurrentTime
   const [time, setTime] = useState(new Date());
   
   useEffect(() => {
@@ -351,6 +359,7 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [followingUsers, setFollowingUsers] = useState(new Set());
   const [volatilityCache, setVolatilityCache] = useState({});
+  const [profileCache, setProfileCache] = useState({});
 const [positions, setPositions] = useState([]);
 const [loadingPositions, setLoadingPositions] = useState(false);
 const [brokerageConnected, setBrokerageConnected] = useState(false);
@@ -370,6 +379,7 @@ const [recentlyScanned, setRecentlyScanned] = useState(() => {
 const [showSearch, setShowSearch] = useState(false);
 const [stockSearchResults, setStockSearchResults] = useState([]);
 const [isManualResult, setIsManualResult] = useState(false);
+const [scanProgress, setScanProgress] = useState(0);
 
 
 
@@ -1136,20 +1146,125 @@ useEffect(() => {
   return () => clearInterval(liveTimer);
 }, [updateList, stocks, watchlists]); // Removed isMarketOpen check
 
+// --- NEWS ARTICLE DISCOVERY ---
+const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) => {
+  const currentMonthName = new Date().toLocaleString('default', { month: 'long' });
+  const currentYear = new Date().getFullYear();
+  const twoWeeksAgo = new Date(Date.now() - 14*24*60*60*1000).toISOString().split('T')[0];
+  
+  const newsDiscoveryPrompt = `
+TODAY'S DATE: ${currentMonthName} ${new Date().getDate()}, ${currentYear}
+
+You are a stock market researcher. Your task: Find 200+ US stock tickers mentioned in recent financial news.
+
+CRITICAL PRICE REQUIREMENT: Focus on stocks trading UNDER $${priceLimit} per share.
+- Prioritize small/mid-cap companies
+- Include biotech, pharma, regional banks, smaller tech companies
+- AVOID mega-caps like AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA unless under $${priceLimit}
+
+EXECUTE THESE 8 SEARCHES (run ALL of them, not just a few):
+
+1. Search: "FDA approval" OR "PDUFA date" OR "clinical trial" (after:${twoWeeksAgo})
+   → Find 25-30 biotech/pharma tickers
+
+2. Search: "earnings beat" OR "revenue surprise" (after:${twoWeeksAgo})
+   → Find 25-30 tickers with earnings news
+
+3. Search: "analyst upgrade" OR "price target raised" (after:${twoWeeksAgo})
+   → Find 25-30 upgraded stocks
+
+4. Search: "insider buying" OR "Form 4 filed" (after:${twoWeeksAgo})
+   → Find 20-25 tickers with insider activity
+
+5. Search: "merger" OR "acquisition announced" (after:${twoWeeksAgo})
+   → Find 15-20 M&A related stocks
+
+6. Search: "government contract" OR "partnership announced" (after:${twoWeeksAgo})
+   → Find 15-20 stocks with contracts/partnerships
+
+7. Search: "dividend increase" OR "buyback announced" (after:${twoWeeksAgo})
+   → Find 15-20 stocks with shareholder returns
+
+8. Search: "product launch" OR "new drug approved" (after:${twoWeeksAgo})
+   → Find 15-20 stocks with new products
+
+SEARCH THESE SOURCES:
+Bloomberg, Reuters, WSJ, Barron's, CNBC, Seeking Alpha, Benzinga, MarketWatch, BioPharma Dive, FiercePharma, GlobeNewswire, PR Newswire, Business Wire, SEC.gov, OpenInsider
+
+${sector !== 'all' ? `SECTOR REQUIREMENT: ONLY include ${sector.toUpperCase()} sector stocks` : ''}
+${marketCap !== 'all' ? `PREFER ${marketCap}-cap companies but include all sizes` : ''}
+
+VALIDATION RULES:
+✓ 2-5 letter ticker symbols only
+✓ US-traded stocks (NYSE/NASDAQ/AMEX)
+✓ Actual companies, not indexes
+
+✗ REJECT these:
+- News sources: Bloomberg, Reuters, CNBC, WSJ, NYT
+- Indexes: SPY, QQQ, DIA, SPX, NDX
+- Generic: AI, ML, CEO, CFO, FDA, SEC, IPO, ETF, ESG
+- Countries: US, UK, EU, CN
+- Months: JAN, FEB, MAR, etc.
+
+CRITICAL REQUIREMENTS:
+1. Run ALL 8 searches listed above
+2. From each search, extract 15-30 tickers
+3. Combine ALL results into one list
+4. Return 200+ total unique tickers
+
+OUTPUT FORMAT (comma-separated, no line breaks):
+AAPL, MSFT, NVDA, TSLA, MRNA, PFE, JNJ, AMGN, LLY, GOOG, META, AMD, INTC, CSCO, ORCL, CRM, ADBE, QCOM, TXN, AVGO, NFLX, DIS, CMCSA, T, VZ, ... (continue until 200+ tickers)
+
+DO NOT STOP at 28 tickers. You MUST return at least 200 tickers.
+If a search returns fewer results, run additional related searches.
+Keep searching until you have 200+ unique tickers total.
+PRICE FILTER: Only include stocks likely trading under $${priceLimit}/share based on market cap and company size.
+`;
+
+  try {
+    console.log('🔍 Stage 1: Searching for stocks in recent news...');
+    
+    const newsRes = await aiModel.generateContent({
+      contents: [{ role: "user", parts: [{ text: newsDiscoveryPrompt }] }],
+      tools: [{ googleSearch: {} }]
+    });
+    
+    const responseText = await newsRes.response.text();
+    console.log('Raw AI response (first 500 chars):', responseText.substring(0, 500));
+    
+    // Extract tickers directly (2-5 capital letters)
+    const tickerRegex = /\b[A-Z]{2,5}\b/g;
+    const foundTickers = responseText.match(tickerRegex) || [];
+    
+    // Deduplicate
+    const uniqueTickers = [...new Set(foundTickers)];
+    
+    console.log(`✓ Found ${uniqueTickers.length} tickers from news search`);
+    console.log('Sample tickers:', uniqueTickers.slice(0, 20));
+    
+    return uniqueTickers;
+    
+  } catch (error) {
+    console.error('Error in news discovery:', error);
+    return [];
+  }
+}, [aiModel]);
+
   // --- NEURAL SCANNER LOGIC ---
 const runScanner = useCallback(async (tickerToSearch = null) => {
   const isManual = Boolean(tickerToSearch);
   setIsManualResult(isManual);
   setLoading(true);
+  setScanProgress(0);
 
   const rejectedTickers = new Set();
   const displayedTickers = new Set(); 
   const localStocks = [];
   
   const now = new Date();
-  const oneWeekAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+  const threeDaysAgo = new Date(now.getTime() - (3 * 24 * 60 * 60 * 1000));
   const fDate = now.toISOString().split('T')[0];     
-  const yDate = oneWeekAgo.toISOString().split('T')[0];
+  const yDate = threeDaysAgo.toISOString().split('T')[0];
   const currentMonthName = now.toLocaleString('default', { month: 'long' }); 
   const currentYear = now.getFullYear();
 
@@ -1158,141 +1273,51 @@ let attempts = 0;
 try {
   const targetGoal = isManual ? 1 : 5;
 
-  while (localStocks.length < targetGoal && attempts < 15) {
+  while (localStocks.length < targetGoal && attempts < 3) {
     attempts++;
     let tickersToProcess = [];
 
     if (isManual) {
       setScanStatus(`LOCKING ON: ${tickerToSearch.toUpperCase()}...`);
       tickersToProcess = [tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "")];
-    } else {
-        setScanStatus(`GATHERING...`);
-        const excludeStr = rejectedTickers.size > 0 ? `EXCLUDE: ${Array.from(rejectedTickers).slice(-20).join(", ")}` : "";
+} else {
+  setScanStatus(`SCANNING NEWS SOURCES...`);
+  
+  // Discover tickers from recent financial news
+  const foundSymbols = await discoverNewsArticles(scanSector, scanMarketCap, scanPriceLimit);
+  console.log(`📰 Discovered ${foundSymbols.length} stocks from recent news`);
+  
+  if (foundSymbols.length === 0) {
+    setScanStatus(`NO STOCKS IN RECENT NEWS`);
+    setLoading(false);
+    return;
+  }
+  
+  tickersToProcess = foundSymbols;
+}
 
-const discoveryPrompt = `
-You are a quantitative analyst scanning for US stocks under $${scanPriceLimit} with MAJOR catalysts for ${currentMonthName} ${currentYear}.
+const blacklist = [
+  "CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", 
+  "FDA", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+  "AI", "ML", "EV", "CEO", "CFO", "IPO", "ETF", "ESG", "IT", "US", "UK", "EU",
+  "PDUFA", "SEC", "II", "III", "IV", "LLC", "INC", "BMO", "RBC", "API", "ADC", 
+  "IKE", "PPP", "MPS", "ABCD", "EFGH", "IJKL", "MNOP", "WXYZ",
+  "EDGAR", "FORM", "AM", "PM", "EST", "PST", "GMT", "UTC", "CR", "EA", "IP" 
+];
 
-IMPORTANT: Provide DIVERSE results across different sectors and catalyst types. Don't focus on just one sector.
-RANDOMIZATION: Include a mix of biotech, tech, finance, energy, and consumer stocks.
-
-CRITICAL RULES:
-1. Return ONLY valid US-traded stock tickers (2-5 letters, listed on NYSE/NASDAQ/AMEX)
-2. NO ADRs, NO foreign stocks, NO Chinese companies
-3. Every stock MUST have a SPECIFIC catalyst from the past 7 days OR upcoming in next 14 days
-4. NO stocks based solely on "near 52-week high" or "technical setup"
-
-${scanMarketCap !== 'all' ? `MARKET CAP FILTER: Focus ONLY on ${
-  scanMarketCap === 'small' ? 'small-cap stocks ($300M - $2B market cap)' :
-  scanMarketCap === 'mid' ? 'mid-cap stocks ($2B - $10B market cap)' :
-  'large-cap stocks (over $10B market cap)'
-}` : ''}
-
-${scanSector !== 'all' ? `SECTOR FILTER: Focus ONLY on ${
-  scanSector === 'technology' ? 'Technology sector (software, hardware, semiconductors, IT services)' :
-  scanSector === 'healthcare' ? 'Healthcare sector (biotech, pharma, medical devices, healthcare services)' :
-  scanSector === 'finance' ? 'Financial sector (banks, insurance, fintech, asset management)' :
-  scanSector === 'energy' ? 'Energy sector (oil, gas, renewable energy, utilities)' :
-  scanSector === 'consumer' ? 'Consumer sector (retail, restaurants, consumer goods)' :
-  scanSector === 'industrial' ? 'Industrial sector (manufacturing, aerospace, defense, transportation)' :
-  scanSector === 'materials' ? 'Materials sector (mining, chemicals, construction materials)' :
-  scanSector === 'realestate' ? 'Real Estate sector (REITs, property management)' :
-  'Utilities sector (electric, water, gas utilities)'
-} companies.` : ''}
-
-REQUIRED CATALYST TYPES (stock must have at least ONE):
-
-1. BIOTECH/PHARMA BINARY EVENTS (Highest Priority):
-   - "FDA PDUFA approval decision date [specific date in next 14 days]"
-   - "Phase 3 clinical trial data readout [specific date]"
-   - "FDA panel meeting scheduled [date]"
-   - "Oncology conference presentation [specific date]"
-   Must include SPECIFIC DATE within next 2 weeks
-
-2. EARNINGS WITH MOMENTUM:
-   - "Earnings report [date] analyst expects beat"
-   - "Earnings this week strong guidance expected"
-   - "Earnings surprise last quarter revenue growth"
-   Must have earnings within 7 days OR recent beat within 14 days
-
-3. INSIDER/INSTITUTIONAL BUYING:
-   - "CEO insider buying Form 4 filed [date within 7 days]"
-   - "Hedge fund 13F new position disclosed [recent date]"
-   - "Director purchased shares [date within 14 days]"
-   Must show RECENT insider buying (not months ago)
-
-4. M&A/ACQUISITION NEWS:
-   - "Merger announced [date within 30 days]"
-   - "Acquisition target rumored [recent report]"
-   - "Activist investor stake revealed [date within 14 days]"
-   Must have concrete M&A news/rumor from past month
-
-5. ANALYST UPGRADES (Recent):
-   - "Upgraded to buy [analyst firm] [date within 7 days]"
-   - "Price target raised [date within 14 days]"
-   - "Initiated coverage outperform [recent]"
-   Must be RECENT upgrade (not old)
-
-6. REGULATORY/GOVERNMENT CATALYSTS:
-   - "Contract awarded [specific contract] [date]"
-   - "Regulatory approval granted [date within 30 days]"
-   - "Policy change benefits [specific company]"
-   Must have specific government/regulatory news
-
-7. PRODUCT LAUNCHES/PARTNERSHIPS:
-   - "New product launched [date within 30 days]"
-   - "Partnership announced with [major company] [date]"
-   - "Revenue guidance raised [date within 30 days]"
-   Must have concrete business development news
-
-STRICT REJECTION CRITERIA:
-✗ Only "approaching 52-week high" with no other catalyst
-✗ Only "technical breakout" without news
-✗ Generic "sector momentum" without company-specific catalyst
-✗ ADRs or foreign stocks (ending in .L, .HK, etc)
-✗ News older than 30 days with nothing recent
-✗ "Potential" or "could" catalysts - need CONFIRMED events
-
-DIVERSITY REQUIREMENTS:
-- Include mix of small-cap ($300M-$2B), mid-cap ($2B-$10B), and large-cap (>$10B)
-- At least 3 different sectors represented
-- Include at least 2 stocks over $50 per share for diversification
-- Avoid penny stocks under $2
-
-TRUSTED NEWS SOURCES ONLY: ${sourceString}
-
-${excludeStr}
-
-SEARCH PROCESS:
-1. Search for "biotech FDA approval January 2026 PDUFA date"
-2. Search for "earnings this week analyst upgrades"
-3. Search for "insider buying Form 4 filed this week"
-4. Search for "merger acquisition announced January 2026"
-5. For each result, verify it has a SPECIFIC catalyst and is US-traded
-
-OUTPUT FORMAT: Return ONLY a comma-separated list of 200-300 US stock tickers.
-Example: ABCD, EFGH, IJKL, MNOP
-
-DO NOT include tickers unless you found SPECIFIC catalyst information.
-`;
-
-        const aiRes = await aiModel.generateContent({
-          contents: [{ role: "user", parts: [{ text: discoveryPrompt }] }],
-          tools: [{ googleSearch: {} }] 
-        });
-        
-        const aiText = await aiRes.response.text();
-        const foundSymbols = (aiText || "").match(/\b[A-Z]{2,5}\b/g) || [];
-        tickersToProcess = [...new Set(foundSymbols)];
-      }
-
-const blacklist = ["CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", "FDA", "JAN", "FEB", "AI", "ML", "EV", "CEO", "CFO", "IPO", "ETF", "ESG"];
 const foreignSuffixes = [".L", ".HK", ".TO", ".AX", ".PA", ".DE"];
 
 const tickers = tickersToProcess.filter(t => {
   if (blacklist.includes(t)) return false;
   if (foreignSuffixes.some(suffix => t.includes(suffix))) return false;
   if (t.length > 5) return false;
-  if (!isManual && recentlyScanned.has(t)) return false; // Only check cooldown for auto scans
+  if (t.length < 3) return false;
+  
+  // NEW: Filter obvious junk patterns
+  if (/\d/.test(t)) return false; // No numbers in tickers
+  if (t.endsWith('X') && t.length === 4) return false; // Often OTC junk
+  
+  if (!isManual && recentlyScanned.has(t)) return false;
   return true;
 });
 
@@ -1307,89 +1332,82 @@ const shuffledTickers = tickers.sort((a, b) => {
 console.log('shuffledTickers:', shuffledTickers);  // ADD THIS
 console.log('Starting for loop, targetGoal:', targetGoal);  // ADD THIS
 
-for (const ticker of shuffledTickers) {
-  console.log('Processing ticker:', ticker);  // ADD THIS
+// Process stocks in batches of 5 for speed
+const batchSize = 2;
+for (let i = 0; i < shuffledTickers.length && localStocks.length < targetGoal; i += batchSize) {
+  const batch = shuffledTickers.slice(i, i + batchSize);
+  
+  console.log(`Processing batch ${Math.floor(i/batchSize) + 1}: ${batch.join(', ')}`);
+  setScanProgress(20 + (i / shuffledTickers.length) * 60);
+  
+  const batchResults = await Promise.allSettled(
+    batch.map(async (ticker) => {
+      try {
+// Fetch quote and news (these change frequently)
+        const [q, n] = await Promise.all([
+          fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`).then(r => r.json()),
+          fetch(`https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`).then(r => r.json())
+        ]);
 
-try {
-  // Add delay BEFORE making requests to avoid rate limiting
-  await new Promise(r => setTimeout(r, 2000));
+        // Check profile cache (profiles don't change often)
+        let p;
+        if (profileCache[ticker]) {
+          console.log(`${ticker} - Using cached profile`);
+          p = profileCache[ticker];
+        } else {
+          p = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`).then(r => r.json());
+          if (p && p.name) {
+            setProfileCache(prev => ({ ...prev, [ticker]: p }));
+            console.log(`${ticker} - Cached profile for future scans`);
+          }
+        }
 
-  const qUrl = `https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`;
-  const nUrl = `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`;    
-  const pUrl = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`;
+        if (!q || !q.c || q.c === 0) {
+          console.log(`${ticker} - Invalid quote data`);
+          return null;
+        }
 
-  // Fetch with error handling
-  let q, n, p;
-  try {
-    [q, n, p] = await Promise.all([
-      fetch(qUrl).then(r => {
-        if (!r.ok) throw new Error(`Finnhub error: ${r.status}`);
-        return r.json();
-      }),
-      fetch(nUrl).then(r => {
-        if (!r.ok) throw new Error(`Finnhub error: ${r.status}`);
-        return r.json();
-      }),
-      fetch(pUrl).then(r => {
-        if (!r.ok) throw new Error(`Finnhub error: ${r.status}`);
-        return r.json();
-      })
-    ]);
-  } catch (fetchError) {
-    console.log(`${ticker} - Finnhub API error, skipping:`, fetchError.message);
-    console.log(`${ticker} - Finnhub quote data:`, { c: q.c, v: q.v, av: q.av, dp: q.dp });
-    rejectedTickers.add(ticker);
-    continue;
-  }
+        if (!isManual) {
+          if (q.c < 2) {
+            console.log(`${ticker} - Rejected: Price too low ($${q.c})`);
+            return null;
+          }
+          if (q.c > scanPriceLimit) {
+            console.log(`${ticker} - Rejected: Price above limit ($${q.c} > $${scanPriceLimit})`);
+            return null;
+          }
+        }
 
-  // Validate data
-  if (!q || !q.c || q.c === 0) {
-    console.log(`${ticker} - Invalid quote data`);
-    rejectedTickers.add(ticker);
-    continue;
-  }
+        let h = { c: [] };
+        if (volatilityCache[ticker]) {
+          h = { c: volatilityCache[ticker] };
+        } else {
+          try {
+            const twelveUrl = `https://api.twelvedata.com/time_series?symbol=${ticker}&interval=1day&outputsize=90&apikey=${TWELVE_DATA_KEY}`;
+            const twelveRes = await fetch(twelveUrl);
+            const twelveData = await twelveRes.json();
+            
+            if (twelveData.values && twelveData.values.length > 0) {
+              const closePrices = twelveData.values.map(day => parseFloat(day.close)).reverse();
+              h = { c: closePrices };
+              setVolatilityCache(prev => ({ ...prev, [ticker]: closePrices }));
+            }
+          } catch (e) {
+            console.log(`Twelve Data error for ${ticker}:`, e);
+          }
+        }
 
-// Fetch historical data from Twelve Data (800 calls/day free)
-let h = { c: [] };
+        const headlines = n?.length > 0 
+          ? n.slice(0, 10).map(i => `[${new Date(i.datetime * 1000).toLocaleDateString()}] ${i.headline}`).join(" | ") 
+          : "No recent company-specific news found.";
 
-// Check cache first
-if (volatilityCache[ticker]) {
-  console.log(`${ticker} - Using cached volatility data`);
-  h = { c: volatilityCache[ticker] };
-} else {
-  try {
-    // Twelve Data API - much better free tier
-    console.log('Twelve Data Key:', TWELVE_DATA_KEY?.substring(0, 10) + '...');
-    const twelveUrl = `https://api.twelvedata.com/time_series?symbol=${ticker}&interval=1day&outputsize=90&apikey=${TWELVE_DATA_KEY}`;
-    const twelveRes = await fetch(twelveUrl);
-    const twelveData = await twelveRes.json();
-    
-    if (twelveData.values && twelveData.values.length > 0) {
-      const closePrices = twelveData.values
-        .map(day => parseFloat(day.close))
-        .reverse();
-      h = { c: closePrices };
-      
-      // Cache the data
-      setVolatilityCache(prev => ({ ...prev, [ticker]: closePrices }));
-      console.log(`${ticker} - Cached ${closePrices.length} data points from Twelve Data`);
-    } else if (twelveData.status === 'error') {
-      console.log(`${ticker} - Twelve Data error:`, twelveData.message);
-    }
-  } catch (e) {
-    console.log(`Twelve Data error for ${ticker}:`, e);
-  }
-}
+        const fiftyTwoWeekHigh = q.h;
+        const fiftyTwoWeekLow = q.l;
+        const currentPrice = q.c;
+        const priceNearHigh = (currentPrice / fiftyTwoWeekHigh) > 0.95;
+        const priceFromLow = ((currentPrice - fiftyTwoWeekLow) / fiftyTwoWeekLow) * 100;
 
-// ADD TECHNICAL BREAKOUT CONFIRMATION HERE:
-// Calculate technical setup
-const fiftyTwoWeekHigh = q.h;
-const fiftyTwoWeekLow = q.l;
-const currentPrice = q.c;
-const priceNearHigh = (currentPrice / fiftyTwoWeekHigh) > 0.95; // Within 5% of highs
-const priceFromLow = ((currentPrice - fiftyTwoWeekLow) / fiftyTwoWeekLow) * 100; // % above low
-
-const technicalContext = `
+        const technicalContext = `
 TECHNICAL SETUP:
 - Current: $${currentPrice.toFixed(2)}
 - 52W High: $${fiftyTwoWeekHigh.toFixed(2)}
@@ -1398,52 +1416,13 @@ TECHNICAL SETUP:
 - From Low: +${priceFromLow.toFixed(1)}%
 `;
 
-if (!isManual) {
-  if (q.c < 2) {
-    rejectedTickers.add(ticker);
-    continue;
-  }
-  
-  if (q.c > scanPriceLimit) {
-    rejectedTickers.add(ticker);
-    continue;
-  }
-  
-  // Volume check - only apply if we have valid average volume data
-  const currentVolume = q.v || 0;
-  const avgVolume = q.av || 0;
-  
-  // Only check volume if avgVolume exists and is meaningful
-  if (avgVolume > 0) {
-    const volumeRatio = currentVolume / avgVolume;
-    
-    // Reject if volume is significantly below average (less than 0.5x)
-    // Changed from 1.5x to be less strict
-    if (volumeRatio < 0.5) {
-      console.log(`${ticker} - Very low volume (${volumeRatio.toFixed(2)}x avg), skipping`);
-      rejectedTickers.add(ticker);
-      continue;
-    }
-    
-    if (volumeRatio >= 1.5) {
-      console.log(`${ticker} - Volume check passed (${volumeRatio.toFixed(2)}x avg) ✓`);
-    }
-  } else {
-    console.log(`${ticker} - No average volume data, skipping volume check`);
-  }
-}
-
-const headlines = n?.length > 0 
-  ? n.slice(0, 10).map(i => `[${new Date(i.datetime * 1000).toLocaleDateString()}] ${i.headline}`).join(" | ") 
-  : "No recent company-specific news found.";
-
 const analysisPrompt = isManual 
   ? `
     TICKER: ${ticker}
     CURRENT PRICE: $${q.c}
     52-WEEK RANGE: $${q.l} - $${q.h}
     ${technicalContext}
-    NEWS (Past 7 Days): ${headlines}
+    NEWS (Past 3 Days): ${headlines}
     COMPANY: ${p.name || ticker}
     
     Provide a comprehensive analysis regardless of catalyst strength.
@@ -1476,128 +1455,128 @@ const analysisPrompt = isManual
     - WATCH_FOR_PULLBACK: Strong setup but extended (near resistance, overbought)
     - WAIT_FOR_BREAKOUT: Consolidating near highs, needs volume trigger
   `
-  : `
+ : `
     TICKER: ${ticker}
     PRICE: $${q.c} (52W: $${q.l} - $${q.h})
     ${technicalContext}
-    NEWS: ${headlines}
+    NEWS HEADLINES: ${headlines}
     COMPANY: ${p.name || ticker}
+
+    COMPREHENSIVE ANALYSIS REQUIRED:
     
-    Analyze ${ticker} for potential trading opportunities in ${currentMonthName} ${currentYear}.
+    You are analyzing a stock that appeared in recent financial news. Your job is to provide a THOROUGH, 
+    DETAILED analysis that investors can act on.
     
-    IMPORTANT: If NEWS shows "No recent company-specific news found", you MUST analyze:
-    - Price momentum and technical patterns
-    - Sector performance and industry trends
-    - Recent volume changes
-    - Distance from 52-week high/low
-    Do NOT just say "sector tailwinds" - be specific about what you observe.
+    STEP 1 - IDENTIFY ALL CATALYSTS:
+    Review the news headlines carefully and identify:
+    - Recent earnings (revenue, EPS, guidance)
+    - FDA approvals, clinical trial results, PDUFA dates
+    - Analyst upgrades/downgrades with price targets
+    - Product launches, partnerships, contracts
+    - M&A activity, buybacks, insider buying
+    - Regulatory developments
+    - Financial updates (revenue guidance, cash runway)
     
-    ACCEPT these as valid catalysts:
-    ✓ Recent earnings or guidance (within 30 days)
-    ✓ FDA approvals, clinical trials, healthcare developments
-    ✓ M&A activity, acquisitions, activist investors
-    ✓ Major analyst upgrades from known firms
-    ✓ Significant contract wins or partnerships
-    ✓ Technical breakouts with strong volume
-    ✓ Regulatory/policy benefits to the company
-    ✓ Sector rotation or industry tailwinds (only if specific)
+    STEP 2 - ANALYZE FUNDAMENTALS:
+    - What is the company's core business?
+    - What are the main revenue drivers?
+    - Recent financial performance trends
+    - Competitive position in sector
     
-    REJECT only if:
-    ✗ Absolutely no news in past 30 days AND no technical setup
-    ✗ Only negative news
+    STEP 3 - TECHNICAL SETUP:
+    - Price momentum (near highs/lows?)
+    - Volume patterns
+    - Key support/resistance levels
     
-    Be GENEROUS with confidence scores:
-    - 60-80: Recent relevant news from decent source
-    - 40-60: Technical setup or sector momentum
-    - Below 40: Very weak/old information
+    STEP 4 - RISK ASSESSMENT:
+    - What could go wrong?
+    - Competition or regulatory risks
+    - Execution challenges
     
     FORMAT (Use EXACT tags):
     NAME: ${p.name || 'Unknown'}
     [RANGE] $XX.XX - $XX.XX [/RANGE]
-    [SIG] BULLISH or BEARISH [/SIG]
+    [SIG] BULLISH or BEARISH or NEUTRAL [/SIG]
     [MOM] Positive, Steady, or Uncertain [/MOM]
-    [CAT] Specific catalyst (NOT generic) - max 10 words [/CAT]
+    [CAT] Primary catalyst with specifics - max 15 words [/CAT]
     [TIMING] ENTER_NOW or WATCH_FOR_PULLBACK or WAIT_FOR_BREAKOUT [/TIMING]
     [CONF] XX.XX [/CONF]
     [VOLATILITY] XX.XX [/VOLATILITY]
     [INSIGHTS]
-    | Insight about catalyst or price action
-    | Supporting technical or fundamental point
-    | Risk consideration or alternative view
-    | TIMING insight - explain when to enter based on setup
+    | CATALYST: Specific recent catalyst with dates/numbers (e.g., "Q4 earnings beat by 15% on Jan 28, raised FY guidance")
+    | FUNDAMENTAL: Key business driver or recent financial update (e.g., "Revenue up 23% YoY, cash runway extends to Q2 2027")
+    | TECHNICAL: Price action and momentum context (e.g., "Up 34% from lows, approaching 52W high with strong volume")
+    | OPPORTUNITY: Why this could move higher (e.g., "Phase 2 data expected Q1 2026, analyst targets $15-20 range")
+    | RISK: Main downside consideration (e.g., "Clinical trial results binary event, competitive landscape intensifying")
+    | TIMING: Specific entry/exit strategy based on setup (e.g., "Wait for pullback to $8-9 support before entry")
     [/INSIGHTS]
     
-    TIMING GUIDELINES:
-    - ENTER_NOW: Catalyst imminent (0-3 days) OR breaking out with volume
-    - WATCH_FOR_PULLBACK: Strong setup but extended or overbought
-    - WAIT_FOR_BREAKOUT: Consolidating, needs volume confirmation
+    CRITICAL: Each insight must be SPECIFIC and ACTIONABLE. No generic statements like "positive momentum" or "sector tailwinds."
+    Include actual numbers, dates, percentages, price targets, and concrete events.
     
-    Only mark [SIG] NEUTRAL [/SIG] if there's truly zero relevant information.
+    Only use NEUTRAL if headlines literally say "No recent company-specific news found"
   `;
 
-const analysis = await aiModel.generateContent(analysisPrompt);
-const resText = await analysis.response.text();
+        const analysis = await aiModel.generateContent(analysisPrompt);
+        const resText = await analysis.response.text();
 
+        if (!isManual && resText.includes("NEUTRAL")) {
+          console.log(`${ticker} - Rejected: AI marked as NEUTRAL`);
+          return null;
+        }
 
-if (!isManual && resText.includes("NEUTRAL")) {
-  rejectedTickers.add(ticker);
-  continue;
+        const aiConfidence = getScore(extract("CONF", resText), 65);
+        const volumeRatio = (q.v || 0) / (q.av || 1);
+
+        const newStock = {
+          symbol: ticker.trim().toUpperCase(),
+          name: p.name || clean(extract("NAME", resText)) || `${ticker} CORP`,
+          price: q.c.toFixed(2),
+          change: q.dp?.toFixed(2) || "0.00",
+          isPositive: extract("SIG", resText).toUpperCase().includes("BULLISH"),
+          range: clean(extract("RANGE", resText)),
+          confidence: calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence, volumeRatio),
+          volatility: h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40,
+          rating: clean(extract("SIG", resText)),
+          momentum: clean(extract("MOM", resText)),
+          catalyst: formatText(clean(extract("CAT", resText))),
+          insights: extract("INSIGHTS", resText).split('|').map(i => formatText(clean(i))).filter(i => i.length > 5)
+        };
+
+        console.log(`✓ ${ticker} passed all filters`);
+        return newStock;
+
+      } catch (error) {
+        console.log(`${ticker} - Error:`, error.message);
+        return null;
+      }
+    })
+  );
+
+for (const result of batchResults) {
+  if (result.status === 'fulfilled' && result.value) {
+    // Check if we already have this stock
+    const isDuplicate = localStocks.some(s => s.symbol === result.value.symbol);
+    
+    if (!isDuplicate && localStocks.length < targetGoal) {
+      localStocks.push(result.value);
+      setStocks([...localStocks]);
+      setRecentlyScanned(prev => new Set([...prev, result.value.symbol]));
+    }
+  }
 }
 
-// Get AI's catalyst assessment
-const aiConfidence = getScore(extract("CONF", resText), 65);
+if (localStocks.length < targetGoal) {
+  await new Promise(r => setTimeout(r, 1500)); // Reduced to 1.5 seconds
+}
+}
 
-const volumeRatio = (q.v || 0) / (q.av || 1);
-
-console.log(`${ticker} - Historical data points:`, h.c?.length);
-console.log(`${ticker} - Calculated HV:`, h.c && h.c.length >= 2 ? calculateHV(h.c) : 'FALLBACK');
-console.log(`${ticker} - AI Confidence:`, aiConfidence);
-console.log(`${ticker} - Signal Strength:`, calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence));
-
-const newStock = {
-  symbol: ticker.trim().toUpperCase(),
-  name: p.name || clean(extract("NAME", resText)) || `${ticker} CORP`,
-  price: q.c.toFixed(2),
-  change: q.dp?.toFixed(2) || "0.00",
-  isPositive: extract("SIG", resText).toUpperCase().includes("BULLISH"),
-  range: clean(extract("RANGE", resText)),
-  confidence: calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence, volumeRatio),
-  volatility: h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : (() => {
-  // Intelligent fallback based on price change and sector
-  const priceChange = Math.abs(parseFloat(q.dp || 0));
-  
-  // Base volatility from daily change (expand the range)
-  let estimatedVol = 25 + (priceChange * 6);
-  
-  // Adjust for price level (lower price = higher volatility typically)
-  if (q.c < 5) estimatedVol += 15;
-  else if (q.c < 10) estimatedVol += 10;
-  else if (q.c < 20) estimatedVol += 5;
-  
-  return Math.min(Math.max(estimatedVol, 20), 100).toFixed(2);
-})(),
-  rating: clean(extract("SIG", resText)),
-  momentum: clean(extract("MOM", resText)),
-  catalyst: formatText(clean(extract("CAT", resText))), 
-  insights: extract("INSIGHTS", resText).split('|').map(i => formatText(clean(i))).filter(i => i.length > 5)
-};
-
-        localStocks.push(newStock);
-        displayedTickers.add(ticker); 
-        setStocks([...localStocks]); 
-
-        // NEW: Add to recently scanned cooldown
-        setRecentlyScanned(prev => new Set([...prev, ticker]));
-
-        } catch (e) {
-          rejectedTickers.add(ticker);
-        }
-      }
-      if (isManual) break;
+if (isManual) break;
     }
  } catch (err) { console.error(err); }
   finally { 
     setLoading(false); 
+    setScanProgress(100);
     setScanStatus("COMPLETE");
     // Restart watchlist updates after scan completes
     if (watchlistIntervalRef.current) {
@@ -1730,7 +1709,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
       {/* Clock - hidden on mobile */}
       <div className="text-right hidden md:block">
-        <Clock />
+        <CurrentTime />
       </div>
       
       {/* Auth Button */}
@@ -2013,14 +1992,16 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           {stockSearchResults.map((result) => (
             <button
   key={result.symbol}
-  onClick={() => {
-    console.log('Clicked stock:', result.symbol);  // ADD THIS
-    setManualSearch(result.symbol);
-    setStockSearchResults([]);
-    console.log('About to call runScanner');  // ADD THIS
-    runScanner(result.symbol);
-    console.log('Called runScanner');  // ADD THIS
-  }}
+onClick={async () => {
+  console.log('Clicked stock:', result.symbol);
+  setManualSearch(result.symbol);
+  setStockSearchResults([]);
+  
+  // Add small delay to avoid rate limiting
+  await new Promise(r => setTimeout(r, 500));
+  
+  runScanner(result.symbol);
+}}
   className="w-full text-left px-4 py-3 bg-zinc-900 hover:bg-zinc-800 transition-all rounded-lg border border-zinc-800 hover:border-[#00ff4e]/50"
 >
               <div className="flex justify-between items-center">
@@ -2111,6 +2092,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       ]}
     />
     
+
     <button 
       onClick={() => { setManualSearch(""); runScanner(null); }}
       disabled={loading}
@@ -2225,13 +2207,39 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Scanner Idle</p>
         </div>
       )}
-      {loading && stocks.length === 0 && (
-        <>
-          <SkeletonCard />
-          <SkeletonCard />
-          <SkeletonCard />
-        </>
-      )}
+{loading && stocks.length === 0 && (
+  <div className="py-32 text-center">
+    {/* Animated Logo */}
+    <div className="flex justify-center mb-6">
+      <img 
+        src="/jckrbbt_logo_animated.svg" 
+        alt="Loading" 
+        className="w-24 h-24"
+      />
+    </div>
+    
+    {/* Status Text */}
+    <p className="text-sm font-black text-white uppercase tracking-wider mb-6 animate-pulse">
+      {scanStatus}
+    </p>
+    
+    {/* Progress Bar */}
+    <div className="max-w-md mx-auto px-4">
+      <div className="relative h-2 bg-zinc-900 rounded-full overflow-hidden mb-2">
+        <div 
+          className="absolute h-full bg-[#00ff4e] transition-all duration-500 ease-out"
+          style={{ 
+            width: `${scanProgress}%`,
+            boxShadow: '0 0 20px rgba(0,255,78,0.5)'
+          }}
+        />
+      </div>
+      <p className="text-xs text-zinc-500">
+        {scanProgress}% Complete
+      </p>
+    </div>
+  </div>
+)}
   {!isManualResult && displayedStocks.map((stock, index) => (
     <MetricCard 
   key={stock.symbol}
@@ -3159,6 +3167,9 @@ useEffect(() => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [showAddToListMenu, onCloseMenu]);
 
+  console.log('Testing icons:', { Target, BarChart3, TrendingUp, Lightbulb, AlertTriangle, Clock });
+
+
   return (
     <div 
       ref={cardRef}
@@ -3448,12 +3459,77 @@ useEffect(() => {
               <motion.div className="absolute left-0 top-0 w-[2px] h-full bg-[#00ff4e] shadow-[0_0_10px_#00ff4e]" />
               <div className="flex flex-col gap-6 md:gap-8">
                 <div className="flex-1 space-y-4 md:space-y-6">
-                  {stock.insights.map((point, i) => (
-                    <div key={i} className="flex items-start gap-3 md:gap-4">
-                      <span className="mt-1 md:mt-2 h-1 w-1 md:h-1.5 md:w-1.5 rounded-full bg-[#00ff4e] shrink-0 shadow-[0_0_5px_#00ff4e]" />
-                      <p className="text-zinc-300 text-xs md:text-sm leading-relaxed font-medium">{point}</p>
-                    </div>
-                  ))}
+{stock.insights.map((point, i) => {
+  // Check if insight starts with a label
+    console.log('Insight', i, ':', point); // ADD THIS LINE
+
+const labelMatch = point.match(/^(CATALYST|FUNDAMENTAL|TECHNICAL|OPPORTUNITY|RISK|TIMING)\s*:?\s*(.+)$/);    
+console.log('Label match:', labelMatch); // ADD THIS LINE
+
+
+  if (labelMatch) {
+    const label = labelMatch[1];
+    const content = labelMatch[2];
+
+        console.log('Rendering with icon:', label); // ADD THIS LINE
+
+    
+    // Explicitly map each label to its icon and color
+    let IconComponent = null;
+    let color = '#00ff4e';
+    
+    if (label === 'CATALYST') {
+      IconComponent = Target;
+      color = '#00ff4e';
+    } else if (label === 'FUNDAMENTAL') {
+      IconComponent = BarChart3;
+      color = '#3b82f6';
+    } else if (label === 'TECHNICAL') {
+      IconComponent = TrendingUp;
+      color = '#f59e0b';
+    } else if (label === 'OPPORTUNITY') {
+      IconComponent = Lightbulb;
+      color = '#10b981';
+    } else if (label === 'RISK') {
+      IconComponent = AlertTriangle;
+      color = '#ef4444';
+    } else if (label === 'TIMING') {
+      IconComponent = Clock;
+      color = '#8b5cf6';
+    }
+    
+    return (
+      <div key={i} className="flex items-start gap-3">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            {IconComponent && <IconComponent size={14} style={{ color }} />}
+            <span 
+              className="text-[10px] font-black uppercase px-2 py-0.5 rounded"
+              style={{ 
+                color,
+                backgroundColor: `${color}10`,
+                border: `1px solid ${color}30`
+              }}
+            >
+              {label}
+            </span>
+          </div>
+          <p className="text-zinc-300 text-sm leading-relaxed pl-5">
+            {content}
+          </p>
+        </div>
+      </div>
+    );
+  }
+  
+  // Fallback for unlabeled insights
+  return (
+    <div key={i} className="flex items-start gap-3">
+      <span className="mt-2 h-1.5 w-1.5 rounded-full bg-[#00ff4e] shrink-0 shadow-[0_0_5px_#00ff4e]" />
+      <p className="text-zinc-300 text-sm leading-relaxed">{point}</p>
+    </div>
+  );
+})}
                 </div>
                 <div className="w-full bg-zinc-950/50 border border-zinc-800 rounded-xl p-3 md:p-4">
                   <div className="flex justify-between items-center mb-3 md:mb-4">
@@ -3575,4 +3651,3 @@ function NewsCard({ article }) {
   );
   
 }
-
