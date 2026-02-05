@@ -2340,8 +2340,11 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         transition={{ duration: 0.3 }}
         className="overflow-hidden mt-6"
       >
-       <div className="bg-[#050505] border border-zinc-800 rounded-xl">
-  <div className="p-4">
+       <div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
+  <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
+    Find Users & Watchlists
+  </h3>
+  <div className="flex-1 relative">
     <input
       type="text"
       value={userSearchTerm}
@@ -2353,13 +2356,14 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
           setSearchResults([]);
         }
       }}
-      placeholder="Search for users and watchlists..."
-      className="w-full bg-transparent text-white text-sm focus:outline-none"
+      placeholder="Search by username..."
+      className="w-full bg-black border border-zinc-800 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
+      style={{ caretColor: '#00ff4e' }}
     />
   </div>
 
   {/* Search Results */}
-  <div className="px-4 pb-4">
+  <div className="mt-4">
           {loadingDiscover ? (
             <div className="py-8 text-center">
               <p className="text-xs text-zinc-500 uppercase tracking-wider">Searching...</p>
@@ -2529,13 +2533,13 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
 
 {/* Tab Navigation - Icon Buttons */}
-<div className="flex justify-center gap-2 md:gap-3 mb-6 md:mb-8">
+<div className="flex gap-2 md:gap-3 mb-6 md:mb-8">
   {[
-    { id: "DASHBOARD", icon: LayoutDashboard, label: "Dashboard" },
-    { id: "TRENDING", icon: Flame, label: "Trending" },
-    { id: "MY LISTS", icon: List, label: "Lists" },
-    { id: "MY POSITIONS", icon: Briefcase, label: "Positions" },
-    { id: "NEWS", icon: Newspaper, label: "News" },
+    { id: "DASHBOARD", icon: LayoutDashboard },
+    { id: "TRENDING", icon: Flame },
+    { id: "MY LISTS", icon: List },
+    { id: "MY POSITIONS", icon: Briefcase },
+    { id: "NEWS", icon: Newspaper },
   ].map(tab => {
     const Icon = tab.icon;
     const isActive = activeTab === tab.id;
@@ -2543,16 +2547,14 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       <button
         key={tab.id}
         onClick={() => setActiveTab(tab.id)}
-        className={`flex flex-col items-center gap-1 px-3 md:px-5 py-2 md:py-3 rounded-xl transition-all ${
+        className={`flex-1 h-16 md:h-20 flex items-center justify-center rounded-xl transition-all ${
           isActive 
             ? "bg-[#00ff4e] text-black shadow-[0_0_20px_rgba(0,255,78,0.4)]" 
             : "bg-zinc-900 text-zinc-500 hover:text-white hover:bg-zinc-800 border border-zinc-800"
         }`}
+        title={tab.id}
       >
-        <Icon size={20} className="md:w-6 md:h-6" />
-        <span className="text-[8px] md:text-[10px] font-black uppercase tracking-wider">
-          {tab.label}
-        </span>
+        <Icon size={28} className="md:w-8 md:h-8" />
       </button>
     );
   })}
