@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import ReactDOM from 'react-dom';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from './firebase';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import AuthModal from './AuthModal';
 import ProfileSettings from './ProfileSettings';
 import Tooltip from './tooltip';
@@ -13,7 +13,7 @@ import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
-import { Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock } from 'lucide-react';
+import { Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw } from 'lucide-react';
 import UserProfileModal from './UserProfileModal';
 import PlaidLink from './PlaidLink';
 import StockChatModal from './StockChatModal';
@@ -33,6 +33,8 @@ const TWELVE_DATA_KEY = process.env.REACT_APP_TWELVE_DATA_KEY;
 
 
 const isMobile = () => window.innerWidth < 768;
+
+
 
 
 const REPUTABLE_SOURCES = [
@@ -169,6 +171,8 @@ return Math.min(Math.max(annualizedVolatility, 10), 120);
 // Calculate Signal Strength based on quantifiable factors
 const calculateSignalStrength = (newsData, priceData, currentPrice, volatility, aiCatalystScore, volumeRatio = 1) => {
   let score = 0;
+
+  
   
   // 1. NEWS RECENCY (25 points max) - More generous
   if (newsData && newsData.length > 0) {
@@ -258,6 +262,69 @@ const calculateSignalStrength = (newsData, priceData, currentPrice, volatility, 
   
   // Ensure score is between 0-100
   return Math.min(Math.max(Math.round(score), 15), 95);
+};
+
+// Brokerage logo URLs - using direct URLs
+const BROKERAGE_LOGOS = {
+  'robinhood': 'https://cdn.brandfetch.io/robinhood.com/w/400/h/400/logo',
+  'fidelity': 'https://cdn.brandfetch.io/fidelity.com/w/400/h/400/logo',
+  'charles schwab': 'https://cdn.brandfetch.io/schwab.com/w/400/h/400/logo',
+  'schwab': 'https://cdn.brandfetch.io/schwab.com/w/400/h/400/logo',
+  'td ameritrade': 'https://cdn.brandfetch.io/tdameritrade.com/w/400/h/400/logo',
+  'e*trade': 'https://cdn.brandfetch.io/etrade.com/w/400/h/400/logo',
+  'etrade': 'https://cdn.brandfetch.io/etrade.com/w/400/h/400/logo',
+  'webull': 'https://cdn.brandfetch.io/webull.com/w/400/h/400/logo',
+  'vanguard': 'https://cdn.brandfetch.io/vanguard.com/w/400/h/400/logo',
+  'interactive brokers': 'https://cdn.brandfetch.io/interactivebrokers.com/w/400/h/400/logo',
+  'coinbase': 'https://cdn.brandfetch.io/coinbase.com/w/400/h/400/logo',
+  'merrill': 'https://cdn.brandfetch.io/ml.com/w/400/h/400/logo',
+  'morgan stanley': 'https://cdn.brandfetch.io/morganstanley.com/w/400/h/400/logo',
+  'ally': 'https://cdn.brandfetch.io/ally.com/w/400/h/400/logo',
+  'sofi': 'https://cdn.brandfetch.io/sofi.com/w/400/h/400/logo',
+  'public': 'https://cdn.brandfetch.io/public.com/w/400/h/400/logo',
+  'wealthfront': 'https://cdn.brandfetch.io/wealthfront.com/w/400/h/400/logo',
+  'betterment': 'https://cdn.brandfetch.io/betterment.com/w/400/h/400/logo',
+  'acorns': 'https://cdn.brandfetch.io/acorns.com/w/400/h/400/logo',
+  'm1 finance': 'https://cdn.brandfetch.io/m1finance.com/w/400/h/400/logo',
+  'm1': 'https://cdn.brandfetch.io/m1finance.com/w/400/h/400/logo',
+};
+
+// Fallback emoji icons
+const BROKERAGE_ICONS = {
+  'robinhood': '🟢',
+  'fidelity': '🔵',
+  'charles schwab': '🔷',
+  'schwab': '🔷',
+  'td ameritrade': '🟩',
+  'e*trade': '🟣',
+  'etrade': '🟣',
+  'webull': '🟠',
+  'vanguard': '🔴',
+  'interactive brokers': '⬛',
+  'coinbase': '🪙',
+  'merrill': '🔵',
+  'morgan stanley': '💎',
+  'default': '📊'
+};
+
+const getBrokerageLogo = (name) => {
+  const lowerName = name?.toLowerCase() || '';
+  for (const [key, url] of Object.entries(BROKERAGE_LOGOS)) {
+    if (lowerName.includes(key)) {
+      return url;
+    }
+  }
+  return null;
+};
+
+const getBrokerageIcon = (name) => {
+  const lowerName = name?.toLowerCase() || '';
+  for (const [key, icon] of Object.entries(BROKERAGE_ICONS)) {
+    if (lowerName.includes(key)) {
+      return icon;
+    }
+  }
+  return BROKERAGE_ICONS.default;
 };
 
 
@@ -360,9 +427,12 @@ export default function App() {
   const [followingUsers, setFollowingUsers] = useState(new Set());
   const [volatilityCache, setVolatilityCache] = useState({});
   const [profileCache, setProfileCache] = useState({});
-const [positions, setPositions] = useState([]);
+const [connectedBrokerages, setConnectedBrokerages] = useState([]); // Array of {id, name, institutionId, lastUpdated}
+const [selectedBrokerage, setSelectedBrokerage] = useState(null); // Currently selected brokerage ID
+const [brokeragePositions, setBrokeragePositions] = useState({}); // {brokerageId: positions[]}
 const [loadingPositions, setLoadingPositions] = useState(false);
-const [brokerageConnected, setBrokerageConnected] = useState(false);
+const [showBrokerageSelector, setShowBrokerageSelector] = useState(false);
+const [disconnectingBrokerage, setDisconnectingBrokerage] = useState(null);
 const [showPlaidConsent, setShowPlaidConsent] = useState(false);
 const [trendingStocks, setTrendingStocks] = useState([]);
 const [trendingInterval, setTrendingInterval] = useState('weekly');
@@ -384,13 +454,26 @@ const [scanProgress, setScanProgress] = useState(0);
 
 
 
+// Computed: current positions based on selected brokerage
+const positions = useMemo(() => {
+  if (!selectedBrokerage) return [];
+  return brokeragePositions[selectedBrokerage] || [];
+}, [selectedBrokerage, brokeragePositions]);
+
+// Computed: all positions across all brokerages (for portfolio summary)
+const allPositions = useMemo(() => {
+  return Object.values(brokeragePositions).flat();
+}, [brokeragePositions]);
+
+// Check if any brokerage is connected
+const brokerageConnected = connectedBrokerages.length > 0;
 
 const flattenedWatchlist = useMemo(() => {
   return watchlists.flatMap(l => l.stocks);
 }, [watchlists]);
   
 
-
+const searchTimeoutRef = useRef(null);
   
 
 const addStockToList = async (stock, listId) => {
@@ -720,25 +803,40 @@ const handleSearchUsers = async (term) => {
   }
 };
 
-const fetchPositions = useCallback(async () => {
-  if (!user) return;
+// Fetch positions for a specific brokerage
+const fetchPositionsForBrokerage = useCallback(async (brokerageId) => {
+  if (!user || !brokerageId) return null;
   
-  setLoadingPositions(true);
   try {
     const idToken = await auth.currentUser.getIdToken();
     
+    // Use POST method to send brokerageId
     const response = await fetch('https://us-central1-jckrbbt-869de.cloudfunctions.net/getHoldings', {
-      method: 'GET',
+      method: 'POST',
       headers: {
-        'Authorization': `Bearer ${idToken}`
-      }
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ brokerageId })
     });
     
     const result = await response.json();
     
+    console.log('Holdings response for', brokerageId, ':', result);
+    
+    if (result.error) {
+      console.error(`Error fetching positions for ${brokerageId}:`, result.error);
+      return null;
+    }
+    
+    if (!result.holdings || result.holdings.length === 0) {
+      console.log('No holdings returned for', brokerageId);
+      return [];
+    }
+    
     // Transform Plaid data to our format
     const holdingsData = result.holdings.map(holding => {
-      const security = result.securities.find(s => s.security_id === holding.security_id);
+      const security = result.securities?.find(s => s.security_id === holding.security_id);
       return {
         symbol: security?.ticker_symbol || 'N/A',
         name: security?.name || 'Unknown',
@@ -751,25 +849,171 @@ const fetchPositions = useCallback(async () => {
       };
     });
     
-    setPositions(holdingsData);
+    return holdingsData;
   } catch (error) {
-    console.error('Error fetching positions:', error);
-    alert('Error loading positions. Please try reconnecting your account.');
-  } finally {
-    setLoadingPositions(false);
+    console.error(`Error fetching positions for ${brokerageId}:`, error);
+    return null;
   }
 }, [user]);
 
-// Add these memoized callbacks AFTER fetchPositions
-const handlePlaidSuccess = useCallback(() => {
-  console.log('Plaid connection successful!');
-  setBrokerageConnected(true);
-  fetchPositions();
-}, [fetchPositions]);
+// Fetch all positions for all connected brokerages
+const fetchAllPositions = useCallback(async () => {
+  if (!user || connectedBrokerages.length === 0) return;
+  
+  setLoadingPositions(true);
+  try {
+    const positionsMap = {};
+    
+    // Fetch positions for each brokerage in parallel
+    await Promise.all(
+      connectedBrokerages.map(async (brokerage) => {
+        console.log('Fetching for brokerage:', brokerage.id);
+        const positions = await fetchPositionsForBrokerage(brokerage.id);
+        console.log('Received positions for', brokerage.id, '- count:', positions?.length);
+        
+        if (positions) {
+          positionsMap[brokerage.id] = positions;
+        }
+      })
+    );
+    
+    // Log AFTER the loop completes
+    console.log('All positions fetched:', positionsMap);
+    console.log('Connected brokerages:', connectedBrokerages);
+    console.log('Selected brokerage:', selectedBrokerage);
+    
+    setBrokeragePositions(positionsMap);
+    
+    // Auto-select first brokerage if none selected
+    if (!selectedBrokerage && connectedBrokerages.length > 0) {
+      setSelectedBrokerage(connectedBrokerages[0].id);
+    }
+  } catch (error) {
+    console.error('Error fetching all positions:', error);
+  } finally {
+    setLoadingPositions(false);
+  }
+}, [user, connectedBrokerages, fetchPositionsForBrokerage, selectedBrokerage]);
+
+// Handle new brokerage connection
+const handlePlaidSuccess = useCallback(async (metadata) => {
+  console.log('Plaid connection successful!', metadata);
+  
+  // Add new brokerage to the list
+  const newBrokerage = {
+    id: metadata.item_id || `brokerage_${Date.now()}`,
+    name: metadata.institution?.name || 'Connected Account',
+    institutionId: metadata.institution?.institution_id,
+    lastUpdated: new Date().toISOString()
+  };
+  
+  // Update local state
+  setConnectedBrokerages(prev => {
+    // Check if already exists
+    if (prev.some(b => b.id === newBrokerage.id)) {
+      return prev;
+    }
+    return [...prev, newBrokerage];
+  });
+  
+  // Save to Firestore
+  if (user) {
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      await updateDoc(userDocRef, {
+        connectedBrokerages: arrayUnion(newBrokerage)
+      });
+    } catch (error) {
+      console.error('Error saving brokerage to Firestore:', error);
+    }
+  }
+  
+  // Select the new brokerage
+  setSelectedBrokerage(newBrokerage.id);
+  
+  // Fetch positions for the new brokerage
+  const positions = await fetchPositionsForBrokerage(newBrokerage.id);
+  if (positions) {
+    setBrokeragePositions(prev => ({
+      ...prev,
+      [newBrokerage.id]: positions
+    }));
+  }
+}, [user, fetchPositionsForBrokerage]);
+
+// Disconnect a brokerage
+const handleDisconnectBrokerage = useCallback(async (brokerageId) => {
+  if (!user || !brokerageId) return;
+  
+  if (!window.confirm('Are you sure you want to disconnect this brokerage account?')) {
+    return;
+  }
+  
+  setDisconnectingBrokerage(brokerageId);
+  
+  try {
+    const idToken = await auth.currentUser.getIdToken();
+    
+    // Call backend to remove Plaid item
+    const response = await fetch('https://us-central1-jckrbbt-869de.cloudfunctions.net/disconnectBrokerage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ brokerageId })
+    });
+    
+    const result = await response.json();
+    
+    if (result.error) {
+      throw new Error(result.error);
+    }
+    
+    // Remove from local state
+    const brokerageToRemove = connectedBrokerages.find(b => b.id === brokerageId);
+    setConnectedBrokerages(prev => prev.filter(b => b.id !== brokerageId));
+    
+    // Remove positions
+    setBrokeragePositions(prev => {
+      const newPositions = { ...prev };
+      delete newPositions[brokerageId];
+      return newPositions;
+    });
+    
+    // Update Firestore
+    if (brokerageToRemove) {
+      const userDocRef = doc(db, 'users', user.uid);
+      await updateDoc(userDocRef, {
+        connectedBrokerages: arrayRemove(brokerageToRemove)
+      });
+    }
+    
+    // Select another brokerage if the disconnected one was selected
+    if (selectedBrokerage === brokerageId) {
+      const remaining = connectedBrokerages.filter(b => b.id !== brokerageId);
+      setSelectedBrokerage(remaining.length > 0 ? remaining[0].id : null);
+    }
+    
+    console.log('Brokerage disconnected successfully');
+  } catch (error) {
+    console.error('Error disconnecting brokerage:', error);
+    alert('Failed to disconnect brokerage. Please try again.');
+  } finally {
+    setDisconnectingBrokerage(null);
+  }
+}, [user, connectedBrokerages, selectedBrokerage]);
 
 const handlePlaidError = useCallback((error) => {
   console.error('Plaid error details:', error);
 }, []);
+
+// Fetch positions when brokerages change
+useEffect(() => {
+  if (connectedBrokerages.length > 0 && user) {
+    fetchAllPositions();
+  }
+}, [connectedBrokerages, user, fetchAllPositions]);
 
 const handleViewUserProfile = async (userId) => {
   console.log('View profile clicked:', userId);
@@ -805,6 +1049,9 @@ const handleLogout = async () => {
   try {
     await signOut(auth);
     setWatchlist([]);
+    setConnectedBrokerages([]);
+setBrokeragePositions({});
+setSelectedBrokerage(null);
   } catch (error) {
     console.error("Logout error:", error);
   }
@@ -941,17 +1188,38 @@ useEffect(() => {
         const following = await getFollowing(currentUser.uid);
         setFollowingUsers(new Set(following.map(u => u.id)));
         
-        // Check if brokerage is connected and load positions
-        if (data.brokerageConnected) {
-          setBrokerageConnected(true);
-          fetchPositions();
-        }
+// Load connected brokerages
+if (data.connectedBrokerages && data.connectedBrokerages.length > 0) {
+  setConnectedBrokerages(data.connectedBrokerages);
+  setSelectedBrokerage(data.connectedBrokerages[0].id);
+} else if (data.brokerageConnected && data.plaidItemId) {
+  // MIGRATE: Old single-brokerage format to new multi-brokerage format
+  console.log('Migrating legacy brokerage to new format...');
+  
+  const legacyBrokerage = {
+    id: data.plaidItemId,
+    name: 'Robinhood', // Or you can try to detect from plaidItemId
+    institutionId: null,
+    lastUpdated: new Date().toISOString()
+  };
+  
+  // Update Firestore with new format
+  await setDoc(docRef, {
+    connectedBrokerages: [legacyBrokerage]
+  }, { merge: true });
+  
+  setConnectedBrokerages([legacyBrokerage]);
+  setSelectedBrokerage(legacyBrokerage.id);
+  
+  console.log('Migration complete:', legacyBrokerage);
+}
         
       } else {
         // Initialize counts for new users
         await setDoc(doc(db, 'users', currentUser.uid), {
           followerCount: 0,
-          followingCount: 0
+          followingCount: 0,
+          connectedBrokerages: []
         }, { merge: true });
         
         setUserProfile({
@@ -962,17 +1230,18 @@ useEffect(() => {
         });
       }
 
-   } else {
-  // Not logged in
-  setWatchlists([]);
+    } else {
+      // Not logged in - clear all user data
+      setWatchlists([]);
       setUserProfile(null);
+      setConnectedBrokerages([]);
+      setBrokeragePositions({});
+      setSelectedBrokerage(null);
     }
   });
 
-  
-  
   return () => unsubscribe();
-}, [fetchPositions]);
+}, []);  // <-- Empty dependency array
 
 // Migrate old accounts to have follower/following counts
 useEffect(() => {
@@ -1425,37 +1694,53 @@ const analysisPrompt = isManual
     NEWS (Past 3 Days): ${headlines}
     COMPANY: ${p.name || ticker}
     
-    Provide a comprehensive analysis regardless of catalyst strength.
+    COMPREHENSIVE ANALYSIS REQUIRED:
     
-    ANALYZE:
-    1. Price momentum and technical setup
-    2. Recent news developments (even if minor)
-    3. Sector trends and peer comparison
-    4. Risk factors and potential headwinds
-    5. TIMING - When should traders act?
+    Provide a THOROUGH, DETAILED analysis for this manually searched stock.
+    
+    STEP 1 - IDENTIFY ALL CATALYSTS:
+    - Recent earnings, revenue, EPS, guidance
+    - FDA approvals, clinical trials, PDUFA dates
+    - Analyst upgrades/downgrades with targets
+    - Product launches, partnerships, contracts
+    - M&A, buybacks, insider activity
+    - Regulatory developments
+    
+    STEP 2 - FUNDAMENTALS:
+    - Core business and revenue drivers
+    - Recent financial performance
+    - Competitive position
+    
+    STEP 3 - TECHNICAL SETUP:
+    - Price momentum and volume
+    - Support/resistance levels
+    
+    STEP 4 - RISKS:
+    - What could go wrong?
+    - Competition, regulatory risks
     
     FORMAT (Use EXACT tags):
     NAME: ${p.name || 'Unknown'}
     [RANGE] $XX.XX - $XX.XX [/RANGE]
     [SIG] BULLISH or BEARISH [/SIG]
     [MOM] Positive, Steady, or Uncertain [/MOM]
-    [CAT] Brief description of main driver or "Routine Trading" [/CAT]
+    [CAT] Primary catalyst - max 15 words [/CAT]
     [TIMING] ENTER_NOW or WATCH_FOR_PULLBACK or WAIT_FOR_BREAKOUT [/TIMING]
-    [CONF] XX.XX [/CONF] (20-95 range, higher = more confident)
+    [CONF] XX.XX [/CONF]
     [VOLATILITY] XX.XX [/VOLATILITY]
     [INSIGHTS]
-    | First insight about price action or technical setup
-    | Second insight about fundamentals or news
-    | Third insight about risks or catalysts
-    | Fourth insight about TIMING - explain your [TIMING] choice
+    | CATALYST: Specific catalyst with dates/numbers (e.g., "Q4 earnings beat 15% on Jan 28, raised guidance")
+    | FUNDAMENTAL: Key business driver (e.g., "Revenue up 23% YoY, cash runway to Q2 2027")
+    | TECHNICAL: Price action context (e.g., "Up 34% from lows, approaching 52W high with volume")
+    | OPPORTUNITY: Upside potential (e.g., "Phase 2 data Q1 2026, analyst targets $15-20")
+    | RISK: Main downside (e.g., "Binary clinical trial event, intense competition")
+    | TIMING: Entry strategy (e.g., "Wait for pullback to $8-9 support")
     [/INSIGHTS]
     
-    TIMING GUIDELINES:
-    - ENTER_NOW: Catalyst imminent (0-3 days) OR breaking out with volume confirmation
-    - WATCH_FOR_PULLBACK: Strong setup but extended (near resistance, overbought)
-    - WAIT_FOR_BREAKOUT: Consolidating near highs, needs volume trigger
+    CRITICAL: Each insight MUST start with the label followed by a COLON.
+    Include specific numbers, dates, percentages, and concrete events.
   `
- : `
+  : `
     TICKER: ${ticker}
     PRICE: $${q.c} (52W: $${q.l} - $${q.h})
     ${technicalContext}
@@ -1927,7 +2212,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
  {activeTab === "DASHBOARD" && (
   <div className="space-y-4 md:space-y-6 mb-6 md:mb-8">
 {/* MANUAL SEARCH SECTION */}
-<div className="bg-[#050505] border border-zinc-900 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden transition-all duration-300">
+<div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden transition-all duration-300">
   <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
     Analyze Any Stock
   </h3>
@@ -1937,39 +2222,51 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         type="text"
         placeholder="Enter ticker or company name (e.g. AAPL, Apple)..."
         value={manualSearch}
-        onChange={async (e) => {
-          const value = e.target.value.toUpperCase();
-          setManualSearch(value);
-          
-          // Search for matching stocks if user types 2+ characters
-          if (value.length >= 2) {
-            try {
-              const res = await fetch(`https://finnhub.io/api/v1/search?q=${value}&token=${FINNHUB_KEY}`);
-              const data = await res.json();
-              setStockSearchResults(data.result?.slice(0, 5) || []); // Show top 5 matches
-            } catch (err) {
-              console.error('Search failed:', err);
-            }
-          } else {
-            setStockSearchResults([]);
-          }
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && manualSearch) {
-            runScanner(manualSearch);
-            setStockSearchResults([]);
-          }
-        }}
+onChange={(e) => {
+  const value = e.target.value.toUpperCase();
+  setManualSearch(value);
+  
+  // Clear previous timeout
+  if (searchTimeoutRef.current) {
+    clearTimeout(searchTimeoutRef.current);
+  }
+  
+  // Only search after user stops typing for 500ms
+  searchTimeoutRef.current = setTimeout(async () => {
+    if (value.length >= 2) {
+      try {
+        const res = await fetch(`https://finnhub.io/api/v1/search?q=${value}&token=${FINNHUB_KEY}`);
+        const data = await res.json();
+        setStockSearchResults(data.result?.slice(0, 5) || []);
+      } catch (err) {
+        console.error('Search failed:', err);
+        setStockSearchResults([]);
+      }
+    } else {
+      setStockSearchResults([]);
+    }
+  }, 500);
+}}
+onKeyDown={(e) => {
+  if (e.key === 'Enter' && manualSearch) {
+    setStocks([]); // ADD THIS
+    setIsManualResult(true); // ADD THIS
+    runScanner(manualSearch);
+    setStockSearchResults([]);
+  }
+}}
         className="w-full bg-black border border-zinc-800 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
         style={{ caretColor: '#00ff4e' }}
       />
     </div>
     
     <button 
-      onClick={() => {
-        runScanner(manualSearch);
-        setStockSearchResults([]);
-      }}
+  onClick={() => {
+    setStocks([]);
+    setIsManualResult(true);
+    runScanner(manualSearch);
+    setStockSearchResults([]);
+  }}
       disabled={loading || !manualSearch}
       className="hover:opacity-90 disabled:opacity-20 text-black px-6 md:px-8 py-3 rounded-lg text-xs md:text-sm font-black tracking-tighter transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)] active:scale-95 whitespace-nowrap"
       style={{ backgroundColor: '#00ff4e' }}
@@ -1994,15 +2291,17 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
   key={result.symbol}
 onClick={async () => {
   console.log('Clicked stock:', result.symbol);
+  setStocks([]); // ADD THIS
   setManualSearch(result.symbol);
   setStockSearchResults([]);
+  setIsManualResult(true); // ADD THIS
   
   // Add small delay to avoid rate limiting
   await new Promise(r => setTimeout(r, 500));
   
   runScanner(result.symbol);
 }}
-  className="w-full text-left px-4 py-3 bg-zinc-900 hover:bg-zinc-800 transition-all rounded-lg border border-zinc-800 hover:border-[#00ff4e]/50"
+  className="w-full text-left px-4 py-3 bg-black hover:bg-zinc-900 transition-all rounded-lg border border-zinc-800 hover:border-[#00ff4e]/50"
 >
               <div className="flex justify-between items-center">
                 <div>
@@ -2044,8 +2343,8 @@ onClick={async () => {
 
   
 {/* AI SCANNER SECTION */}
-<div className="bg-[#050505] border border-zinc-900 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
-  <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
+<div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
+    <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
     ANALYZE MARKET
   </h3>
   <div className="flex flex-col sm:flex-row gap-3">
@@ -2093,26 +2392,30 @@ onClick={async () => {
     />
     
 
-    <button 
-      onClick={() => { setManualSearch(""); runScanner(null); }}
-      disabled={loading}
-      className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 px-6 py-3 rounded-lg text-xs md:text-sm font-bold border border-zinc-800 transition-all flex items-center justify-center gap-2 whitespace-nowrap hover:text-[#00ff4e] hover:border-[#00ff4e]/30 disabled:opacity-50"
-    >
-      {loading ? (
-        <>
-          <span>ANALYZING MARKET</span>
-          <span className="inline-flex gap-0.5">
-            <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
-            <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
-            <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
-          </span>
-        </>
-      ) : (
-        <>
-          ANALYZE MARKET
-        </>
-      )}
-    </button>
+<button 
+  onClick={() => { 
+    setStocks([]);
+    setManualSearch(""); 
+    setIsManualResult(false);
+    runScanner(null); 
+  }}
+  disabled={loading}
+  className="flex-1 hover:opacity-90 disabled:opacity-20 text-black px-6 md:px-8 py-3 rounded-lg text-xs md:text-sm font-black tracking-tighter transition-all shadow-[0_0_15px_rgba(0,255,78,0.2)] active:scale-95 whitespace-nowrap"
+  style={{ backgroundColor: '#00ff4e' }}
+>
+  {loading && !isManualResult ? (
+    <>
+      <span>ANALYZING MARKET</span>
+      <span className="inline-flex gap-0.5 ml-2">
+        <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
+        <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
+        <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
+      </span>
+    </>
+  ) : (
+    'ANALYZE MARKET'
+  )}
+</button>
   </div>
 </div>
 
@@ -2630,7 +2933,7 @@ onClick={async () => {
     ))}
   </>
     
- ) : activeTab === "MY POSITIONS" ? (
+) : activeTab === "MY POSITIONS" ? (
   <>
     {/* MY POSITIONS Tab */}
     {!user ? (
@@ -2643,281 +2946,418 @@ onClick={async () => {
           Sign In
         </button>
       </div>
-    ) : !brokerageConnected ? (
-      <div className="py-32 md:py-40 text-center border-2 border-dashed border-zinc-900 rounded-xl">
-        <h3 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight mb-4">
-          Connect Your Brokerage
-        </h3>
-        <p className="text-zinc-500 text-sm mb-8 max-w-md mx-auto">
-          Link your brokerage account to automatically track your portfolio and see real-time performance.
-        </p>
-<PlaidLink 
-  user={user}
-  onSuccess={handlePlaidSuccess}
-  onError={handlePlaidError}
-/>
-      </div>
-    ) : loadingPositions ? (
-      <div className="py-32 md:py-40 text-center">
-        <p className="text-zinc-500 text-sm uppercase tracking-widest font-black">Loading Positions...</p>
-      </div>
-    ) : positions.length === 0 ? (
-      <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-        <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">No positions found</p>
-      </div>
     ) : (
-      <div className="space-y-4">
-{/* Portfolio Summary */}
-        <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6">
-          <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-4">Portfolio Summary</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <>
+        {/* Brokerage Management Header */}
+        <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-6 mb-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <p className="text-xs text-zinc-600 mb-1">Total Value</p>
-              <p className="text-2xl font-black text-white">
-                ${positions.reduce((sum, p) => sum + (p.value ?? 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+              <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-2">Connected Accounts</h3>
+              <p className="text-xs text-zinc-600">
+                {connectedBrokerages.length === 0 
+                  ? 'No accounts connected yet' 
+                  : `${connectedBrokerages.length} account${connectedBrokerages.length > 1 ? 's' : ''} connected`
+                }
               </p>
             </div>
-            <div>
-              <p className="text-xs text-zinc-600 mb-1">Total Gain/Loss</p>
-              <p className={`text-2xl font-black ${positions.reduce((sum, p) => sum + (p.gain ?? 0), 0) >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                ${Math.abs(positions.reduce((sum, p) => sum + (p.gain ?? 0), 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
-              <p className="text-2xl font-black text-white">
-                ${positions.reduce((sum, p) => sum + (p.costBasis ?? 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-zinc-600 mb-1">Positions</p>
-              <p className="text-2xl font-black text-white">{positions.length}</p>
-            </div>
-          </div>
-        </div>
-
-{/* Position Cards */}
-{positions.map((position, index) => {
-  const isPositionAdded = flattenedWatchlist.some(s => s.symbol === position.symbol);
-  const isHoveringThisPosition = hoveringPositionSymbol === position.symbol;
-  
-  return (
-    <motion.div
-      key={position.symbol}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05, duration: 0.3 }}
-      className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all relative"
-    >
-      {/* Add to List Button */}
-      <div className="absolute top-4 right-4 z-10">
-        <button 
-          data-add-button={`position-${position.symbol}`}
-          onMouseEnter={() => setHoveringPositionSymbol(position.symbol)}
-          onMouseLeave={() => setHoveringPositionSymbol(null)}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!user) {
-              alert('Please sign in to add stocks to lists');
-              return;
-            }
             
-            // If already added and hovering, remove it
-            if (isPositionAdded && isHoveringThisPosition) {
-              const listWithStock = watchlists.find(list => 
-                list.stocks.some(s => s.symbol === position.symbol)
-              );
-              if (listWithStock) {
-                removeStockFromList(listWithStock.id, position.symbol);
-              }
-            } else if (!isPositionAdded) {
-              // Otherwise, show the add menu
-              const stockObj = {
-                symbol: position.symbol,
-                name: position.name,
-                price: position.price?.toFixed(2) || '0.00',
-                change: position.gainPercent?.toFixed(2) || '0.00',
-                isPositive: position.gain >= 0,
-                range: 'N/A',
-                confidence: 0,
-                volatility: 0,
-                rating: 'N/A',
-                momentum: 'N/A',
-                catalyst: 'Portfolio Position',
-                insights: []
-              };
-              setShowAddToListMenu(stockObj);
-            }
-          }}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all active:scale-95 ${
-            isPositionAdded
-              ? isHoveringThisPosition
-                ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]"
-              : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
-          }`}
-        >
-          <span className="text-xs font-black uppercase tracking-wider hidden sm:inline">
-            {isPositionAdded
-              ? isHoveringThisPosition ? "Remove" : "Added"
-              : "Add"
-            }
-          </span>
-          {isPositionAdded && isHoveringThisPosition ? (
-            <Trash2 size={14} />
-          ) : (
-            <Plus size={14} />
-          )}
-        </button>
+{/* Add New Brokerage Button - only render when tab is active */}
+{activeTab === "MY POSITIONS" && (
+  <PlaidLink 
+    key="plaid-link-positions"
+    user={user}
+    onSuccess={handlePlaidSuccess}
+    onError={handlePlaidError}
+    buttonText={connectedBrokerages.length > 0 ? "Add Another Account" : "Connect Brokerage"}
+    buttonClassName={`flex items-center gap-2 ${
+      connectedBrokerages.length > 0 
+        ? 'bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 hover:border-[#00ff4e]/50' 
+        : 'bg-[#00ff4e] hover:opacity-90 text-black'
+    } font-black px-4 md:px-6 py-3 rounded-lg text-xs uppercase tracking-tight transition-all`}
+  />
+)}
+          </div>
 
-        {/* Add to List Dropdown for Positions */}
-        {showAddToListMenu?.symbol === position.symbol && (() => {
-          const buttonElement = document.querySelector(`button[data-add-button="position-${position.symbol}"]`);
-          const rect = buttonElement?.getBoundingClientRect();
-          
-          return ReactDOM.createPortal(
-            <>
-              <div 
-                className="fixed inset-0 bg-transparent z-[99998]"
-                onClick={() => setShowAddToListMenu(null)}
-              />
-              <div 
-                className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
-                style={{
-                  top: rect ? `${rect.bottom + 8}px` : '100px',
-                  right: rect ? `${window.innerWidth - rect.right}px` : '20px',
-                  width: '280px'
-                }}
-              >
-                <div className="p-3 border-b border-zinc-800">
-                  <p className="text-xs font-black text-white uppercase">Add to List</p>
-                </div>
-                
-                {/* Create New List Option */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowAddToListMenu(null);
-                    window.dispatchEvent(new CustomEvent('openWatchlistModal'));
-                  }}
-                  className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
+          {/* Connected Brokerages List */}
+          {connectedBrokerages.length > 0 && (
+            <div className="mt-6 space-y-3">
+              {connectedBrokerages.map((brokerage) => (
+                <div 
+                  key={brokerage.id}
+                  onClick={() => setSelectedBrokerage(brokerage.id)}
+                  className={`flex items-center justify-between p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                    selectedBrokerage === brokerage.id 
+                      ? 'border-[#00ff4e] bg-[#00ff4e]/5' 
+                      : 'border-zinc-800 hover:border-zinc-700 bg-zinc-900/50'
+                  }`}
                 >
+<div className="flex items-center gap-4">
+  {getBrokerageLogo(brokerage.name) ? (
+    <img 
+      src={getBrokerageLogo(brokerage.name)}
+      alt={brokerage.name}
+      className="w-10 h-10 rounded-lg object-contain bg-white p-1.5"
+      onError={(e) => {
+        // Hide image and show fallback emoji
+        e.target.style.display = 'none';
+        e.target.nextSibling.style.display = 'flex';
+      }}
+    />
+  ) : null}
+  <div 
+    className={`w-10 h-10 rounded-lg bg-zinc-800 items-center justify-center ${getBrokerageLogo(brokerage.name) ? 'hidden' : 'flex'}`}
+  >
+    <span className="text-xl">{getBrokerageIcon(brokerage.name)}</span>
+  </div>
+  <div>
+    <p className="text-sm font-black text-white">{brokerage.name}</p>
+    <p className="text-xs text-zinc-500">
+      {brokeragePositions[brokerage.id]?.length || 0} positions • 
+      Updated {brokerage.lastUpdated ? new Date(brokerage.lastUpdated).toLocaleDateString() : 'recently'}
+    </p>
+  </div>
+</div>
+                  
                   <div className="flex items-center gap-2">
-                    <Plus size={14} />
-                    <span className="uppercase tracking-wider">Create New List</span>
+                    {selectedBrokerage === brokerage.id && (
+                      <span className="text-[8px] font-black bg-[#00ff4e]/20 text-[#00ff4e] px-2 py-1 rounded uppercase tracking-wider">
+                        Active
+                      </span>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDisconnectBrokerage(brokerage.id);
+                      }}
+                      disabled={disconnectingBrokerage === brokerage.id}
+                      className="p-2 text-zinc-600 hover:text-red-500 transition-colors disabled:opacity-50"
+                      title="Disconnect account"
+                    >
+                      {disconnectingBrokerage === brokerage.id ? (
+                        <RefreshCw size={16} className="animate-spin" />
+                      ) : (
+                        <Unlink size={16} />
+                      )}
+                    </button>
                   </div>
-                </button>
-                
-                {watchlists.length === 0 ? (
-                  <div className="p-4 text-center">
-                    <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
-                  </div>
-                ) : (
-                  watchlists.map((list) => {
-                    const isInList = list.stocks.some(s => s.symbol === position.symbol);
-                    return (
-                      <button
-                        key={list.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!isInList) {
-                            addStockToList(showAddToListMenu, list.id);
-                          }
-                        }}
-                        disabled={isInList}
-                        className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
-                          isInList
-                            ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
-                            : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="uppercase tracking-wider">{list.name}</span>
-                          {isInList && (
-                            <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </div>
-                        <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </>,
-            document.body
-          );
-        })()}
-      </div>
-
-      <div 
-        className="cursor-pointer"
-        onClick={() => {
-          setManualSearch(position.symbol);
-          setActiveTab("DASHBOARD");
-          runScanner(position.symbol);
-        }}
-      >
-        {/* Header - Symbol, Name, Price, Change */}
-        <div className="mb-6">
-          <p className="text-xs text-zinc-500 font-black uppercase tracking-widest mb-2">{position.name}</p>
-          
-          {/* Mobile: Stacked layout */}
-          <div className="flex flex-col md:hidden gap-3">
-            <h3 className="text-4xl font-black text-white uppercase tracking-tighter leading-none">{position.symbol}</h3>
-            <div className="flex items-baseline gap-3">
-              <p className="text-3xl font-black text-white tabular-nums leading-none">
-                ${position.price?.toFixed(2) ?? '0.00'}
-              </p>
-              <p className={`text-xl font-black tabular-nums leading-none ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                {position.gain >= 0 ? '+' : ''}{position.gainPercent?.toFixed(2) ?? '0.00'}%
-                <span className="ml-2 align-middle">{position.gain >= 0 ? '▲' : '▼'}</span>
-              </p>
+                </div>
+              ))}
             </div>
-          </div>
-          
-          {/* Desktop: Horizontal layout */}
-          <div className="hidden md:flex items-baseline gap-6">
-            <h3 className="text-5xl font-black text-white uppercase tracking-tighter leading-none">{position.symbol}</h3>
-            <div className="flex items-baseline gap-3">
-              <p className="text-3xl font-black text-white tabular-nums leading-none">
-                ${position.price?.toFixed(2) ?? '0.00'}
-              </p>
-              <p className={`text-xl font-black tabular-nums ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                {position.gain >= 0 ? '+' : ''}{position.gainPercent?.toFixed(2) ?? '0.00'}%
-                <span className="ml-2 align-middle">{position.gain >= 0 ? '▲' : '▼'}</span>
-              </p>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t-2 border-zinc-900">
-          <div>
-            <p className="text-xs text-zinc-600 mb-1">Shares</p>
-            <p className="text-lg font-black text-white">{position.quantity ?? '0'}</p>
-          </div>
-          <div>
-            <p className="text-xs text-zinc-600 mb-1">Market Value</p>
-            <p className="text-lg font-black text-white">${position.value?.toLocaleString() ?? '0'}</p>
-          </div>
-          <div>
-            <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
-            <p className="text-lg font-black text-white">${position.costBasis?.toLocaleString() ?? '0'}</p>
-          </div>
-          <div>
-            <p className="text-xs text-zinc-600 mb-1">Gain/Loss</p>
-            <p className={`text-lg font-black ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-              {position.gain >= 0 ? '+' : ''}${Math.abs(position.gain ?? 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
+        {/* No Brokerages Connected State */}
+        {!brokerageConnected && (
+          <div className="py-20 text-center border-2 border-dashed border-zinc-900 rounded-xl">
+            <Building2 size={48} className="mx-auto mb-4 text-zinc-700" />
+            <h3 className="text-xl md:text-2xl font-black text-white uppercase tracking-tight mb-2">
+              Connect Your First Brokerage
+            </h3>
+            <p className="text-zinc-500 text-sm mb-6 max-w-md mx-auto">
+              Link your brokerage accounts to automatically track your portfolio and see real-time performance across all your investments.
             </p>
           </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-})}
-      </div>
+        )}
+
+        {/* Portfolio Content */}
+        {brokerageConnected && (
+          <>
+            {loadingPositions ? (
+              <div className="py-32 md:py-40 text-center">
+                <RefreshCw size={32} className="mx-auto mb-4 text-[#00ff4e] animate-spin" />
+                <p className="text-zinc-500 text-sm uppercase tracking-widest font-black">Loading Positions...</p>
+              </div>
+            ) : positions.length === 0 ? (
+              <div className="py-20 text-center opacity-50 border-2 border-dashed border-zinc-900 rounded-xl">
+                <Wallet size={48} className="mx-auto mb-4 text-zinc-700" />
+                <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">
+                  No positions in {connectedBrokerages.find(b => b.id === selectedBrokerage)?.name || 'this account'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Portfolio Summary for Selected Brokerage */}
+                <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500">
+                      {connectedBrokerages.find(b => b.id === selectedBrokerage)?.name || 'Portfolio'} Summary
+                    </h3>
+                    <button
+                      onClick={() => fetchAllPositions()}
+                      disabled={loadingPositions}
+                      className="flex items-center gap-2 text-xs text-zinc-500 hover:text-[#00ff4e] transition-colors"
+                    >
+                      <RefreshCw size={14} className={loadingPositions ? 'animate-spin' : ''} />
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <p className="text-xs text-zinc-600 mb-1">Total Value</p>
+                      <p className="text-2xl font-black text-white">
+                        ${positions.reduce((sum, p) => sum + (p.value ?? 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-zinc-600 mb-1">Total Gain/Loss</p>
+                      <p className={`text-2xl font-black ${positions.reduce((sum, p) => sum + (p.gain ?? 0), 0) >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                        {positions.reduce((sum, p) => sum + (p.gain ?? 0), 0) >= 0 ? '+' : ''}
+                        ${Math.abs(positions.reduce((sum, p) => sum + (p.gain ?? 0), 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
+                      <p className="text-2xl font-black text-white">
+                        ${positions.reduce((sum, p) => sum + (p.costBasis ?? 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-zinc-600 mb-1">Positions</p>
+                      <p className="text-2xl font-black text-white">{positions.length}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Combined Portfolio Summary (if multiple brokerages) */}
+                {connectedBrokerages.length > 1 && (
+                  <div className="bg-gradient-to-r from-[#00ff4e]/5 to-transparent border-2 border-[#00ff4e]/20 rounded-xl p-6">
+                    <h3 className="text-sm font-black uppercase tracking-widest text-[#00ff4e] mb-4">
+                      Combined Portfolio (All Accounts)
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-1">Total Value</p>
+                        <p className="text-xl font-black text-white">
+                          ${allPositions.reduce((sum, p) => sum + (p.value ?? 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-1">Total Gain/Loss</p>
+                        <p className={`text-xl font-black ${allPositions.reduce((sum, p) => sum + (p.gain ?? 0), 0) >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                          {allPositions.reduce((sum, p) => sum + (p.gain ?? 0), 0) >= 0 ? '+' : ''}
+                          ${Math.abs(allPositions.reduce((sum, p) => sum + (p.gain ?? 0), 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-1">Total Positions</p>
+                        <p className="text-xl font-black text-white">{allPositions.length}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-1">Accounts</p>
+                        <p className="text-xl font-black text-white">{connectedBrokerages.length}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Position Cards */}
+                {positions.map((position, index) => {
+                  const isPositionAdded = flattenedWatchlist.some(s => s.symbol === position.symbol);
+                  const isHoveringThisPosition = hoveringPositionSymbol === position.symbol;
+                  
+                  return (
+                    <motion.div
+                      key={position.symbol}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05, duration: 0.3 }}
+                      className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all relative"
+                    >
+                      {/* Add to List Button */}
+                      <div className="absolute top-4 right-4 z-10">
+                        <button 
+                          data-add-button={`position-${position.symbol}`}
+                          onMouseEnter={() => setHoveringPositionSymbol(position.symbol)}
+                          onMouseLeave={() => setHoveringPositionSymbol(null)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!user) {
+                              alert('Please sign in to add stocks to lists');
+                              return;
+                            }
+                            
+                            if (isPositionAdded && isHoveringThisPosition) {
+                              const listWithStock = watchlists.find(list => 
+                                list.stocks.some(s => s.symbol === position.symbol)
+                              );
+                              if (listWithStock) {
+                                removeStockFromList(listWithStock.id, position.symbol);
+                              }
+                            } else if (!isPositionAdded) {
+                              const stockObj = {
+                                symbol: position.symbol,
+                                name: position.name,
+                                price: position.price?.toFixed(2) || '0.00',
+                                change: position.gainPercent?.toFixed(2) || '0.00',
+                                isPositive: position.gain >= 0,
+                                range: 'N/A',
+                                confidence: 0,
+                                volatility: 0,
+                                rating: 'N/A',
+                                momentum: 'N/A',
+                                catalyst: 'Portfolio Position',
+                                insights: []
+                              };
+                              setShowAddToListMenu(stockObj);
+                            }
+                          }}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all active:scale-95 ${
+                            isPositionAdded
+                              ? isHoveringThisPosition
+                                ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                                : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]"
+                              : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
+                          }`}
+                        >
+                          <span className="text-xs font-black uppercase tracking-wider hidden sm:inline">
+                            {isPositionAdded
+                              ? isHoveringThisPosition ? "Remove" : "Added"
+                              : "Add"
+                            }
+                          </span>
+                          {isPositionAdded && isHoveringThisPosition ? (
+                            <Trash2 size={14} />
+                          ) : (
+                            <Plus size={14} />
+                          )}
+                        </button>
+
+                        {/* Add to List Dropdown for Positions */}
+                        {showAddToListMenu?.symbol === position.symbol && (() => {
+                          const buttonElement = document.querySelector(`button[data-add-button="position-${position.symbol}"]`);
+                          const rect = buttonElement?.getBoundingClientRect();
+                          
+                          return ReactDOM.createPortal(
+                            <>
+                              <div 
+                                className="fixed inset-0 bg-transparent z-[99998]"
+                                onClick={() => setShowAddToListMenu(null)}
+                              />
+                              <div 
+                                className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
+                                style={{
+                                  top: rect ? `${rect.bottom + 8}px` : '100px',
+                                  right: rect ? `${window.innerWidth - rect.right}px` : '20px',
+                                  width: '280px'
+                                }}
+                              >
+                                <div className="p-3 border-b border-zinc-800">
+                                  <p className="text-xs font-black text-white uppercase">Add to List</p>
+                                </div>
+                                
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowAddToListMenu(null);
+                                    window.dispatchEvent(new CustomEvent('openWatchlistModal'));
+                                  }}
+                                  className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Plus size={14} />
+                                    <span className="uppercase tracking-wider">Create New List</span>
+                                  </div>
+                                </button>
+                                
+                                {watchlists.length === 0 ? (
+                                  <div className="p-4 text-center">
+                                    <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
+                                  </div>
+                                ) : (
+                                  watchlists.map((list) => {
+                                    const isInList = list.stocks.some(s => s.symbol === position.symbol);
+                                    return (
+                                      <button
+                                        key={list.id}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (!isInList) {
+                                            addStockToList(showAddToListMenu, list.id);
+                                          }
+                                        }}
+                                        disabled={isInList}
+                                        className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
+                                          isInList
+                                            ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
+                                            : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between">
+                                          <span className="uppercase tracking-wider">{list.name}</span>
+                                          {isInList && (
+                                            <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                          )}
+                                        </div>
+                                        <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
+                                      </button>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </>,
+                            document.body
+                          );
+                        })()}
+                      </div>
+
+                      <div 
+                        className="cursor-pointer"
+                        onClick={() => {
+                          setManualSearch(position.symbol);
+                          setActiveTab("DASHBOARD");
+                          runScanner(position.symbol);
+                        }}
+                      >
+                        {/* Header */}
+                        <div className="mb-6">
+                          <p className="text-xs text-zinc-500 font-black uppercase tracking-widest mb-2">{position.name}</p>
+                          
+                          <div className="flex flex-col md:flex-row md:items-baseline gap-3 md:gap-6">
+                            <h3 className="text-4xl md:text-5xl font-black text-white uppercase tracking-tighter leading-none">{position.symbol}</h3>
+                            <div className="flex items-baseline gap-3">
+                              <p className="text-2xl md:text-3xl font-black text-white tabular-nums leading-none">
+                                ${position.price?.toFixed(2) ?? '0.00'}
+                              </p>
+                              <p className={`text-lg md:text-xl font-black tabular-nums leading-none ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                                {position.gain >= 0 ? '+' : ''}{position.gainPercent?.toFixed(2) ?? '0.00'}%
+                                <span className="ml-2 align-middle">{position.gain >= 0 ? '▲' : '▼'}</span>
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Stats Grid */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t-2 border-zinc-900">
+                          <div>
+                            <p className="text-xs text-zinc-600 mb-1">Shares</p>
+                            <p className="text-lg font-black text-white">{position.quantity ?? '0'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-zinc-600 mb-1">Market Value</p>
+                            <p className="text-lg font-black text-white">${position.value?.toLocaleString() ?? '0'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
+                            <p className="text-lg font-black text-white">${position.costBasis?.toLocaleString() ?? '0'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-zinc-600 mb-1">Gain/Loss</p>
+                            <p className={`text-lg font-black ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                              {position.gain >= 0 ? '+' : ''}${Math.abs(position.gain ?? 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </>
     )}
   </>
 ) : (
@@ -3154,6 +3594,7 @@ useEffect(() => {
       window.removeEventListener('scroll', handleScroll);
     };
   }, [isOpen]);
+
 
   // Close add-to-list menu on scroll
   useEffect(() => {

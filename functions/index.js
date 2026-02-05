@@ -21,6 +21,13 @@ const configuration = new Configuration({
 
 const plaidClient = new PlaidApi(configuration);
 
+// Helper to add CORS headers
+const setCorsHeaders = (res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+};
+
 // Helper to verify Firebase auth token
 const verifyAuth = async (req, res) => {
   const authHeader = req.headers.authorization;
@@ -41,6 +48,12 @@ const verifyAuth = async (req, res) => {
 
 // Create Link Token
 exports.createLinkToken = functions.https.onRequest(async (req, res) => {
+  setCorsHeaders(res);
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
   const userId = await verifyAuth(req, res);
   if (!userId) return;
 
@@ -63,8 +76,14 @@ exports.createLinkToken = functions.https.onRequest(async (req, res) => {
   }
 });
 
-// Exchange Token
+// Exchange Token - UPDATED FOR MULTI-BROKERAGE
 exports.exchangePlaidToken = functions.https.onRequest(async (req, res) => {
+  setCorsHeaders(res);
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
   const userId = await verifyAuth(req, res);
   if (!userId) return;
 
@@ -75,37 +94,85 @@ exports.exchangePlaidToken = functions.https.onRequest(async (req, res) => {
       public_token: publicToken,
     });
 
+    const accessToken = response.data.access_token;
+    const itemId = response.data.item_id;
+
+    // Store the access token in a subcollection for multi-brokerage support
     await admin.firestore()
       .collection('users')
       .doc(userId)
+      .collection('plaidItems')
+      .doc(itemId)
       .set({
-        plaidAccessToken: response.data.access_token,
-        plaidItemId: response.data.item_id,
-        brokerageConnected: true,
-      }, { merge: true });
+        accessToken: accessToken,
+        itemId: itemId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-    res.json({ success: true });
+    // Return the item_id so frontend can track this brokerage
+    res.json({ 
+      success: true,
+      item_id: itemId
+    });
   } catch (error) {
     console.error('Error exchanging token:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Get Holdings
+// Get Holdings - UPDATED FOR MULTI-BROKERAGE
 exports.getHoldings = functions.https.onRequest(async (req, res) => {
+  setCorsHeaders(res);
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
   const userId = await verifyAuth(req, res);
   if (!userId) return;
 
   try {
-    const userDoc = await admin.firestore()
-      .collection('users')
-      .doc(userId)
-      .get();
-
-    const accessToken = userDoc.data()?.plaidAccessToken;
+    // Get brokerageId from request body (POST) or query params (GET)
+    const brokerageId = req.body?.brokerageId || req.query?.brokerageId;
     
-    if (!accessToken) {
-      return res.status(404).json({ error: 'No brokerage account linked' });
+    let accessToken;
+
+    if (brokerageId) {
+      // New multi-brokerage: fetch from subcollection
+      const itemDoc = await admin.firestore()
+        .collection('users')
+        .doc(userId)
+        .collection('plaidItems')
+        .doc(brokerageId)
+        .get();
+
+      if (!itemDoc.exists) {
+        // Fallback: check if it's the legacy single brokerage
+        const userDoc = await admin.firestore()
+          .collection('users')
+          .doc(userId)
+          .get();
+        
+        accessToken = userDoc.data()?.plaidAccessToken;
+        
+        if (!accessToken) {
+          return res.status(404).json({ error: 'Brokerage account not found' });
+        }
+      } else {
+        accessToken = itemDoc.data()?.accessToken;
+      }
+    } else {
+      // Legacy support: no brokerageId provided, use old single token
+      const userDoc = await admin.firestore()
+        .collection('users')
+        .doc(userId)
+        .get();
+
+      accessToken = userDoc.data()?.plaidAccessToken;
+      
+      if (!accessToken) {
+        return res.status(404).json({ error: 'No brokerage account linked' });
+      }
     }
 
     const response = await plaidClient.investmentsHoldingsGet({
@@ -123,8 +190,103 @@ exports.getHoldings = functions.https.onRequest(async (req, res) => {
   }
 });
 
-// Disconnect
+// Disconnect Brokerage - UPDATED FOR MULTI-BROKERAGE
+exports.disconnectBrokerage = functions.https.onRequest(async (req, res) => {
+  setCorsHeaders(res);
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  const userId = await verifyAuth(req, res);
+  if (!userId) return;
+
+  try {
+    const { brokerageId } = req.body;
+
+    if (!brokerageId) {
+      return res.status(400).json({ error: 'brokerageId is required' });
+    }
+
+    // Get the access token to remove the item from Plaid
+    const itemDoc = await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .collection('plaidItems')
+      .doc(brokerageId)
+      .get();
+
+    if (itemDoc.exists) {
+      const accessToken = itemDoc.data()?.accessToken;
+
+      // Remove item from Plaid (optional but recommended)
+      if (accessToken) {
+        try {
+          await plaidClient.itemRemove({
+            access_token: accessToken,
+          });
+        } catch (plaidError) {
+          console.warn('Could not remove item from Plaid:', plaidError.message);
+          // Continue anyway - we still want to remove from our database
+        }
+      }
+
+      // Delete from subcollection
+      await admin.firestore()
+        .collection('users')
+        .doc(userId)
+        .collection('plaidItems')
+        .doc(brokerageId)
+        .delete();
+    } else {
+      // Check if it's the legacy brokerage
+      const userDoc = await admin.firestore()
+        .collection('users')
+        .doc(userId)
+        .get();
+
+      if (userDoc.data()?.plaidItemId === brokerageId || brokerageId === 'legacy_brokerage') {
+        // Remove legacy brokerage data
+        const accessToken = userDoc.data()?.plaidAccessToken;
+        
+        if (accessToken) {
+          try {
+            await plaidClient.itemRemove({
+              access_token: accessToken,
+            });
+          } catch (plaidError) {
+            console.warn('Could not remove legacy item from Plaid:', plaidError.message);
+          }
+        }
+
+        await admin.firestore()
+          .collection('users')
+          .doc(userId)
+          .update({
+            plaidAccessToken: admin.firestore.FieldValue.delete(),
+            plaidItemId: admin.firestore.FieldValue.delete(),
+            brokerageConnected: false,
+          });
+      } else {
+        return res.status(404).json({ error: 'Brokerage not found' });
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error disconnecting brokerage:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Legacy disconnect (keep for backward compatibility)
 exports.disconnectPlaid = functions.https.onRequest(async (req, res) => {
+  setCorsHeaders(res);
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
   const userId = await verifyAuth(req, res);
   if (!userId) return;
 

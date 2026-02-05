@@ -2,13 +2,13 @@ import React, { useCallback, useState, useEffect, memo } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { auth } from './firebase';
 
-const PlaidLinkButton = memo(({ linkToken, onSuccess, onError }) => {
+const PlaidLinkButton = memo(({ linkToken, onSuccess, onError, buttonText, buttonClassName }) => {
   const onPlaidSuccess = useCallback(async (publicToken, metadata) => {
     console.log('✅ Plaid success!', metadata);
     try {
       const idToken = await auth.currentUser.getIdToken();
       
-      await fetch('/api/exchangePlaidToken', {
+      const response = await fetch('/api/exchangePlaidToken', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -17,7 +17,16 @@ const PlaidLinkButton = memo(({ linkToken, onSuccess, onError }) => {
         body: JSON.stringify({ publicToken })
       });
       
-      onSuccess();
+      const data = await response.json();
+      
+      // Pass metadata back to parent so it can store brokerage info
+      // Include the item_id from the exchange response if available
+      onSuccess({
+        item_id: data.item_id || metadata.link_session_id, // Use item_id from backend or fallback
+        institution: metadata.institution, // { name, institution_id }
+        accounts: metadata.accounts,
+        link_session_id: metadata.link_session_id
+      });
     } catch (error) {
       console.error('Error exchanging token:', error);
       onError(error);
@@ -43,6 +52,9 @@ const PlaidLinkButton = memo(({ linkToken, onSuccess, onError }) => {
     console.log('Plaid Link state:', { ready, error, linkToken: linkToken?.substring(0, 20) + '...' });
   }, [ready, error, linkToken]);
 
+  // Use custom className if provided, otherwise use default
+  const defaultClassName = "bg-[#00ff4e] hover:opacity-90 disabled:opacity-50 text-black font-black px-6 py-3 rounded-lg text-sm uppercase tracking-tight transition-all";
+
   return (
     <button
       onClick={(e) => {
@@ -52,16 +64,16 @@ const PlaidLinkButton = memo(({ linkToken, onSuccess, onError }) => {
         open();
       }}
       disabled={!ready}
-      className="bg-[#00ff4e] hover:opacity-90 disabled:opacity-50 text-black font-black px-6 py-3 rounded-lg text-sm uppercase tracking-tight transition-all"
+      className={buttonClassName || defaultClassName}
     >
-      Connect Brokerage Account
+      {buttonText || 'Connect Brokerage Account'}
     </button>
   );
 });
 
 PlaidLinkButton.displayName = 'PlaidLinkButton';
 
-const PlaidLink = ({ user, onSuccess, onError }) => {
+const PlaidLink = ({ user, onSuccess, onError, buttonText, buttonClassName }) => {
   const [linkToken, setLinkToken] = useState(null);
 
   useEffect(() => {
@@ -99,10 +111,15 @@ const PlaidLink = ({ user, onSuccess, onError }) => {
   }, [user, onError]);
 
   if (!linkToken) {
+    // Use custom className for loading state too, but with disabled styling
+    const loadingClassName = buttonClassName 
+      ? `${buttonClassName} opacity-50 cursor-not-allowed`
+      : "bg-zinc-900 text-zinc-600 font-black px-6 py-3 rounded-lg text-sm uppercase tracking-tight cursor-not-allowed";
+    
     return (
       <button
         disabled
-        className="bg-zinc-900 text-zinc-600 font-black px-6 py-3 rounded-lg text-sm uppercase tracking-tight cursor-not-allowed"
+        className={loadingClassName}
       >
         Loading...
       </button>
@@ -113,7 +130,9 @@ const PlaidLink = ({ user, onSuccess, onError }) => {
     <PlaidLinkButton 
       linkToken={linkToken} 
       onSuccess={onSuccess} 
-      onError={onError} 
+      onError={onError}
+      buttonText={buttonText}
+      buttonClassName={buttonClassName}
     />
   );
 };
