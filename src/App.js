@@ -1920,7 +1920,7 @@ useEffect(() => {
   return () => clearInterval(liveTimer);
 }, [updateList, stocks, watchlists]); // Removed isMarketOpen check
 
-// --- NEWS ARTICLE DISCOVERY ---
+// --- NEWS ARTICLE DISCOVERY (DYNAMIC MULTI-LAYER) ---
 const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) => {
   const allTickers = new Set();
 
@@ -1928,7 +1928,7 @@ const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) =
     "CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", 
     "FDA", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
     "AI", "ML", "EV", "CEO", "CFO", "IPO", "ETF", "ESG", "IT", "US", "UK", "EU", "AM", "PM",
-    "NYSE", "ALL", "NOTE", "NOT"
+    "NYSE", "ALL", "NOTE", "NOT", "SEC", "API", "CEO", "CFO"
   ];
   
   // Calculate date range - PAST 2 WEEKS
@@ -1941,55 +1941,118 @@ const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) =
   
   console.log(`📅 Searching for news between ${twoWeeksAgoFormatted} and ${todayFormatted}`);
 
-  // ========== RUN AI SECTOR SEARCH FIRST (if sector filter active) ==========
-  if (sector !== 'all') {
-    console.log(`🔍 Stage 0: AI priority search for ${sector} stocks with catalysts...`);
-    setScanStatus(`FINDING ${sector.toUpperCase()} STOCKS WITH CATALYSTS...`);
+  // ========== LAYER 0: Fetch Global Exclusions from Firestore ==========
+  let globalExclusions = new Set();
+  try {
+    const { collection, query, where, getDocs } = await import('firebase/firestore');
+    const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+    const recentScansRef = collection(db, 'scannerResults');
+    const q = query(recentScansRef, where('timestamp', '>', twentyFourHoursAgo));
+    const snapshot = await getDocs(q);
     
-    try {
-      const priorityPrompt = `
-TODAY'S DATE: ${todayFormatted}
-TASK: Find 30 ${sector.toUpperCase()} sector stocks that had NEWS in the past 14 days.
-
-REQUIREMENTS:
-- Stock price between $2 and $${priceLimit}
-- Listed on NYSE or NASDAQ (US stocks only)
-- Had SPECIFIC news between ${twoWeeksAgoFormatted} and ${todayFormatted}
-- News must be: earnings, contracts, FDA/regulatory, analyst ratings, M&A, guidance
-
-DO NOT include:
-- Mega-caps (AAPL, MSFT, GOOGL, AMZN, XOM, CVX)
-- ETFs or ETNs
-- Preferred shares
-- Stocks without recent news
-
-Return ONLY ticker symbols, comma-separated. Example: OII, AROC, DK, FE
-`;
-      
-      const priorityResult = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: priorityPrompt }] }],
-        tools: [{ googleSearch: {} }]
-      });
-      
-      const priorityText = await priorityResult.response.text();
-      const priorityTickers = priorityText.match(/\b[A-Z]{1,5}\b/g) || [];
-      
-      priorityTickers.forEach(ticker => {
-        if (ticker.length >= 2 && ticker.length <= 5 && !newsBlacklist.includes(ticker)) {
-          allTickers.add(ticker);
-        }
-      });
-      
-      console.log(`✓ AI priority search: ${allTickers.size} ${sector} tickers found`);
-    } catch (e) {
-      console.log('AI priority search failed:', e.message);
-    }
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      data.tickers?.forEach(t => globalExclusions.add(t));
+    });
+    
+    console.log(`🚫 Global exclusions: ${globalExclusions.size} tickers shown to users in past 24h`);
+  } catch (e) {
+    console.log('Global exclusions fetch failed (non-critical):', e.message);
   }
+
+  // ========== LAYER 1: Time-Based Focus ==========
+  const getTimeFocus = () => {
+    const hour = new Date().getHours();
+    if (hour >= 4 && hour < 9) {
+      return ['pre-market movers', 'overnight news', 'earnings pre-announcements', 'gap up candidates'];
+    } else if (hour >= 9 && hour < 12) {
+      return ['unusual volume', 'momentum breakouts', 'gap ups', 'morning runners'];
+    } else if (hour >= 12 && hour < 15) {
+      return ['midday reversals', 'consolidation breakouts', 'sector rotation plays'];
+    } else if (hour >= 15 && hour < 17) {
+      return ['power hour movers', 'closing momentum', 'end of day breakouts'];
+    } else {
+      return ['after-hours news', 'next day earnings', 'overnight catalysts', 'swing trade setups'];
+    }
+  };
   
-  // ========== STAGE 1: Fast Polygon News ==========
-  console.log('🔍 Stage 1: Quick scan from Polygon news...');
-  setScanStatus('SCANNING POLYGON NEWS...');
+  const timeFocus = getTimeFocus();
+  console.log(`⏰ Time-based focus: ${timeFocus.join(', ')}`);
+
+  // ========== LAYER 2: Build Dynamic AI Prompts ==========
+  const sectorLabel = sector !== 'all' ? sector.toUpperCase() : 'any sector';
   
+  // Catalyst-based prompts
+  const catalystPrompts = [
+    `${sectorLabel} stocks under $${priceLimit} reporting earnings THIS WEEK`,
+    `${sectorLabel} stocks under $${priceLimit} that BEAT earnings in past 7 days`,
+    `${sectorLabel} stocks under $${priceLimit} that raised guidance recently`,
+    `${sectorLabel} stocks under $${priceLimit} with revenue acceleration`,
+    `${sectorLabel} stocks under $${priceLimit} with FDA approvals or PDUFA dates this month`,
+    `${sectorLabel} stocks under $${priceLimit} with new contract wins announced`,
+    `${sectorLabel} stocks under $${priceLimit} with analyst upgrades this week`,
+    `${sectorLabel} stocks under $${priceLimit} with M&A rumors or buyout speculation`,
+    `${sectorLabel} stocks under $${priceLimit} with insider buying over $500K`,
+    `${sectorLabel} stocks under $${priceLimit} with new product launches`,
+  ];
+
+  // Technical prompts
+  const technicalPrompts = [
+    `${sectorLabel} stocks under $${priceLimit} hitting 52-week HIGHS today`,
+    `${sectorLabel} stocks under $${priceLimit} breaking out of consolidation`,
+    `${sectorLabel} stocks under $${priceLimit} with unusual volume spike today`,
+    `${sectorLabel} stocks under $${priceLimit} bouncing off 52-week lows`,
+    `${sectorLabel} stocks under $${priceLimit} with golden cross formation`,
+    `${sectorLabel} stocks under $${priceLimit} breaking above resistance`,
+  ];
+
+  // Screener-style prompts
+  const screenerPrompts = [
+    `small cap ${sectorLabel} stocks under $${priceLimit} with >20% revenue growth`,
+    `${sectorLabel} penny stocks between $2-$10 with profitability`,
+    `undervalued ${sectorLabel} stocks under $${priceLimit} with low P/E ratio`,
+    `${sectorLabel} growth stocks under $${priceLimit} with strong margins`,
+    `${sectorLabel} stocks under $${priceLimit} with high short interest and catalyst`,
+    `${sectorLabel} stocks under $${priceLimit} with recent IPO past 12 months`,
+  ];
+
+  // Thematic prompts (only if sector is 'all' or matches)
+  const thematicPrompts = sector === 'all' ? [
+    `AI and machine learning stocks under $${priceLimit} with recent news`,
+    `EV and battery technology stocks under $${priceLimit} with catalysts`,
+    `Cybersecurity stocks under $${priceLimit} with contract wins`,
+    `Renewable energy stocks under $${priceLimit} with growth catalysts`,
+    `Biotech stocks under $${priceLimit} with clinical trial results`,
+    `Space and satellite stocks under $${priceLimit} with recent developments`,
+    `Nuclear energy stocks under $${priceLimit} with news`,
+    `Weight loss drug stocks under $${priceLimit} with FDA news`,
+  ] : [];
+
+  // Time-focused prompts
+  const timePrompts = timeFocus.map(focus => 
+    `${sectorLabel} stocks under $${priceLimit} that are ${focus}`
+  );
+
+  // Combine all prompts
+  const allPrompts = [
+    ...catalystPrompts,
+    ...technicalPrompts,
+    ...screenerPrompts,
+    ...thematicPrompts,
+    ...timePrompts
+  ];
+
+  // Randomly select 6-8 prompts (different each scan)
+  const shuffledPrompts = allPrompts.sort(() => Math.random() - 0.5);
+  const selectedPrompts = shuffledPrompts.slice(0, 3);
+  
+  console.log(`🎯 Selected ${selectedPrompts.length} discovery prompts for this scan`);
+
+  // ========== LAYER 3: Quick API Sources (Polygon + Finnhub) ==========
+  console.log('🔍 Layer 3: Quick scan from news APIs...');
+  setScanStatus('SCANNING NEWS SOURCES...');
+  
+  // Polygon News
   try {
     const polygonNewsRes = await fetch(
       `https://api.polygon.io/v2/reference/news?published_utc.gte=${twoWeeksAgoStr}&published_utc.lte=${todayStr}&limit=200&apiKey=${POLYGON_KEY}`
@@ -2000,167 +2063,156 @@ Return ONLY ticker symbols, comma-separated. Example: OII, AROC, DK, FE
       polygonNewsData.results.forEach(article => {
         if (article.tickers) {
           article.tickers.forEach(ticker => {
-            if (ticker.length >= 2 && ticker.length <= 5 && !/\d/.test(ticker)) {
+            if (ticker.length >= 2 && ticker.length <= 5 && !/\d/.test(ticker) && !globalExclusions.has(ticker)) {
               allTickers.add(ticker);
             }
           });
         }
       });
     }
-    console.log(`✓ Polygon news: ${allTickers.size} tickers found`);
+    console.log(`✓ Polygon news: ${allTickers.size} tickers`);
   } catch (e) {
     console.log('Polygon news fetch failed:', e.message);
   }
 
-  // ========== STAGE 1.5: Finnhub General News ==========
-console.log('🔍 Stage 1.5: Scanning Finnhub news...');
-try {
-  const finnhubNewsRes = await fetch(
-    `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`
-  );
-  const finnhubNews = await finnhubNewsRes.json();
-  
-  // Extract tickers mentioned in headlines (Finnhub doesn't always tag them)
-  finnhubNews.slice(0, 100).forEach(article => {
-    // Look for ticker patterns in headline
-    const matches = article.headline.match(/\b[A-Z]{2,5}\b/g) || [];
-    matches.forEach(ticker => {
-      if (ticker.length >= 2 && ticker.length <= 5 && !newsBlacklist.includes(ticker)) {
-        allTickers.add(ticker);
-      }
+  // Finnhub News
+  try {
+    const finnhubNewsRes = await fetch(
+      `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`
+    );
+    const finnhubNews = await finnhubNewsRes.json();
+    
+    finnhubNews.slice(0, 100).forEach(article => {
+      const matches = article.headline.match(/\b[A-Z]{2,5}\b/g) || [];
+      matches.forEach(ticker => {
+        if (ticker.length >= 2 && ticker.length <= 5 && !newsBlacklist.includes(ticker) && !globalExclusions.has(ticker)) {
+          allTickers.add(ticker);
+        }
+      });
     });
-  });
-  console.log(`✓ Finnhub news added, total: ${allTickers.size} tickers`);
-} catch (e) {
-  console.log('Finnhub news failed:', e.message);
-}
+    console.log(`✓ After Finnhub: ${allTickers.size} tickers`);
+  } catch (e) {
+    console.log('Finnhub news failed:', e.message);
+  }
   
-  // ========== STAGE 2: Polygon Gainers/Losers (instant) ==========
-  console.log('🔍 Stage 2: Scanning top movers...');
-  setScanStatus('SCANNING TOP MOVERS...');
-  
+  // Top Movers
   try {
     const [gainersRes, losersRes] = await Promise.all([
       fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers?apiKey=${POLYGON_KEY}`),
       fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/losers?apiKey=${POLYGON_KEY}`)
     ]);
     
-    const [gainersData, losersData] = await Promise.all([
-      gainersRes.json(),
-      losersRes.json()
-    ]);
+    const [gainersData, losersData] = await Promise.all([gainersRes.json(), losersRes.json()]);
     
-    gainersData.tickers?.forEach(t => allTickers.add(t.ticker));
-    losersData.tickers?.forEach(t => allTickers.add(t.ticker));
+    gainersData.tickers?.forEach(t => {
+      if (!globalExclusions.has(t.ticker)) allTickers.add(t.ticker);
+    });
+    losersData.tickers?.forEach(t => {
+      if (!globalExclusions.has(t.ticker)) allTickers.add(t.ticker);
+    });
     
-    console.log(`✓ Top movers added, total: ${allTickers.size} tickers`);
+    console.log(`✓ After top movers: ${allTickers.size} tickers`);
   } catch (e) {
     console.log('Top movers fetch failed:', e.message);
   }
-  
-  // ========== STAGE 3: AI Sector-Specific Search (when filtering by sector) ==========
-  if (sector !== 'all') {
-    console.log(`🔍 Stage 3: AI deep search for ${sector} stocks under $${priceLimit}...`);
-    setScanStatus(`DEEP SEARCHING ${sector.toUpperCase()} STOCKS...`);
-    
-    try {
-      const sectorSearchPrompt = `
-CRITICAL DATE CONTEXT:
-- TODAY'S DATE IS: ${todayFormatted}
-- ONLY consider news and events from ${twoWeeksAgoFormatted} to ${todayFormatted}
-- The current year is ${now.getFullYear()}
 
-You are a stock market researcher. Find 75 US stock tickers in the ${sector.toUpperCase()} sector.
+  // ========== LAYER 4: AI-Powered Discovery (Run Selected Prompts) ==========
+  console.log(`🤖 Layer 4: Running ${selectedPrompts.length} AI discovery searches...`);
+  setScanStatus(`AI DISCOVERY: ${selectedPrompts.length} SEARCHES...`);
+
+  const runAISearch = async (prompt, index) => {
+    try {
+      const fullPrompt = `
+TODAY'S DATE: ${todayFormatted}
+VALID NEWS RANGE: ${twoWeeksAgoFormatted} to ${todayFormatted}
+
+TASK: Find 25 US stocks matching: "${prompt}"
 
 REQUIREMENTS:
-- Must be trading UNDER $${priceLimit} per share RIGHT NOW
-- Must be listed on NYSE or NASDAQ (no OTC/pink sheets)
-- Must have had NEWS or CATALYSTS within the past 14 days (since ${twoWeeksAgoFormatted})
-- Focus on small-cap and mid-cap companies
-
-DO NOT cite any news older than ${twoWeeksAgoFormatted}.
-
-Return ONLY a comma-separated list of ticker symbols, nothing else.
-Example: PLTK, INFY, EPAM, GLOB, CTSH, AKAM, JNPR, CIEN, VIAV, COMM
-`;
-      
-      const sectorResult = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: sectorSearchPrompt }] }],
-        tools: [{ googleSearch: {} }]
-      });
-      
-      const sectorText = await sectorResult.response.text();
-      const sectorTickers = sectorText.match(/\b[A-Z]{2,5}\b/g) || [];
-      
-      let addedCount = 0;
-      sectorTickers.forEach(ticker => {
-        if (!allTickers.has(ticker)) {
-          allTickers.add(ticker);
-          addedCount++;
-        }
-      });
-      
-      console.log(`✓ AI sector search: ${sectorTickers.length} tickers found, ${addedCount} new unique tickers added`);
-      console.log(`  Sample tickers: ${sectorTickers.slice(0, 15).join(', ')}`);
-      
-    } catch (e) {
-      console.log('AI sector search failed:', e.message);
-    }
-    
-    // ========== STAGE 4: Second AI search with different angle ==========
-    console.log(`🔍 Stage 4: AI search for trending ${sector} stocks...`);
-    setScanStatus(`FINDING TRENDING ${sector.toUpperCase()} STOCKS...`);
-    
-    try {
-      const trendingPrompt = `
-CRITICAL DATE CONTEXT:
-- TODAY'S DATE IS: ${todayFormatted}
-- The current year is ${now.getFullYear()}
-- ONLY reference events from the past 14 days (since ${twoWeeksAgoFormatted})
-
-Find 50 ${sector.toUpperCase()} sector stocks that are currently trending.
-
-Requirements:
-- Stock price under $${priceLimit} as of today
-- US listed (NYSE/NASDAQ)
-- Had significant news in the past 2 weeks (${twoWeeksAgoFormatted} to ${todayFormatted})
-
-Focus on:
-- Stocks with unusual volume in the past 14 days
-- Companies reporting earnings THIS WEEK
-- Stocks making 52-week highs or lows THIS WEEK
-- Companies with analyst upgrades/downgrades THIS WEEK
+- Listed on NYSE or NASDAQ only
+- Had SPECIFIC dated news in the past 14 days
+- NO ETFs, preferred shares, or mega-caps (AAPL, MSFT, GOOGL, AMZN, etc.)
+- DO NOT include any of these recently shown tickers: ${[...globalExclusions].slice(0, 50).join(', ')}
 
 Return ONLY ticker symbols, comma-separated. No explanations.
+Example: PLTK, AROC, DK, CLVT, AXTA
 `;
       
-      const trendingResult = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: trendingPrompt }] }],
+      const result = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
         tools: [{ googleSearch: {} }]
       });
       
-      const trendingText = await trendingResult.response.text();
-      const trendingTickers = trendingText.match(/\b[A-Z]{2,5}\b/g) || [];
+      const text = await result.response.text();
+      const tickers = text.match(/\b[A-Z]{2,5}\b/g) || [];
       
-      let addedCount = 0;
-      trendingTickers.forEach(ticker => {
+      return tickers.filter(t => 
+        t.length >= 2 && 
+        t.length <= 5 && 
+        !newsBlacklist.includes(t) &&
+        !globalExclusions.has(t)
+      );
+    } catch (e) {
+      console.log(`AI search ${index + 1} failed:`, e.message);
+      return [];
+    }
+  };
+
+  // Run AI searches in parallel (but limit concurrency)
+const aiResults = [];
+for (let i = 0; i < selectedPrompts.length; i++) {
+  try {
+    const result = await runAISearch(selectedPrompts[i], i);
+    aiResults.push({ status: 'fulfilled', value: result });
+  } catch (e) {
+    aiResults.push({ status: 'rejected', reason: e });
+  }
+  // Small delay between AI calls to avoid rate limits
+  if (i < selectedPrompts.length - 1) {
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
+
+  let aiTickersAdded = 0;
+  aiResults.forEach((result, idx) => {
+    if (result.status === 'fulfilled' && result.value) {
+      result.value.forEach(ticker => {
         if (!allTickers.has(ticker)) {
           allTickers.add(ticker);
-          addedCount++;
+          aiTickersAdded++;
         }
       });
-      
-      console.log(`✓ AI trending search: ${trendingTickers.length} tickers found, ${addedCount} new unique added`);
-      
-    } catch (e) {
-      console.log('AI trending search failed:', e.message);
     }
-  }
+  });
   
+  console.log(`✓ AI discovery added ${aiTickersAdded} new unique tickers`);
   console.log(`📰 Total unique tickers discovered: ${allTickers.size}`);
+
+  // ========== LAYER 5: Log Results to Firestore (for global rotation) ==========
+  // We'll log AFTER the scan completes in runScanner, not here
+
   return [...allTickers];
   
-}, [aiModel]);
+}, [aiModel, user, setScanStatus]);
+
+// Log scanned tickers to Firestore for global rotation
+const logScannedTickers = useCallback(async (tickers) => {
+  if (!tickers || tickers.length === 0) return;
+  
+  try {
+    const { collection, addDoc } = await import('firebase/firestore');
+    await addDoc(collection(db, 'scannerResults'), {
+      tickers: tickers,
+      timestamp: Date.now(),
+      userId: user?.uid || 'anonymous',
+      sector: scanSector,
+      priceLimit: scanPriceLimit
+    });
+    console.log(`📝 Logged ${tickers.length} scanned tickers to Firestore`);
+  } catch (e) {
+    console.log('Failed to log scanned tickers (non-critical):', e.message);
+  }
+}, [user, scanSector, scanPriceLimit]);
 
   // --- NEURAL SCANNER LOGIC ---
 const runScanner = useCallback(async (tickerToSearch = null) => {
@@ -2323,9 +2375,15 @@ console.log('Tickers after filtering:', tickers);
 const unprocessedTickers = tickers.filter(t => !processedTickers.has(t));
 console.log(`Unprocessed tickers remaining: ${unprocessedTickers.length}`);
 
-// If no unprocessed tickers left, try to discover more with AI deep search
-if (unprocessedTickers.length === 0) {
-  console.log(`All tickers exhausted. Found ${localStocks.length}/${targetGoal} stocks.`);
+// Also filter out tickers shown in this session
+const freshTickers = unprocessedTickers.filter(t => !recentlyScanned.has(t));
+console.log(`Fresh tickers (excluding session scans): ${freshTickers.length}`);
+
+// Use fresh tickers if we have enough, otherwise fall back to unprocessed
+const tickersToShuffle = freshTickers.length >= 30 ? freshTickers : unprocessedTickers;
+
+// If no tickers left, try to discover more with AI deep search
+if (tickersToShuffle.length === 0) {
   
   // Only try deep search if we haven't found enough AND haven't already tried
   if (localStocks.length < targetGoal && attempts <= 5) {
@@ -2371,10 +2429,9 @@ Return ONLY tickers, comma-separated.
 }
 
 // NEW: User-specific randomization for legal compliance
-const seed = user?.uid ? `${user.uid}-${new Date().toDateString()}` : Date.now().toString();
-// Pre-filter to prioritize real companies over ETFs/preferred before slicing
-const prioritizedTickers = unprocessedTickers.sort((a, b) => {
-  // Deprioritize 5-letter tickers (often preferred shares, warrants)
+const seed = user?.uid ? `${user.uid}-${Date.now()}` : Date.now().toString();// Pre-filter to prioritize real companies over ETFs/preferred before slicing
+const prioritizedTickers = tickersToShuffle.sort((a, b) => {
+// Deprioritize 5-letter tickers (often preferred shares, warrants)
   const aScore = a.length === 5 ? 1 : 0;
   const bScore = b.length === 5 ? 1 : 0;
   if (aScore !== bScore) return aScore - bScore;
@@ -3266,17 +3323,23 @@ if (isManual) break;
     }
  } catch (err) { console.error(err); }
   finally { 
-    setLoading(false); 
-    setScanProgress(100);
-    setScanStatus("SCAN COMPLETE");
-    setScanComplete(true);
+  setLoading(false); 
+  setScanProgress(100);
+  setScanStatus("SCAN COMPLETE");
+  setScanComplete(true);
+  
+  // Log scanned tickers for global rotation
+  if (localStocks.length > 0) {
+    logScannedTickers(localStocks.map(s => s.symbol));
+  }
     // Restart watchlist updates after scan completes
     if (watchlistIntervalRef.current) {
       clearInterval(watchlistIntervalRef.current);
     }
     watchlistIntervalRef.current = setInterval(updateList, 60000);
   }
-}, [aiModel, sourceString, scanPriceLimit, scanMarketCap, scanSector]);
+}, [aiModel, sourceString, scanPriceLimit, scanMarketCap, scanSector, logScannedTickers]);
+
 
 // Handle clicking a similar stock ticker
 const handleScanSimilar = useCallback((ticker) => {
@@ -3359,6 +3422,8 @@ const displayedStocks = useMemo(() =>
 );
 
 const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
+
+
 
 
 
