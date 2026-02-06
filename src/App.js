@@ -30,6 +30,7 @@ const genAI = new GoogleGenerativeAI(GEN_AI_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 const ALPHA_VANTAGE_KEY = process.env.REACT_APP_ALPHA_VANTAGE_KEY;
 const TWELVE_DATA_KEY = process.env.REACT_APP_TWELVE_DATA_KEY;
+const POLYGON_KEY = process.env.REACT_APP_POLYGON_KEY;
 
 
 const isMobile = () => window.innerWidth < 768;
@@ -501,7 +502,24 @@ const [indicesLastUpdated, setIndicesLastUpdated] = useState(null);
 
 // Sector mapping for filtering
 const SECTOR_MAP = {
-  'technology': ['Technology', 'Software', 'Semiconductors', 'IT Services', 'Hardware'],
+    'technology': [
+    'Technology', 
+    'Software', 
+    'Semiconductors', 
+    'IT Services', 
+    'Hardware',
+    'SERVICES-PREPACKAGED SOFTWARE',
+    'SERVICES-COMPUTER PROGRAMMING',
+    'SERVICES-COMPUTER PROCESSING',
+    'SERVICES-COMPUTER INTEGRATED SYSTEMS',
+    'COMPUTER PROGRAMMING',
+    'ELECTRONIC COMPUTERS',
+    'COMPUTER PERIPHERAL EQUIPMENT',
+    'COMPUTER COMMUNICATIONS EQUIPMENT',
+    'SEMICONDUCTORS & RELATED DEVICES',
+    'PRINTED CIRCUIT BOARDS',
+    'RADIO & TV BROADCASTING & COMMUNICATIONS EQUIPMENT'
+  ],
   'healthcare': ['Healthcare', 'Biotechnology', 'Pharmaceuticals', 'Medical Devices', 'Health Care'],
   'finance': ['Financial Services', 'Banks', 'Banking', 'Insurance', 'Asset Management', 'Finance', 'Capital Markets', 'Credit Services'],
   'energy': ['Energy', 'Oil & Gas', 'Renewable Energy'],
@@ -607,21 +625,24 @@ const addStockToList = async (stock, listId) => {
 };
 
 const updateList = useCallback(async (list) => {
-  // Safety check - return empty array if list is undefined or not an array
   if (!list || !Array.isArray(list)) {
     return [];
   }
   
   return Promise.all(list.map(async (stock) => {
     try {
-      const res = await fetch(`https://api.twelvedata.com/quote?symbol=${stock.symbol}&apikey=${TWELVE_DATA_KEY}`);
+      const res = await fetch(`https://api.polygon.io/v2/aggs/ticker/${stock.symbol}/prev?adjusted=true&apiKey=${POLYGON_KEY}`);
       const data = await res.json();
-      if (!data.close || data.status === 'error') return stock;
+      if (!data.results || !data.results[0]) return stock;
+      
+      const quote = data.results[0];
+      const change = ((quote.c - quote.o) / quote.o) * 100;
+      
       return {
         ...stock,
-        price: parseFloat(data.close).toFixed(2),
-        change: parseFloat(data.percent_change)?.toFixed(2) || stock.change,
-        isPositive: parseFloat(data.percent_change) >= 0
+        price: quote.c.toFixed(2),
+        change: change.toFixed(2),
+        isPositive: change >= 0
       };
     } catch (e) { return stock; }
   }));
@@ -641,36 +662,42 @@ const hashCode = (str) => {
 const fetchMarketIndices = useCallback(async () => {
   setLoadingIndices(true);
   try {
-    // Batch request - counts as 1 API call for all symbols
-    const symbols = 'SPY,QQQ,DIA,IWM';
-    const res = await fetch(
-      `https://api.twelvedata.com/quote?symbol=${symbols}&apikey=${TWELVE_DATA_KEY}`
-    );
-    const data = await res.json();
-    
-    if (data.status === 'error') {
-      console.error('Market indices fetch error:', data.message);
-      return;
-    }
-    
-    // Transform the response
+    const symbols = ['SPY', 'QQQ', 'DIA', 'IWM'];
     const indices = {};
-    ['SPY', 'QQQ', 'DIA', 'IWM'].forEach(symbol => {
-  const quote = data[symbol];
-  if (quote && quote.close) {
-    indices[symbol] = {
-      symbol,
-      name: symbol === 'SPY' ? 'S&P 500' : 
-            symbol === 'QQQ' ? 'NASDAQ' : 
-            symbol === 'DIA' ? 'DOW' : 'RUSSELL',
-          price: parseFloat(quote.close),
-          change: parseFloat(quote.change),
-          changePercent: parseFloat(quote.percent_change),
-          previousClose: parseFloat(quote.previous_close),
-          isPositive: parseFloat(quote.percent_change) >= 0
+    
+    // Fetch all in parallel
+    await Promise.all(symbols.map(async (symbol) => {
+      const res = await fetch(
+        `https://api.polygon.io/v2/aggs/ticker/${symbol}/prev?adjusted=true&apiKey=${POLYGON_KEY}`
+      );
+      const data = await res.json();
+      
+      if (data.results && data.results[0]) {
+        const quote = data.results[0];
+        const prevClose = quote.c;
+        
+        // Get current price from snapshot
+        const snapshotRes = await fetch(
+          `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${POLYGON_KEY}`
+        );
+        const snapshotData = await snapshotRes.json();
+        const currentPrice = snapshotData.ticker?.day?.c || snapshotData.ticker?.prevDay?.c || quote.c;
+        const change = currentPrice - quote.o;
+        const changePercent = ((currentPrice - quote.o) / quote.o) * 100;
+        
+        indices[symbol] = {
+          symbol,
+          name: symbol === 'SPY' ? 'S&P 500' : 
+                symbol === 'QQQ' ? 'NASDAQ' : 
+                symbol === 'DIA' ? 'DOW' : 'RUSSELL',
+          price: currentPrice,
+          change: change,
+          changePercent: changePercent,
+          previousClose: quote.o,
+          isPositive: changePercent >= 0
         };
       }
-    });
+    }));
     
     setMarketIndices(indices);
     setIndicesLastUpdated(new Date());
@@ -1548,106 +1575,115 @@ useEffect(() => {
 
 // --- NEWS ARTICLE DISCOVERY ---
 const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) => {
-  const currentMonthName = new Date().toLocaleString('default', { month: 'long' });
-  const currentYear = new Date().getFullYear();
-  const twoWeeksAgo = new Date(Date.now() - 14*24*60*60*1000).toISOString().split('T')[0];
+  const allTickers = new Set();
   
-  const newsDiscoveryPrompt = `
+  // ========== STAGE 1: Fast Polygon News (instant) ==========
+  console.log('🔍 Stage 1: Quick scan from Polygon news...');
+  setScanStatus('SCANNING POLYGON NEWS...');
+  
+  try {
+    const polygonNewsRes = await fetch(
+      `https://api.polygon.io/v2/reference/news?limit=200&apiKey=${POLYGON_KEY}`
+    );
+    const polygonNewsData = await polygonNewsRes.json();
+    
+    if (polygonNewsData.results) {
+      polygonNewsData.results.forEach(article => {
+        if (article.tickers) {
+          article.tickers.forEach(ticker => {
+            // Basic filtering
+            if (ticker.length >= 2 && ticker.length <= 5 && !/\d/.test(ticker)) {
+              allTickers.add(ticker);
+            }
+          });
+        }
+      });
+    }
+    console.log(`✓ Polygon news: ${allTickers.size} tickers found`);
+  } catch (e) {
+    console.log('Polygon news fetch failed:', e.message);
+  }
+  
+  // ========== STAGE 2: Polygon Gainers/Losers (instant) ==========
+  console.log('🔍 Stage 2: Scanning top movers...');
+  setScanStatus('SCANNING TOP MOVERS...');
+  
+  try {
+    const [gainersRes, losersRes] = await Promise.all([
+      fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers?apiKey=${POLYGON_KEY}`),
+      fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/losers?apiKey=${POLYGON_KEY}`)
+    ]);
+    
+    const [gainersData, losersData] = await Promise.all([
+      gainersRes.json(),
+      losersRes.json()
+    ]);
+    
+    gainersData.tickers?.forEach(t => allTickers.add(t.ticker));
+    losersData.tickers?.forEach(t => allTickers.add(t.ticker));
+    
+    console.log(`✓ Top movers added, total: ${allTickers.size} tickers`);
+  } catch (e) {
+    console.log('Top movers fetch failed:', e.message);
+  }
+  
+  // ========== STAGE 3: AI Deep Search (if needed) ==========
+  // Only run AI search if we don't have enough tickers
+  if (allTickers.size < 75) {
+    console.log('🔍 Stage 3: Deep search with AI for more coverage...');
+    setScanStatus('DEEP SCANNING NEWS SOURCES...');
+    
+    const currentMonthName = new Date().toLocaleString('default', { month: 'long' });
+    const currentYear = new Date().getFullYear();
+    const twoWeeksAgo = new Date(Date.now() - 14*24*60*60*1000).toISOString().split('T')[0];
+    
+    const newsDiscoveryPrompt = `
 TODAY'S DATE: ${currentMonthName} ${new Date().getDate()}, ${currentYear}
 
-You are a stock market researcher. Your task: Find 200+ US stock tickers mentioned in recent financial news.
+You are a stock market researcher. Your task: Find 100 US stock tickers mentioned in recent financial news that we might have missed.
 
 CRITICAL PRICE REQUIREMENT: Focus on stocks trading UNDER $${priceLimit} per share.
 - Prioritize small/mid-cap companies
 - Include biotech, pharma, regional banks, smaller tech companies
 - AVOID mega-caps like AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA unless under $${priceLimit}
 
-EXECUTE THESE 8 SEARCHES (run ALL of them, not just a few):
-
-1. Search: "FDA approval" OR "PDUFA date" OR "clinical trial" (after:${twoWeeksAgo})
-   → Find 25-30 biotech/pharma tickers
-
-2. Search: "earnings beat" OR "revenue surprise" (after:${twoWeeksAgo})
-   → Find 25-30 tickers with earnings news
-
-3. Search: "analyst upgrade" OR "price target raised" (after:${twoWeeksAgo})
-   → Find 25-30 upgraded stocks
-
-4. Search: "insider buying" OR "Form 4 filed" (after:${twoWeeksAgo})
-   → Find 20-25 tickers with insider activity
-
-5. Search: "merger" OR "acquisition announced" (after:${twoWeeksAgo})
-   → Find 15-20 M&A related stocks
-
-6. Search: "government contract" OR "partnership announced" (after:${twoWeeksAgo})
-   → Find 15-20 stocks with contracts/partnerships
-
-7. Search: "dividend increase" OR "buyback announced" (after:${twoWeeksAgo})
-   → Find 15-20 stocks with shareholder returns
-
-8. Search: "product launch" OR "new drug approved" (after:${twoWeeksAgo})
-   → Find 15-20 stocks with new products
-
-SEARCH THESE SOURCES:
-Bloomberg, Reuters, WSJ, Barron's, CNBC, Seeking Alpha, Benzinga, MarketWatch, BioPharma Dive, FiercePharma, GlobeNewswire, PR Newswire, Business Wire, SEC.gov, OpenInsider
+FOCUS ON THESE SPECIALIZED SOURCES (not covered by mainstream):
+1. Biotech/Pharma: STAT News, Endpoints News, BioPharma Dive, FiercePharma, BioSpace
+2. Clinical Trials: ClinicalTrials.gov announcements, FDA.gov approvals
+3. SEC Filings: Recent 8-K, Form 4 insider buying
+4. Specialty Finance: Bank earnings, regional banks
+5. Energy: Oil Price, Rigzone, Hart Energy
 
 ${sector !== 'all' ? `SECTOR REQUIREMENT: ONLY include ${sector.toUpperCase()} sector stocks` : ''}
-${marketCap !== 'all' ? `PREFER ${marketCap}-cap companies but include all sizes` : ''}
 
 VALIDATION RULES:
 ✓ 2-5 letter ticker symbols only
 ✓ US-traded stocks (NYSE/NASDAQ/AMEX)
-✓ Actual companies, not indexes
 
-✗ REJECT these:
-- News sources: Bloomberg, Reuters, CNBC, WSJ, NYT
-- Indexes: SPY, QQQ, DIA, SPX, NDX
-- Generic: AI, ML, CEO, CFO, FDA, SEC, IPO, ETF, ESG
-- Countries: US, UK, EU, CN
-- Months: JAN, FEB, MAR, etc.
-
-CRITICAL REQUIREMENTS:
-1. Run ALL 8 searches listed above
-2. From each search, extract 15-30 tickers
-3. Combine ALL results into one list
-4. Return 200+ total unique tickers
-
-OUTPUT FORMAT (comma-separated, no line breaks):
-AAPL, MSFT, NVDA, TSLA, MRNA, PFE, JNJ, AMGN, LLY, GOOG, META, AMD, INTC, CSCO, ORCL, CRM, ADBE, QCOM, TXN, AVGO, NFLX, DIS, CMCSA, T, VZ, ... (continue until 200+ tickers)
-
-DO NOT STOP at 28 tickers. You MUST return at least 200 tickers.
-If a search returns fewer results, run additional related searches.
-Keep searching until you have 200+ unique tickers total.
-PRICE FILTER: Only include stocks likely trading under $${priceLimit}/share based on market cap and company size.
+OUTPUT FORMAT (comma-separated, no explanation):
+MRNA, VRTX, REGN, IONS, ALNY, SRPT, BMRN, RARE, NBIX, PCVX, ...
 `;
 
-  try {
-    console.log('🔍 Stage 1: Searching for stocks in recent news...');
-    
-    const newsRes = await aiModel.generateContent({
-      contents: [{ role: "user", parts: [{ text: newsDiscoveryPrompt }] }],
-      tools: [{ googleSearch: {} }]
-    });
-    
-    const responseText = await newsRes.response.text();
-    console.log('Raw AI response (first 500 chars):', responseText.substring(0, 500));
-    
-    // Extract tickers directly (2-5 capital letters)
-    const tickerRegex = /\b[A-Z]{2,5}\b/g;
-    const foundTickers = responseText.match(tickerRegex) || [];
-    
-    // Deduplicate
-    const uniqueTickers = [...new Set(foundTickers)];
-    
-    console.log(`✓ Found ${uniqueTickers.length} tickers from news search`);
-    console.log('Sample tickers:', uniqueTickers.slice(0, 20));
-    
-    return uniqueTickers;
-    
-  } catch (error) {
-    console.error('Error in news discovery:', error);
-    return [];
+    try {
+      const newsRes = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: newsDiscoveryPrompt }] }],
+        tools: [{ googleSearch: {} }]
+      });
+      
+      const responseText = await newsRes.response.text();
+      const tickerRegex = /\b[A-Z]{2,5}\b/g;
+      const foundTickers = responseText.match(tickerRegex) || [];
+      
+      foundTickers.forEach(t => allTickers.add(t));
+      console.log(`✓ AI search added ${foundTickers.length} tickers, total: ${allTickers.size}`);
+    } catch (e) {
+      console.log('AI search failed:', e.message);
+    }
   }
+  
+  console.log(`📰 Total unique tickers discovered: ${allTickers.size}`);
+  return [...allTickers];
+  
 }, [aiModel]);
 
   // --- NEURAL SCANNER LOGIC ---
@@ -1726,16 +1762,40 @@ const tickers = tickersToProcess.filter(t => {
   if (!isManual && blacklist.includes(t)) return false;
   if (foreignSuffixes.some(suffix => t.includes(suffix))) return false;
   
-  // Length checks - skip for manual searches (valid tickers can be 1-5 chars like F, PG, AAPL)
+  // Skip for manual searches - allow any valid ticker
   if (!isManual) {
+    // Length checks
     if (t.length > 5) return false;
-    if (t.length < 3) return false;
-  }
-  
-  // Filter obvious junk patterns - skip for manual searches
-  if (!isManual) {
+    if (t.length < 2) return false;
+    
+    // Filter obvious junk patterns
     if (/\d/.test(t)) return false; // No numbers in tickers
     if (t.endsWith('X') && t.length === 4) return false; // Often OTC junk
+    
+    // Skip preferred shares (like STTpG, KKRpD)
+    if (/p[A-Z]/.test(t)) return false;
+    
+    // Skip class shares (like LEN.B, GTN.A)
+    if (t.includes('.')) return false;
+    
+    // Skip warrants (ending in W with 5+ chars, like ALVOW, COEPW)
+    if (t.length >= 5 && t.endsWith('W')) return false;
+    
+    // Skip units (ending in U)
+    if (t.endsWith('U')) return false;
+    
+    // Skip rights (ending in R with 5+ chars)
+    if (t.length >= 5 && t.endsWith('R')) return false;
+    
+    // Skip foreign ADRs (ending in Y or F)
+    if (t.endsWith('Y')) return false;
+    if (t.endsWith('F')) return false;
+    
+    // Skip bankruptcy indicators (ending in Q)
+    if (t.endsWith('Q')) return false;
+    
+    // Must be all uppercase letters
+    if (!/^[A-Z]+$/.test(t)) return false;
   }
   
   if (!isManual && recentlyScanned.has(t)) return false;
@@ -1754,7 +1814,7 @@ console.log('shuffledTickers:', shuffledTickers);  // ADD THIS
 console.log('Starting for loop, targetGoal:', targetGoal);  // ADD THIS
 
 // Process stocks in batches of 5 for speed
-const batchSize = 2;
+const batchSize = 20;
 for (let i = 0; i < shuffledTickers.length && localStocks.length < targetGoal; i += batchSize) {
   const batch = shuffledTickers.slice(i, i + batchSize);
   
@@ -1765,11 +1825,13 @@ console.log(`Processing batch ${batchNumber}/${totalBatches}: ${batch.join(', ')
 // Progress: 10% for news discovery, 10-90% for processing, 100% when complete
 const progressPercent = Math.min(10 + (i / shuffledTickers.length) * 80, 90);
 setScanProgress(Math.round(progressPercent));
-setScanStatus(`ANALYZING ${batch.join(', ')}...`);
   
 const batchResults = await Promise.allSettled(
-    batch.map(async (ticker) => {
+    batch.map(async (ticker, index) => {
       try {
+        // Stagger status updates slightly so they're visible
+        await new Promise(r => setTimeout(r, index * 50));
+        setScanStatus(`ANALYZING: ${ticker}`);
         // 1. EARLY SECTOR CHECK - Skip immediately if cached profile doesn't match sector
         if (!isManual && scanSector !== 'all' && profileCache[ticker]) {
           const cachedIndustry = profileCache[ticker]?.finnhubIndustry || '';
@@ -1777,35 +1839,43 @@ const batchResults = await Promise.allSettled(
             console.log(`${ticker} - Skipped (cached): Sector mismatch (${cachedIndustry} vs ${scanSector})`);
             return null;
           }
+          // If no sector data and we're filtering, skip
+if (scanSector !== 'all' && !p.finnhubIndustry) {
+  console.log(`${ticker} - Skipped: No sector data available`);
+  return null;
+}
+
+if (scanSector !== 'all' && !matchesSector(p.finnhubIndustry, scanSector)) {
+  console.log(`${ticker} - Rejected: Sector mismatch (${p.finnhubIndustry} vs ${scanSector})`);
+  return null;
+}
           console.log(`${ticker} - Cached sector match: ${cachedIndustry} ✓`);
         }
 
-// 2. Fetch quote from Twelve Data, news from Finnhub (only Finnhub has news)
-let twelveQuote, n;
-try {
-  [twelveQuote, n] = await Promise.all([
-    fetch(`https://api.twelvedata.com/quote?symbol=${ticker}&apikey=${TWELVE_DATA_KEY}`).then(r => r.json()),
-    fetch(`https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${yDate}&to=${fDate}&token=${FINNHUB_KEY}`).then(r => r.json())
-  ]);
-} catch (fetchError) {
-  console.log(`${ticker} - Fetch error:`, fetchError.message);
+// 2. Fetch quote from polygon, news from Finnhub (only Finnhub has news)
+let polygonQuote, polygonDetails, n;
+[polygonQuote, polygonDetails, n] = await Promise.all([
+  fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`).then(r => r.json()),
+  fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`).then(r => r.json()),
+fetch(`https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=10&apiKey=${POLYGON_KEY}`).then(r => r.ok ? r.json() : { results: [] })]);
+
+// Check for Polygon errors
+if (!polygonQuote.results || !polygonQuote.results[0]) {
+  console.log(`${ticker} - Polygon error: No data`);
   return null;
 }
 
-// Check for Twelve Data errors
-if (twelveQuote.code === 429 || twelveQuote.status === 'error') {
-  console.log(`${ticker} - Twelve Data rate limit or error:`, twelveQuote.message || 'Rate limited');
-  return null;
-}
+const prevDay = polygonQuote.results[0];
+const changePercent = ((prevDay.c - prevDay.o) / prevDay.o) * 100;
 
-// Transform Twelve Data quote to match expected format
+// Transform Polygon quote to match expected format
 const q = {
-  c: parseFloat(twelveQuote.close) || 0,
-  h: parseFloat(twelveQuote.fifty_two_week?.high) || 0,
-  l: parseFloat(twelveQuote.fifty_two_week?.low) || 0,
-  dp: parseFloat(twelveQuote.percent_change) || 0,
-  v: parseFloat(twelveQuote.volume) || 0,
-  av: parseFloat(twelveQuote.average_volume) || 1
+  c: prevDay.c || 0,
+  h: prevDay.h || 0,
+  l: prevDay.l || 0,
+  dp: changePercent || 0,
+  v: prevDay.v || 0,
+  av: prevDay.v || 1 // Polygon doesn't have avg volume in this endpoint
 };
 
         // 3. Check quote validity
@@ -1835,20 +1905,20 @@ if (profileCache[ticker]) {
   p = profileCache[ticker];
 } else {
   try {
-    // Use Twelve Data for profile info
-    const profileRes = await fetch(`https://api.twelvedata.com/profile?symbol=${ticker}&apikey=${TWELVE_DATA_KEY}`);
-    const twelveProfile = await profileRes.json();
-    
-    if (twelveProfile && twelveProfile.name) {
-      // Transform to match our expected format
-      p = {
-        name: twelveProfile.name,
-        finnhubIndustry: twelveProfile.sector || twelveProfile.industry || '',
-        ticker: ticker,
-        logo: twelveProfile.logo || '',
-        marketCapitalization: twelveProfile.market_cap || 0,
-        exchange: twelveProfile.exchange || ''
-      };
+    // Use Polygon for profile info
+const profileRes = await fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`);
+const polygonProfile = await profileRes.json();
+
+if (polygonProfile.results) {
+  const profile = polygonProfile.results;
+  p = {
+    name: profile.name,
+    finnhubIndustry: profile.sic_description || '',
+    ticker: ticker,
+    logo: profile.branding?.icon_url || '',
+    marketCapitalization: profile.market_cap || 0,
+    exchange: profile.primary_exchange || ''
+  };
       setProfileCache(prev => ({ ...prev, [ticker]: p }));
       console.log(`${ticker} - Cached profile for future scans (${p.finnhubIndustry})`);
     } else {
@@ -1877,23 +1947,26 @@ if (profileCache[ticker]) {
           h = { c: volatilityCache[ticker] };
         } else {
           try {
-            const twelveUrl = `https://api.twelvedata.com/time_series?symbol=${ticker}&interval=1day&outputsize=90&apikey=${TWELVE_DATA_KEY}`;
-            const twelveRes = await fetch(twelveUrl);
-            const twelveData = await twelveRes.json();
-            
-            if (twelveData.values && twelveData.values.length > 0) {
-              const closePrices = twelveData.values.map(day => parseFloat(day.close)).reverse();
-              h = { c: closePrices };
-              setVolatilityCache(prev => ({ ...prev, [ticker]: closePrices }));
-            }
+            const toDate = new Date().toISOString().split('T')[0];
+const fromDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+const polygonHistUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/1/day/${fromDate}/${toDate}?adjusted=true&sort=asc&apiKey=${POLYGON_KEY}`;
+const polygonHistRes = await fetch(polygonHistUrl);
+const polygonHistData = await polygonHistRes.json();
+
+if (polygonHistData.results && polygonHistData.results.length > 0) {
+  const closePrices = polygonHistData.results.map(day => day.c);
+  h = { c: closePrices };
+  setVolatilityCache(prev => ({ ...prev, [ticker]: closePrices }));
+}
           } catch (e) {
             console.log(`Twelve Data error for ${ticker}:`, e);
           }
         }
 
-        const headlines = n?.length > 0 
-          ? n.slice(0, 10).map(i => `[${new Date(i.datetime * 1000).toLocaleDateString()}] ${i.headline}`).join(" | ") 
-          : "No recent company-specific news found.";
+        const newsArticles = n?.results || [];
+const headlines = newsArticles.length > 0 
+  ? newsArticles.slice(0, 10).map(i => `[${new Date(i.published_utc).toLocaleDateString()}] ${i.title}`).join(" | ") 
+  : "No recent company-specific news found.";
 
         const fiftyTwoWeekHigh = q.h;
         const fiftyTwoWeekLow = q.l;
@@ -2068,7 +2141,7 @@ const newStock = {
   change: q.dp?.toFixed(2) || "0.00",
   isPositive: extract("SIG", resText).toUpperCase().includes("BULLISH"),
   horizon: clean(extract("HORIZON", resText)) || 'SHORT_TERM',
-  confidence: calculateSignalStrength(n, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence, volumeRatio),
+  confidence: calculateSignalStrength(newsArticles, h.c, q.c, h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40, aiConfidence, volumeRatio),
   volatility: h.c && h.c.length >= 2 ? calculateHV(h.c).toFixed(2) : 40,
   rating: clean(extract("SIG", resText)),
   momentum: clean(extract("MOM", resText)),
@@ -2100,9 +2173,8 @@ for (const result of batchResults) {
   }
 }
 
-// Always add delay between batches to avoid rate limits
-// Finnhub free tier: 60 calls/minute, Twelve Data: 8 calls/minute
-await new Promise(r => setTimeout(r, 3500));
+// Small delay to prevent overwhelming the API (optional, can remove entirely)
+await new Promise(r => setTimeout(r, 100));
 }
 
 if (isManual) break;
@@ -2621,23 +2693,21 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
             }
             
             searchTimeoutRef.current = setTimeout(async () => {
-              try {
-                // Use Twelve Data instead of Finnhub for search
-                const res = await fetch(`https://api.twelvedata.com/symbol_search?symbol=${value}&outputsize=5&apikey=${TWELVE_DATA_KEY}`);
-                const data = await res.json();
-                
-                // Transform to match expected format
-                const results = data.data?.slice(0, 5).map(item => ({
-                  symbol: item.symbol,
-                  description: item.instrument_name
-                })) || [];
-                
-                setStockSearchResults(results);
-              } catch (err) {
-                console.error('Search failed:', err);
-                setStockSearchResults([]);
-              }
-            }, 500);
+  try {
+    const res = await fetch(`https://api.polygon.io/v3/reference/tickers?search=${value}&active=true&limit=5&apiKey=${POLYGON_KEY}`);
+    const data = await res.json();
+    
+    const results = data.results?.slice(0, 5).map(item => ({
+      symbol: item.ticker,
+      description: item.name
+    })) || [];
+    
+    setStockSearchResults(results);
+  } catch (err) {
+    console.error('Search failed:', err);
+    setStockSearchResults([]);
+  }
+}, 500);
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && manualSearch) {
@@ -2686,7 +2756,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
                   setManualSearch(result.symbol);
                   setStockSearchResults([]);
                   setIsManualResult(true);
-                  await new Promise(r => setTimeout(r, 500));
+                  await new Promise(r => setTimeout(r, 100));
                   runScanner(result.symbol);
                 }}
                 className="w-full text-left px-4 py-3 bg-black hover:bg-zinc-900 transition-all rounded-lg border border-zinc-800 hover:border-[#00ff4e]/50"
