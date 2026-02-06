@@ -500,35 +500,382 @@ const [marketIndices, setMarketIndices] = useState(null);
 const [loadingIndices, setLoadingIndices] = useState(false);
 const [indicesLastUpdated, setIndicesLastUpdated] = useState(null);
 
-// Sector mapping for filtering
+// Sector mapping for filtering - includes Polygon SIC codes
 const SECTOR_MAP = {
-    'technology': [
-    'Technology', 
-    'Software', 
-    'Semiconductors', 
-    'IT Services', 
-    'Hardware',
+  'technology': [
+    // General
+    'Technology', 'Software', 'Semiconductors', 'IT Services', 'Hardware', 'Tech',
+    // Polygon SIC codes
     'SERVICES-PREPACKAGED SOFTWARE',
     'SERVICES-COMPUTER PROGRAMMING',
     'SERVICES-COMPUTER PROCESSING',
     'SERVICES-COMPUTER INTEGRATED SYSTEMS',
+    'SERVICES-COMPUTER PROGRAMMING SERVICES',
+    'SERVICES-COMPUTER PROGRAMMING, DATA PROCESSING',
+    'SERVICES-COMPUTER PROCESSING & DATA PREPARATION',
+    'SERVICES-COMPUTER FACILITIES MANAGEMENT SERVICE',
+    'SERVICES-INFORMATION RETRIEVAL SERVICES',
+    'SERVICES-COMPUTER RENTAL & LEASING',
     'COMPUTER PROGRAMMING',
     'ELECTRONIC COMPUTERS',
     'COMPUTER PERIPHERAL EQUIPMENT',
     'COMPUTER COMMUNICATIONS EQUIPMENT',
+    'COMPUTER STORAGE DEVICES',
+    'COMPUTER TERMINALS',
     'SEMICONDUCTORS & RELATED DEVICES',
     'PRINTED CIRCUIT BOARDS',
-    'RADIO & TV BROADCASTING & COMMUNICATIONS EQUIPMENT'
+    'RADIO & TV BROADCASTING & COMMUNICATIONS EQUIPMENT',
+    'COMMUNICATIONS EQUIPMENT',
+    'TELEPHONE & TELEGRAPH APPARATUS',
+    'ELECTRONIC COMPONENTS',
+    'ELECTRONIC CONNECTORS',
+    'ELECTRONIC COILS, TRANSFORMERS',
+    'CATHODE RAY TELEVISION PICTURE TUBES',
+    'HOUSEHOLD AUDIO & VIDEO EQUIPMENT',
+    'MAGNETIC & OPTICAL RECORDING MEDIA',
+    'MEASURING & CONTROLLING DEVICES',
+    'INSTRUMENTS FOR MEAS & TESTING OF ELECTRICITY',
+    'LABORATORY ANALYTICAL INSTRUMENTS',
+    'COMPUTER & OFFICE EQUIPMENT',
+    'CALCULATING & ACCOUNTING MACHINES',
+    'OFFICE MACHINES',
   ],
-  'healthcare': ['Healthcare', 'Biotechnology', 'Pharmaceuticals', 'Medical Devices', 'Health Care'],
-  'finance': ['Financial Services', 'Banks', 'Banking', 'Insurance', 'Asset Management', 'Finance', 'Capital Markets', 'Credit Services'],
-  'energy': ['Energy', 'Oil & Gas', 'Renewable Energy'],
-  'consumer': ['Consumer Cyclical', 'Consumer Defensive', 'Retail', 'Consumer Goods'],
-  'industrial': ['Industrials', 'Manufacturing', 'Aerospace', 'Defense', 'Industrial'],
-  'materials': ['Basic Materials', 'Chemicals', 'Mining', 'Materials'],
-  'real estate': ['Real Estate', 'REIT'],
-  'communications': ['Communication Services', 'Media', 'Telecom', 'Communications'],
-  'utilities': ['Utilities', 'Electric', 'Gas', 'Water']
+  'healthcare': [
+    // General
+    'Healthcare', 'Biotechnology', 'Pharmaceuticals', 'Medical Devices', 'Health Care', 'Biotech', 'Pharma', 'Medical',
+    // Polygon SIC codes - Pharma & Biotech
+    'PHARMACEUTICAL PREPARATIONS',
+    'BIOLOGICAL PRODUCTS',
+    'BIOLOGICAL PRODUCTS, (NO DISGNOSTIC SUBSTANCES)',
+    'BIOLOGICAL PRODUCTS (NO DIAGNOSTIC SUBSTANCES)',
+    'MEDICINAL CHEMICALS & BOTANICAL PRODUCTS',
+    'DIAGNOSTIC SUBSTANCES',
+    'IN VITRO & IN VIVO DIAGNOSTIC SUBSTANCES',
+    'PHARMACEUTICAL',
+    'DRUGS',
+    'MEDICINALS',
+    // Medical Devices & Equipment
+    'SURGICAL & MEDICAL INSTRUMENTS & APPARATUS',
+    'SURGICAL & MEDICAL INSTRUMENTS',
+    'SURGICAL APPLIANCES & SUPPLIES',
+    'DENTAL EQUIPMENT & SUPPLIES',
+    'ORTHOPEDIC, PROSTHETIC & SURGICAL APPLIANCES',
+    'OPHTHALMIC GOODS',
+    'ELECTROMEDICAL & ELECTROTHERAPEUTIC APPARATUS',
+    'X-RAY APPARATUS & TUBES',
+    'ELECTROMEDICAL APPARATUS',
+    'LABORATORY APPARATUS & FURNITURE',
+    'MEDICAL INSTRUMENTS',
+    // Healthcare Services
+    'SERVICES-OFFICES & CLINICS OF DOCTORS OF MEDICINE',
+    'SERVICES-OFFICES & CLINICS OF DOCTORS',
+    'SERVICES-HOSPITALS',
+    'SERVICES-SKILLED NURSING CARE FACILITIES',
+    'SERVICES-NURSING & PERSONAL CARE FACILITIES',
+    'SERVICES-HEALTH SERVICES',
+    'SERVICES-MEDICAL LABORATORIES',
+    'SERVICES-HOME HEALTH CARE SERVICES',
+    'SERVICES-SPECIALTY OUTPATIENT FACILITIES',
+    'SERVICES-MISC HEALTH & ALLIED SERVICES',
+    'SERVICES-KIDNEY DIALYSIS CENTERS',
+    'HOSPITAL & MEDICAL SERVICE PLANS',
+    'ACCIDENT & HEALTH INSURANCE',
+    'HEALTHCARE',
+    'MANAGED HEALTHCARE',
+  ],
+  'finance': [
+    // General
+    'Financial Services', 'Banks', 'Banking', 'Insurance', 'Asset Management', 'Finance', 'Capital Markets', 'Credit Services',
+    // Polygon SIC codes
+    'NATIONAL COMMERCIAL BANKS',
+    'STATE COMMERCIAL BANKS',
+    'COMMERCIAL BANKS',
+    'SAVINGS INSTITUTIONS',
+    'SAVINGS INSTITUTIONS, FEDERALLY CHARTERED',
+    'SAVINGS INSTITUTIONS, NOT FEDERALLY CHARTERED',
+    'CREDIT UNIONS',
+    'FUNCTIONS RELATED TO DEPOSITORY BANKING',
+    'FEDERAL RESERVE BANKS',
+    'FOREIGN BANKING',
+    'PERSONAL CREDIT INSTITUTIONS',
+    'BUSINESS CREDIT INSTITUTIONS',
+    'MORTGAGE BANKERS & LOAN CORRESPONDENTS',
+    'LOAN BROKERS',
+    'FINANCE SERVICES',
+    'FINANCE LESSORS',
+    'FINANCIAL SERVICES',
+    'SECURITY & COMMODITY BROKERS, DEALERS',
+    'SECURITY BROKERS, DEALERS & FLOTATION COMPANIES',
+    'COMMODITY CONTRACTS DEALERS, BROKERS',
+    'SECURITY & COMMODITY EXCHANGES',
+    'INVESTMENT ADVICE',
+    'INVESTMENT OFFICES',
+    'INVESTORS',
+    'REAL ESTATE INVESTMENT TRUSTS',
+    'INSURANCE CARRIERS',
+    'LIFE INSURANCE',
+    'ACCIDENT & HEALTH INSURANCE',
+    'HOSPITAL & MEDICAL SERVICE PLANS',
+    'FIRE, MARINE & CASUALTY INSURANCE',
+    'SURETY INSURANCE',
+    'TITLE INSURANCE',
+    'INSURANCE AGENTS, BROKERS & SERVICE',
+    'ASSET MANAGEMENT',
+    'PRIVATE EQUITY',
+  ],
+  'energy': [
+    // General
+    'Energy', 'Oil & Gas', 'Renewable Energy', 'Oil', 'Gas', 'Petroleum',
+    // Polygon SIC codes
+    'CRUDE PETROLEUM & NATURAL GAS',
+    'NATURAL GAS LIQUIDS',
+    'OIL & GAS FIELD SERVICES',
+    'DRILLING OIL & GAS WELLS',
+    'OIL & GAS FIELD EXPLORATION SERVICES',
+    'NATURAL GAS TRANSMISSION',
+    'NATURAL GAS TRANSMISSION & DISTRIBUTION',
+    'NATURAL GAS DISTRIBUTION',
+    'PETROLEUM REFINING',
+    'PETROLEUM & PETROLEUM PRODUCTS WHOLESALERS',
+    'ELECTRIC SERVICES',
+    'ELECTRIC & OTHER SERVICES COMBINED',
+    'GAS & OTHER SERVICES COMBINED',
+    'COMBINATION ELECTRIC & GAS',
+    'COGENERATION SERVICES',
+    'SOLAR',
+    'WIND',
+    'RENEWABLE',
+    'COAL MINING',
+    'BITUMINOUS COAL & LIGNITE MINING',
+    'BITUMINOUS COAL',
+    'ANTHRACITE MINING',
+    'COAL',
+    'PIPELINES',
+    'REFINED PETROLEUM PIPELINES',
+    'ELECTRIC UTILITY',
+    'GAS UTILITY',
+    'UTILITIES-ELECTRIC',
+    'UTILITIES-GAS',
+  ],
+  'consumer': [
+    // General
+    'Consumer Cyclical', 'Consumer Defensive', 'Retail', 'Consumer Goods', 'Consumer',
+    // Polygon SIC codes - Retail
+    'RETAIL-EATING PLACES',
+    'RETAIL-GROCERY STORES',
+    'RETAIL-DRUG STORES AND PROPRIETARY STORES',
+    'RETAIL-APPAREL & ACCESSORY STORES',
+    'RETAIL-FAMILY CLOTHING STORES',
+    'RETAIL-SHOE STORES',
+    'RETAIL-FURNITURE STORES',
+    'RETAIL-HOUSEHOLD APPLIANCE STORES',
+    'RETAIL-RADIO, TV & CONSUMER ELECTRONICS STORES',
+    'RETAIL-COMPUTER & COMPUTER SOFTWARE STORES',
+    'RETAIL-BUILDING MATERIALS, HARDWARE',
+    'RETAIL-AUTO DEALERS & GASOLINE STATIONS',
+    'RETAIL-AUTO & HOME SUPPLY STORES',
+    'RETAIL-CATALOG & MAIL-ORDER HOUSES',
+    'RETAIL-MISC GENERAL MERCHANDISE STORES',
+    'RETAIL-DEPARTMENT STORES',
+    'RETAIL-VARIETY STORES',
+    'RETAIL-MISCELLANEOUS RETAIL',
+    'RETAIL-NONSTORE RETAILERS',
+    'RETAIL-JEWELRY STORES',
+    'RETAIL-SPORTING GOODS & BICYCLE SHOPS',
+    'RETAIL-HOBBY, TOY & GAME SHOPS',
+    // Consumer Products
+    'BEVERAGES',
+    'FOOD AND KINDRED PRODUCTS',
+    'MEAT PACKING PLANTS',
+    'DAIRY PRODUCTS',
+    'BAKERY PRODUCTS',
+    'SUGAR & CONFECTIONERY PRODUCTS',
+    'FATS AND OILS',
+    'GRAIN MILL PRODUCTS',
+    'CANNED, FROZEN & PRESERVED FRUIT, VEG',
+    'TOBACCO PRODUCTS',
+    'CIGARETTES',
+    'APPAREL & OTHER FINISHED PRODUCTS',
+    'FOOTWEAR',
+    'LEATHER & LEATHER PRODUCTS',
+    'HOUSEHOLD FURNITURE',
+    'SOAP, DETERGENTS, CLEANING PREPARATIONS',
+    'PERFUMES, COSMETICS & OTHER TOILET PREPARATIONS',
+    'SPORTING & ATHLETIC GOODS',
+    'SPORTING & ATHLETIC GOODS, NEC',
+    'TOYS & AMUSEMENT',
+    'GAMES, TOYS & CHILDREN\'S VEHICLES',
+    // Services
+    'SERVICES-HOTELS & MOTELS',
+    'SERVICES-AMUSEMENT & RECREATION SERVICES',
+    'SERVICES-MOTION PICTURE & VIDEO TAPE PRODUCTION',
+    'SERVICES-MOTION PICTURE THEATERS',
+    'RESTAURANTS',
+    'EATING PLACES',
+    'DRINKING PLACES',
+  ],
+  'industrial': [
+    // General
+    'Industrials', 'Manufacturing', 'Aerospace', 'Defense', 'Industrial', 'Machinery',
+    // Polygon SIC codes
+    'AIRCRAFT',
+    'AIRCRAFT ENGINES & ENGINE PARTS',
+    'AIRCRAFT PARTS & AUXILIARY EQUIPMENT',
+    'GUIDED MISSILES & SPACE VEHICLES',
+    'SEARCH, DETECTION, NAVIGATION, GUIDANCE',
+    'SHIP & BOAT BUILDING & REPAIRING',
+    'RAILROAD EQUIPMENT',
+    'MOTORCYCLES, BICYCLES & PARTS',
+    'MOTOR VEHICLES & PASSENGER CAR BODIES',
+    'MOTOR VEHICLE PARTS & ACCESSORIES',
+    'TRUCK & BUS BODIES',
+    'TRUCK TRAILERS',
+    'FARM MACHINERY & EQUIPMENT',
+    'LAWN & GARDEN TRACTORS & HOME LAWN',
+    'CONSTRUCTION MACHINERY & EQUIP',
+    'MINING MACHINERY & EQUIP',
+    'OIL & GAS FIELD MACHINERY & EQUIPMENT',
+    'INDUSTRIAL MACHINERY & EQUIPMENT',
+    'MACHINE TOOLS, METAL CUTTING TYPES',
+    'MACHINE TOOLS, METAL FORMING TYPES',
+    'SPECIAL INDUSTRY MACHINERY',
+    'GENERAL INDUSTRIAL MACHINERY & EQUIPMENT',
+    'PUMPS & PUMPING EQUIPMENT',
+    'BALL & ROLLER BEARINGS',
+    'INDUSTRIAL & COMMERCIAL FANS & BLOWERS',
+    'PACKAGING MACHINERY',
+    'POWER-DRIVEN HANDTOOLS',
+    'WELDING APPARATUS',
+    'ELECTRICAL INDUSTRIAL APPARATUS',
+    'MOTORS & GENERATORS',
+    'INDUSTRIAL CONTROLS',
+    'TRANSFORMERS',
+    'SWITCHGEAR & SWITCHBOARD APPARATUS',
+    'RELAYS & INDUSTRIAL CONTROLS',
+    'RAILROADS, LINE-HAUL OPERATING',
+    'TRUCKING & COURIER SERVICES',
+    'AIR TRANSPORTATION',
+    'TRANSPORTATION SERVICES',
+    'SERVICES-ENGINEERING SERVICES',
+    'SERVICES-MANAGEMENT CONSULTING SERVICES',
+    'SERVICES-DETECTIVE, GUARD & ARMORED CAR SERVICES',
+    'SERVICES-FACILITIES SUPPORT MANAGEMENT SERVICES',
+    'SERVICES-HELP SUPPLY SERVICES',
+    'SERVICES-EQUIPMENT RENTAL & LEASING',
+  ],
+  'materials': [
+    // General
+    'Basic Materials', 'Chemicals', 'Mining', 'Materials', 'Metals', 'Steel',
+    // Polygon SIC codes
+    'METAL MINING',
+    'GOLD AND SILVER ORES',
+    'COPPER ORES',
+    'LEAD AND ZINC ORES',
+    'FERROALLOY ORES',
+    'MISCELLANEOUS METAL ORES',
+    'IRON ORES',
+    'NONMETALLIC MINERALS',
+    'DIMENSION STONE',
+    'CRUSHED AND BROKEN STONE',
+    'SAND AND GRAVEL',
+    'CLAY, CERAMIC, AND REFRACTORY MINERALS',
+    'CHEMICAL & FERTILIZER MINERAL MINING',
+    'INDUSTRIAL ORGANIC CHEMICALS',
+    'INDUSTRIAL INORGANIC CHEMICALS',
+    'PLASTICS MATERIALS & SYNTHETIC RESINS',
+    'SYNTHETIC RUBBER',
+    'AGRICULTURAL CHEMICALS',
+    'ADHESIVES AND SEALANTS',
+    'EXPLOSIVES',
+    'PRINTING INK',
+    'CARBON BLACK',
+    'PAINTS, VARNISHES, LACQUERS, ENAMELS',
+    'STEEL WORKS, BLAST FURNACES',
+    'STEEL WORKS',
+    'IRON & STEEL FOUNDRIES',
+    'ROLLING DRAWING & EXTRUDING OF NONFERROUS METALS',
+    'NONFERROUS FOUNDRIES',
+    'PRIMARY SMELTING & REFINING OF COPPER',
+    'PRIMARY SMELTING & REFINING OF NONFERROUS METALS',
+    'ALUMINUM',
+    'COPPER',
+    'PAPER MILLS',
+    'PAPERBOARD MILLS',
+    'PAPER & PAPERBOARD',
+    'CONVERTED PAPER & PAPERBOARD PRODUCTS',
+    'LUMBER & WOOD PRODUCTS',
+    'SAWMILLS & PLANING MILLS',
+    'MILLWORK, VENEER, PLYWOOD',
+    'WOOD BUILDINGS & MOBILE HOMES',
+    'GLASS & GLASSWARE',
+    'GLASS CONTAINERS',
+    'CEMENT, HYDRAULIC',
+    'CONCRETE, GYPSUM & PLASTER PRODUCTS',
+    'READY-MIXED CONCRETE',
+  ],
+  'real estate': [
+    // General
+    'Real Estate', 'REIT', 'Property',
+    // Polygon SIC codes
+    'REAL ESTATE',
+    'REAL ESTATE INVESTMENT TRUSTS',
+    'REAL ESTATE AGENTS & MANAGERS',
+    'REAL ESTATE AGENTS & MANAGERS (FOR OTHERS)',
+    'REAL ESTATE OPERATORS',
+    'REAL ESTATE DEALERS',
+    'TITLE ABSTRACT OFFICES',
+    'LAND SUBDIVIDERS & DEVELOPERS',
+    'OPERATIVE BUILDERS',
+  ],
+  'communications': [
+    // General
+    'Communication Services', 'Media', 'Telecom', 'Communications', 'Entertainment',
+    // Polygon SIC codes
+    'TELEPHONE COMMUNICATIONS',
+    'TELEGRAPH & OTHER MESSAGE COMMUNICATIONS',
+    'RADIO BROADCASTING STATIONS',
+    'TELEVISION BROADCASTING STATIONS',
+    'CABLE & OTHER PAY TELEVISION SERVICES',
+    'COMMUNICATIONS SERVICES',
+    'RADIOTELEPHONE COMMUNICATIONS',
+    'COMMUNICATIONS EQUIPMENT',
+    'SERVICES-ADVERTISING',
+    'SERVICES-ADVERTISING AGENCIES',
+    'SERVICES-MOTION PICTURE & VIDEO TAPE PRODUCTION',
+    'SERVICES-MOTION PICTURE & VIDEO TAPE DISTRIBUTION',
+    'SERVICES-MOTION PICTURE THEATERS',
+    'SERVICES-VIDEO TAPE RENTAL',
+    'SERVICES-ALLIED TO MOTION PICTURE PRODUCTION',
+    'SERVICES-AMUSEMENT & RECREATION SERVICES',
+    'SERVICES-MEMBERSHIP SPORTS & RECREATION CLUBS',
+    'SERVICES-THEATRICAL PRODUCERS',
+    'SERVICES-BANDS, ORCHESTRAS, ACTORS',
+    'SERVICES-RACING, INCLUDING TRACK OPERATION',
+    'SERVICES-MISC AMUSEMENT & RECREATION',
+    'NEWSPAPERS: PUBLISHING OR PUBLISHING & PRINTING',
+    'PERIODICALS: PUBLISHING OR PUBLISHING & PRINTING',
+    'BOOKS: PUBLISHING OR PUBLISHING & PRINTING',
+    'MISCELLANEOUS PUBLISHING',
+    'GREETING CARDS',
+    'SERVICES-COMPUTER PROGRAMMING',
+  ],
+  'utilities': [
+    // General
+    'Utilities', 'Electric', 'Gas', 'Water', 'Utility',
+    // Polygon SIC codes
+    'ELECTRIC SERVICES',
+    'GAS PRODUCTION & DISTRIBUTION',
+    'COMBINATION UTILITY SERVICES',
+    'ELECTRIC & OTHER SERVICES COMBINED',
+    'GAS & OTHER SERVICES COMBINED',
+    'WATER SUPPLY',
+    'SANITARY SERVICES',
+    'REFUSE SYSTEMS',
+    'SEWERAGE SYSTEMS',
+    'STEAM & AIR-CONDITIONING SUPPLY',
+    'IRRIGATION SYSTEMS',
+    'COGENERATION',
+  ]
 };
 
 const matchesSector = (finnhubIndustry, selectedSector) => {
@@ -722,7 +1069,7 @@ const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
     if (interval === 'daily') {
       cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     } else if (interval === 'weekly') {
-      cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     } else { // monthly
       cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     }
@@ -1577,13 +1924,23 @@ useEffect(() => {
 const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) => {
   const allTickers = new Set();
   
-  // ========== STAGE 1: Fast Polygon News (instant) ==========
+  // Calculate date range - PAST 2 WEEKS
+  const now = new Date();
+  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+  const todayStr = now.toISOString().split('T')[0];
+  const twoWeeksAgoStr = twoWeeksAgo.toISOString().split('T')[0];
+  const todayFormatted = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const twoWeeksAgoFormatted = twoWeeksAgo.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  
+  console.log(`📅 Searching for news between ${twoWeeksAgoFormatted} and ${todayFormatted}`);
+  
+  // ========== STAGE 1: Fast Polygon News ==========
   console.log('🔍 Stage 1: Quick scan from Polygon news...');
   setScanStatus('SCANNING POLYGON NEWS...');
   
   try {
     const polygonNewsRes = await fetch(
-      `https://api.polygon.io/v2/reference/news?limit=200&apiKey=${POLYGON_KEY}`
+      `https://api.polygon.io/v2/reference/news?published_utc.gte=${twoWeeksAgoStr}&published_utc.lte=${todayStr}&limit=200&apiKey=${POLYGON_KEY}`
     );
     const polygonNewsData = await polygonNewsRes.json();
     
@@ -1591,7 +1948,6 @@ const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) =
       polygonNewsData.results.forEach(article => {
         if (article.tickers) {
           article.tickers.forEach(ticker => {
-            // Basic filtering
             if (ticker.length >= 2 && ticker.length <= 5 && !/\d/.test(ticker)) {
               allTickers.add(ticker);
             }
@@ -1627,57 +1983,102 @@ const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) =
     console.log('Top movers fetch failed:', e.message);
   }
   
-  // ========== STAGE 3: AI Deep Search (if needed) ==========
-  // Only run AI search if we don't have enough tickers
-  if (allTickers.size < 75) {
-    console.log('🔍 Stage 3: Deep search with AI for more coverage...');
-    setScanStatus('DEEP SCANNING NEWS SOURCES...');
+  // ========== STAGE 3: AI Sector-Specific Search (when filtering by sector) ==========
+  if (sector !== 'all') {
+    console.log(`🔍 Stage 3: AI deep search for ${sector} stocks under $${priceLimit}...`);
+    setScanStatus(`DEEP SEARCHING ${sector.toUpperCase()} STOCKS...`);
     
-    const currentMonthName = new Date().toLocaleString('default', { month: 'long' });
-    const currentYear = new Date().getFullYear();
-    const twoWeeksAgo = new Date(Date.now() - 14*24*60*60*1000).toISOString().split('T')[0];
-    
-    const newsDiscoveryPrompt = `
-TODAY'S DATE: ${currentMonthName} ${new Date().getDate()}, ${currentYear}
-
-You are a stock market researcher. Your task: Find 100 US stock tickers mentioned in recent financial news that we might have missed.
-
-CRITICAL PRICE REQUIREMENT: Focus on stocks trading UNDER $${priceLimit} per share.
-- Prioritize small/mid-cap companies
-- Include biotech, pharma, regional banks, smaller tech companies
-- AVOID mega-caps like AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA unless under $${priceLimit}
-
-FOCUS ON THESE SPECIALIZED SOURCES (not covered by mainstream):
-1. Biotech/Pharma: STAT News, Endpoints News, BioPharma Dive, FiercePharma, BioSpace
-2. Clinical Trials: ClinicalTrials.gov announcements, FDA.gov approvals
-3. SEC Filings: Recent 8-K, Form 4 insider buying
-4. Specialty Finance: Bank earnings, regional banks
-5. Energy: Oil Price, Rigzone, Hart Energy
-
-${sector !== 'all' ? `SECTOR REQUIREMENT: ONLY include ${sector.toUpperCase()} sector stocks` : ''}
-
-VALIDATION RULES:
-✓ 2-5 letter ticker symbols only
-✓ US-traded stocks (NYSE/NASDAQ/AMEX)
-
-OUTPUT FORMAT (comma-separated, no explanation):
-MRNA, VRTX, REGN, IONS, ALNY, SRPT, BMRN, RARE, NBIX, PCVX, ...
-`;
-
     try {
-      const newsRes = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: newsDiscoveryPrompt }] }],
+      const sectorSearchPrompt = `
+CRITICAL DATE CONTEXT:
+- TODAY'S DATE IS: ${todayFormatted}
+- ONLY consider news and events from ${twoWeeksAgoFormatted} to ${todayFormatted}
+- The current year is ${now.getFullYear()}
+
+You are a stock market researcher. Find 75 US stock tickers in the ${sector.toUpperCase()} sector.
+
+REQUIREMENTS:
+- Must be trading UNDER $${priceLimit} per share RIGHT NOW
+- Must be listed on NYSE or NASDAQ (no OTC/pink sheets)
+- Must have had NEWS or CATALYSTS within the past 14 days (since ${twoWeeksAgoFormatted})
+- Focus on small-cap and mid-cap companies
+
+DO NOT cite any news older than ${twoWeeksAgoFormatted}.
+
+Return ONLY a comma-separated list of ticker symbols, nothing else.
+Example: PLTK, INFY, EPAM, GLOB, CTSH, AKAM, JNPR, CIEN, VIAV, COMM
+`;
+      
+      const sectorResult = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: sectorSearchPrompt }] }],
         tools: [{ googleSearch: {} }]
       });
       
-      const responseText = await newsRes.response.text();
-      const tickerRegex = /\b[A-Z]{2,5}\b/g;
-      const foundTickers = responseText.match(tickerRegex) || [];
+      const sectorText = await sectorResult.response.text();
+      const sectorTickers = sectorText.match(/\b[A-Z]{2,5}\b/g) || [];
       
-      foundTickers.forEach(t => allTickers.add(t));
-      console.log(`✓ AI search added ${foundTickers.length} tickers, total: ${allTickers.size}`);
+      let addedCount = 0;
+      sectorTickers.forEach(ticker => {
+        if (!allTickers.has(ticker)) {
+          allTickers.add(ticker);
+          addedCount++;
+        }
+      });
+      
+      console.log(`✓ AI sector search: ${sectorTickers.length} tickers found, ${addedCount} new unique tickers added`);
+      console.log(`  Sample tickers: ${sectorTickers.slice(0, 15).join(', ')}`);
+      
     } catch (e) {
-      console.log('AI search failed:', e.message);
+      console.log('AI sector search failed:', e.message);
+    }
+    
+    // ========== STAGE 4: Second AI search with different angle ==========
+    console.log(`🔍 Stage 4: AI search for trending ${sector} stocks...`);
+    setScanStatus(`FINDING TRENDING ${sector.toUpperCase()} STOCKS...`);
+    
+    try {
+      const trendingPrompt = `
+CRITICAL DATE CONTEXT:
+- TODAY'S DATE IS: ${todayFormatted}
+- The current year is ${now.getFullYear()}
+- ONLY reference events from the past 14 days (since ${twoWeeksAgoFormatted})
+
+Find 50 ${sector.toUpperCase()} sector stocks that are currently trending.
+
+Requirements:
+- Stock price under $${priceLimit} as of today
+- US listed (NYSE/NASDAQ)
+- Had significant news in the past 2 weeks (${twoWeeksAgoFormatted} to ${todayFormatted})
+
+Focus on:
+- Stocks with unusual volume in the past 14 days
+- Companies reporting earnings THIS WEEK
+- Stocks making 52-week highs or lows THIS WEEK
+- Companies with analyst upgrades/downgrades THIS WEEK
+
+Return ONLY ticker symbols, comma-separated. No explanations.
+`;
+      
+      const trendingResult = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: trendingPrompt }] }],
+        tools: [{ googleSearch: {} }]
+      });
+      
+      const trendingText = await trendingResult.response.text();
+      const trendingTickers = trendingText.match(/\b[A-Z]{2,5}\b/g) || [];
+      
+      let addedCount = 0;
+      trendingTickers.forEach(ticker => {
+        if (!allTickers.has(ticker)) {
+          allTickers.add(ticker);
+          addedCount++;
+        }
+      });
+      
+      console.log(`✓ AI trending search: ${trendingTickers.length} tickers found, ${addedCount} new unique added`);
+      
+    } catch (e) {
+      console.log('AI trending search failed:', e.message);
     }
   }
   
@@ -1698,22 +2099,26 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
   const displayedTickers = new Set(); 
   const localStocks = [];
   
-  const now = new Date();
-  const threeDaysAgo = new Date(now.getTime() - (3 * 24 * 60 * 60 * 1000));
-  const fDate = now.toISOString().split('T')[0];     
-  const yDate = threeDaysAgo.toISOString().split('T')[0];
-  const currentMonthName = now.toLocaleString('default', { month: 'long' }); 
-  const currentYear = now.getFullYear();
+const now = new Date();
+const twoWeeksAgo = new Date(now.getTime() - (14 * 24 * 60 * 60 * 1000));
+const todayFormatted = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+const twoWeeksAgoFormatted = twoWeeksAgo.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+const fDate = now.toISOString().split('T')[0];     
+const yDate = twoWeeksAgo.toISOString().split('T')[0];
+const currentMonthName = now.toLocaleString('default', { month: 'long' }); 
+const currentYear = now.getFullYear();
 
 let attempts = 0;
+const processedTickers = new Set(); // Track ALL processed tickers across attempts
 
 try {
   const targetGoal = isManual ? 1 : 5;
 
 // Cache discovered tickers outside the loop
 let cachedTickers = null;
+let allTickersExhausted = false;
 
-while (localStocks.length < targetGoal && attempts < 5) {
+while (localStocks.length < targetGoal && attempts < 5 && !allTickersExhausted) {
     attempts++;
     let tickersToProcess = [];
 
@@ -1802,11 +2207,61 @@ const tickers = tickersToProcess.filter(t => {
   return true;
 });
 
-console.log('Tickers after filtering:', tickers);  // ADD THIS
+console.log('Tickers after filtering:', tickers);
+
+// Filter out already processed tickers from previous attempts
+const unprocessedTickers = tickers.filter(t => !processedTickers.has(t));
+console.log(`Unprocessed tickers remaining: ${unprocessedTickers.length}`);
+
+// If no unprocessed tickers left, try to discover more with AI deep search
+if (unprocessedTickers.length === 0) {
+  console.log(`All tickers exhausted. Found ${localStocks.length}/${targetGoal} stocks.`);
+  
+  // Only try deep search if we haven't found enough AND haven't already tried
+  if (localStocks.length < targetGoal && attempts <= 5) {
+    console.log(`Attempting AI deep search for more ${scanSector} stocks...`);
+    setScanStatus(`DEEP SEARCHING FOR MORE ${scanSector.toUpperCase()} STOCKS...`);
+    
+    try {
+      const deepSearchPrompt = `
+Find 50 US stock tickers in the ${scanSector.toUpperCase()} sector that are:
+- Trading under $${scanPriceLimit} per share
+- Listed on NYSE or NASDAQ
+- Have recent news or catalysts
+
+Focus on lesser-known small/mid-cap companies, NOT mega-caps.
+Return ONLY comma-separated tickers, nothing else.
+Example: PLTK, INFY, EPAM, GLOB, CTSH
+`;
+      
+      const deepResult = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: deepSearchPrompt }] }],
+        tools: [{ googleSearch: {} }]
+      });
+      
+      const deepText = await deepResult.response.text();
+      const deepTickers = (deepText.match(/\b[A-Z]{2,5}\b/g) || [])
+        .filter(t => !processedTickers.has(t) && !recentlyScanned.has(t));
+      
+      console.log(`Deep search found ${deepTickers.length} new tickers`);
+      
+      if (deepTickers.length > 0) {
+        // Add these to tickersToProcess and continue
+        tickersToProcess = deepTickers;
+        continue; // Go back to top of while loop to process these
+      }
+    } catch (e) {
+      console.log('Deep search failed:', e.message);
+    }
+  }
+  
+  allTickersExhausted = true;
+  break;
+}
 
 // NEW: User-specific randomization for legal compliance
 const seed = user?.uid ? `${user.uid}-${new Date().toDateString()}` : Date.now().toString();
-const shuffledTickers = tickers.sort((a, b) => {
+const shuffledTickers = unprocessedTickers.sort((a, b) => {
   return hashCode(seed + a) - hashCode(seed + b);
 }).slice(0, 100); // Take first 100 for processing
 
@@ -1832,7 +2287,11 @@ const batchResults = await Promise.allSettled(
         // Stagger status updates slightly so they're visible
         await new Promise(r => setTimeout(r, index * 50));
         setScanStatus(`ANALYZING: ${ticker}`);
-        // 1. EARLY SECTOR CHECK - Skip immediately if cached profile doesn't match sector
+        
+        // Mark this ticker as processed so we don't retry it
+        processedTickers.add(ticker);
+        
+        // 1. EARLY SECTOR CHECK
         if (!isManual && scanSector !== 'all' && profileCache[ticker]) {
           const cachedIndustry = profileCache[ticker]?.finnhubIndustry || '';
           if (!matchesSector(cachedIndustry, scanSector)) {
@@ -1963,10 +2422,15 @@ if (polygonHistData.results && polygonHistData.results.length > 0) {
           }
         }
 
-        const newsArticles = n?.results || [];
+       const newsArticles = n?.results || [];
 const headlines = newsArticles.length > 0 
   ? newsArticles.slice(0, 10).map(i => `[${new Date(i.published_utc).toLocaleDateString()}] ${i.title}`).join(" | ") 
   : "No recent company-specific news found.";
+
+// Date context for AI
+const todayFormatted = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+const oneWeekAgoFormatted = new Date(Date.now() - 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+const currentYear = new Date().getFullYear();
 
         const fiftyTwoWeekHigh = q.h;
         const fiftyTwoWeekLow = q.l;
@@ -1985,12 +2449,23 @@ TECHNICAL SETUP:
 
 const analysisPrompt = isManual 
   ? `
-    TICKER: ${ticker}
-    CURRENT PRICE: $${q.c}
-    52-WEEK RANGE: $${q.l} - $${q.h}
-    ${technicalContext}
-    NEWS (Past 3 Days): ${headlines}
-    COMPANY: ${p.name || ticker}
+ ══════════════════════════════════════════════════════════
+CRITICAL DATE REQUIREMENT - READ CAREFULLY
+══════════════════════════════════════════════════════════
+TODAY'S DATE: ${todayFormatted}
+CURRENT YEAR: ${currentYear}
+VALID DATE RANGE: ${oneWeekAgoFormatted} to ${todayFormatted}
+
+⚠️ ONLY cite news, events, or catalysts from the PAST 14 DAYS.
+⚠️ Any date before ${oneWeekAgoFormatted} is TOO OLD - do not reference it.
+⚠️ If you cannot find news from the past 14 days, say "No recent news found."
+══════════════════════════════════════════════════════════
+
+TICKER: ${ticker}
+PRICE: $${q.c} (52W: $${q.l} - $${q.h})
+${technicalContext}
+NEWS HEADLINES (from Polygon API): ${headlines}
+COMPANY: ${p.name || ticker}
     
     COMPREHENSIVE ANALYSIS REQUIRED:
     
@@ -2045,11 +2520,23 @@ const analysisPrompt = isManual
     Include specific numbers, dates, percentages, and concrete events.
   `
   : `
-    TICKER: ${ticker}
-    PRICE: $${q.c} (52W: $${q.l} - $${q.h})
-    ${technicalContext}
-    NEWS HEADLINES: ${headlines}
-    COMPANY: ${p.name || ticker}
+  ══════════════════════════════════════════════════════════
+CRITICAL DATE REQUIREMENT - READ CAREFULLY
+══════════════════════════════════════════════════════════
+TODAY'S DATE: ${todayFormatted}
+CURRENT YEAR: ${currentYear}
+VALID DATE RANGE: ${oneWeekAgoFormatted} to ${todayFormatted}
+
+⚠️ ONLY cite news, events, or catalysts from the PAST 14 DAYS.
+⚠️ Any date before ${oneWeekAgoFormatted} is TOO OLD - do not reference it.
+⚠️ If you cannot find news from the past 14 days, say "No recent news found."
+══════════════════════════════════════════════════════════
+
+TICKER: ${ticker}
+PRICE: $${q.c} (52W: $${q.l} - $${q.h})
+${technicalContext}
+NEWS HEADLINES (from Polygon API): ${headlines}
+COMPANY: ${p.name || ticker}
 
     COMPREHENSIVE ANALYSIS REQUIRED:
     
