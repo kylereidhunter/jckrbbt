@@ -1923,6 +1923,13 @@ useEffect(() => {
 // --- NEWS ARTICLE DISCOVERY ---
 const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) => {
   const allTickers = new Set();
+
+  const newsBlacklist = [
+    "CNBC", "CNN", "FRED", "WSJ", "NYSE", "NASDAQ", "BLOOMBERG", "REUTERS", 
+    "FDA", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    "AI", "ML", "EV", "CEO", "CFO", "IPO", "ETF", "ESG", "IT", "US", "UK", "EU", "AM", "PM",
+    "NYSE", "ALL", "NOTE", "NOT"
+  ];
   
   // Calculate date range - PAST 2 WEEKS
   const now = new Date();
@@ -1933,6 +1940,51 @@ const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) =
   const twoWeeksAgoFormatted = twoWeeksAgo.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   
   console.log(`📅 Searching for news between ${twoWeeksAgoFormatted} and ${todayFormatted}`);
+
+  // ========== RUN AI SECTOR SEARCH FIRST (if sector filter active) ==========
+  if (sector !== 'all') {
+    console.log(`🔍 Stage 0: AI priority search for ${sector} stocks with catalysts...`);
+    setScanStatus(`FINDING ${sector.toUpperCase()} STOCKS WITH CATALYSTS...`);
+    
+    try {
+      const priorityPrompt = `
+TODAY'S DATE: ${todayFormatted}
+TASK: Find 30 ${sector.toUpperCase()} sector stocks that had NEWS in the past 14 days.
+
+REQUIREMENTS:
+- Stock price between $2 and $${priceLimit}
+- Listed on NYSE or NASDAQ (US stocks only)
+- Had SPECIFIC news between ${twoWeeksAgoFormatted} and ${todayFormatted}
+- News must be: earnings, contracts, FDA/regulatory, analyst ratings, M&A, guidance
+
+DO NOT include:
+- Mega-caps (AAPL, MSFT, GOOGL, AMZN, XOM, CVX)
+- ETFs or ETNs
+- Preferred shares
+- Stocks without recent news
+
+Return ONLY ticker symbols, comma-separated. Example: OII, AROC, DK, FE
+`;
+      
+      const priorityResult = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: priorityPrompt }] }],
+        tools: [{ googleSearch: {} }]
+      });
+      
+      const priorityText = await priorityResult.response.text();
+      const priorityTickers = priorityText.match(/\b[A-Z]{1,5}\b/g) || [];
+      
+      priorityTickers.forEach(ticker => {
+        if (ticker.length >= 2 && ticker.length <= 5 && !newsBlacklist.includes(ticker)) {
+          allTickers.add(ticker);
+        }
+      });
+      
+      console.log(`✓ AI priority search: ${allTickers.size} ${sector} tickers found`);
+    } catch (e) {
+      console.log('AI priority search failed:', e.message);
+    }
+  }
   
   // ========== STAGE 1: Fast Polygon News ==========
   console.log('🔍 Stage 1: Quick scan from Polygon news...');
@@ -1959,6 +2011,29 @@ const discoverNewsArticles = useCallback(async (sector, marketCap, priceLimit) =
   } catch (e) {
     console.log('Polygon news fetch failed:', e.message);
   }
+
+  // ========== STAGE 1.5: Finnhub General News ==========
+console.log('🔍 Stage 1.5: Scanning Finnhub news...');
+try {
+  const finnhubNewsRes = await fetch(
+    `https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`
+  );
+  const finnhubNews = await finnhubNewsRes.json();
+  
+  // Extract tickers mentioned in headlines (Finnhub doesn't always tag them)
+  finnhubNews.slice(0, 100).forEach(article => {
+    // Look for ticker patterns in headline
+    const matches = article.headline.match(/\b[A-Z]{2,5}\b/g) || [];
+    matches.forEach(ticker => {
+      if (ticker.length >= 2 && ticker.length <= 5 && !newsBlacklist.includes(ticker)) {
+        allTickers.add(ticker);
+      }
+    });
+  });
+  console.log(`✓ Finnhub news added, total: ${allTickers.size} tickers`);
+} catch (e) {
+  console.log('Finnhub news failed:', e.message);
+}
   
   // ========== STAGE 2: Polygon Gainers/Losers (instant) ==========
   console.log('🔍 Stage 2: Scanning top movers...');
@@ -2118,7 +2193,7 @@ try {
 let cachedTickers = null;
 let allTickersExhausted = false;
 
-while (localStocks.length < targetGoal && attempts < 5 && !allTickersExhausted) {
+while (localStocks.length < targetGoal && attempts < 10 && !allTickersExhausted) {
     attempts++;
     let tickersToProcess = [];
 
@@ -2163,9 +2238,44 @@ const blacklist = [
 
 const foreignSuffixes = [".L", ".HK", ".TO", ".AX", ".PA", ".DE"];
 
+const isPreferredOrETF = (ticker) => {
+  // 5-letter tickers ending in specific patterns are usually preferred/notes
+  if (ticker.length === 5) {
+    const lastTwo = ticker.slice(-2);
+    const lastChar = ticker.slice(-1);
+    // Preferred shares: end in P, N, O, L, M, G, Z patterns
+    if (['PN', 'PP', 'PO', 'PL', 'PM', 'PG', 'PZ',
+         'CN', 'CL', 'CI', 'CG', 'CO', 'CZ', 'CP',
+         'WS', 'IL', 'IZ',
+        ].includes(lastTwo)) return true;
+    
+    // If 5 letters and last char is P, N, O, L, G, Z - likely preferred
+    if (['P', 'N', 'O', 'L', 'G', 'Z'].includes(lastChar)) return true;
+  }
+  
+  // 4-letter ending in P is often preferred
+  if (ticker.length === 4 && ticker.endsWith('P')) return true;
+  
+  // Known ETF/ETN/leveraged products
+  const etfPatterns = ['VIX', 'VXX', 'UVXY', 'SVXY', 'VIXY', 'VYLD', 'SVOL', 
+    'SQQQ', 'TQQQ', 'LABU', 'LABD', 'NUGT', 'DUST', 'JNUG', 'JDST', 
+    'MSTZ', 'MSDD', 'NVDL', 'TSLL', 'XRPT', 'UXRP', 'ZKPW', 'ETHV', 'SOLZ',
+    'BITW', 'GBTC', 'ETHE', 'ARKK', 'ARKW', 'ARKG'];
+  if (etfPatterns.includes(ticker)) return true;
+  
+  // Common preferred share series patterns
+  if (ticker.startsWith('OXLC') && ticker.length === 5) return true;
+  if (ticker.startsWith('VLY') && ticker.length >= 4) return true;
+  if (ticker.startsWith('DCOM') && ticker.length === 5) return true;
+  
+  return false;
+};
+
+
 const tickers = tickersToProcess.filter(t => {
   if (!isManual && blacklist.includes(t)) return false;
   if (foreignSuffixes.some(suffix => t.includes(suffix))) return false;
+  if (!isManual && isPreferredOrETF(t)) return false;  // ADD THIS LINE
   
   // Skip for manual searches - allow any valid ticker
   if (!isManual) {
@@ -2223,15 +2333,16 @@ if (unprocessedTickers.length === 0) {
     setScanStatus(`DEEP SEARCHING FOR MORE ${scanSector.toUpperCase()} STOCKS...`);
     
     try {
-      const deepSearchPrompt = `
-Find 50 US stock tickers in the ${scanSector.toUpperCase()} sector that are:
-- Trading under $${scanPriceLimit} per share
-- Listed on NYSE or NASDAQ
-- Have recent news or catalysts
+const deepSearchPrompt = `
+TODAY: ${todayFormatted}
 
-Focus on lesser-known small/mid-cap companies, NOT mega-caps.
-Return ONLY comma-separated tickers, nothing else.
-Example: PLTK, INFY, EPAM, GLOB, CTSH
+Find 50 ${scanSector !== 'all' ? scanSector.toUpperCase() + ' sector' : ''} stocks that:
+- Trade between $2 and $${scanPriceLimit}
+- Had NEWS in the past 14 days (earnings, FDA, contracts, analyst upgrades)
+- Are NOT in this list: ${[...processedTickers].slice(-100).join(', ')}
+
+Focus on small/mid-cap with REAL dated catalysts. No mega-caps.
+Return ONLY tickers, comma-separated.
 `;
       
       const deepResult = await aiModel.generateContent({
@@ -2261,9 +2372,18 @@ Example: PLTK, INFY, EPAM, GLOB, CTSH
 
 // NEW: User-specific randomization for legal compliance
 const seed = user?.uid ? `${user.uid}-${new Date().toDateString()}` : Date.now().toString();
-const shuffledTickers = unprocessedTickers.sort((a, b) => {
+// Pre-filter to prioritize real companies over ETFs/preferred before slicing
+const prioritizedTickers = unprocessedTickers.sort((a, b) => {
+  // Deprioritize 5-letter tickers (often preferred shares, warrants)
+  const aScore = a.length === 5 ? 1 : 0;
+  const bScore = b.length === 5 ? 1 : 0;
+  if (aScore !== bScore) return aScore - bScore;
+  
+  // Then apply user-specific shuffle
   return hashCode(seed + a) - hashCode(seed + b);
-}).slice(0, 100); // Take first 100 for processing
+});
+
+const shuffledTickers = prioritizedTickers.slice(0, 150); // Increased to 150
 
 console.log('shuffledTickers:', shuffledTickers);  // ADD THIS
 console.log('Starting for loop, targetGoal:', targetGoal);  // ADD THIS
@@ -2284,25 +2404,50 @@ setScanProgress(Math.round(progressPercent));
 const batchResults = await Promise.allSettled(
     batch.map(async (ticker, index) => {
       try {
+        // Mark this ticker as processed so we don't retry it
+        processedTickers.add(ticker);
+        
+        // 0. QUICK PRICE CHECK FIRST (cheapest API call)
+        if (!isManual) {
+          try {
+            const quickQuote = await fetch(
+              `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`
+            ).then(r => r.json());
+            
+            if (!quickQuote.results || !quickQuote.results[0]) {
+              console.log(`${ticker} - No quote data, skipping`);
+              return null;
+            }
+            
+            const price = quickQuote.results[0].c;
+            
+            // Check price limits immediately
+            const minPrice = (scanSector === 'technology' || scanSector === 'healthcare') ? 0.50 : 2;
+            if (price < minPrice) {
+              console.log(`${ticker} - Quick reject: Price too low ($${price} < $${minPrice})`);
+              return null;
+            }
+            if (price > scanPriceLimit) {
+              console.log(`${ticker} - Quick reject: Price above limit ($${price} > $${scanPriceLimit})`);
+              return null;
+            }
+          } catch (e) {
+            console.log(`${ticker} - Quick quote failed, skipping`);
+            return null;
+          }
+        }
+        
         // Stagger status updates slightly so they're visible
         await new Promise(r => setTimeout(r, index * 50));
         setScanStatus(`ANALYZING: ${ticker}`);
         
-        // Mark this ticker as processed so we don't retry it
-        processedTickers.add(ticker);
-        
-        // 1. EARLY SECTOR CHECK
+        // 1. EARLY SECTOR CHECK (using cached data to skip API calls)
         if (!isManual && scanSector !== 'all' && profileCache[ticker]) {
           const cachedIndustry = profileCache[ticker]?.finnhubIndustry || '';
           if (!matchesSector(cachedIndustry, scanSector)) {
             console.log(`${ticker} - Skipped (cached): Sector mismatch (${cachedIndustry} vs ${scanSector})`);
             return null;
           }
-          // If no sector data and we're filtering, skip
-if (scanSector !== 'all' && !p.finnhubIndustry) {
-  console.log(`${ticker} - Skipped: No sector data available`);
-  return null;
-}
 
 if (scanSector !== 'all' && !matchesSector(p.finnhubIndustry, scanSector)) {
   console.log(`${ticker} - Rejected: Sector mismatch (${p.finnhubIndustry} vs ${scanSector})`);
@@ -2342,20 +2487,6 @@ const q = {
           console.log(`${ticker} - Invalid quote data`);
           return null;
         }
-
-        // 4. Check price limits
-if (!isManual) {
-  // Dynamic minimum based on sector - tech/biotech have many legitimate sub-$2 stocks
-  const minPrice = (scanSector === 'technology' || scanSector === 'healthcare') ? 0.50 : 2;
-  if (q.c < minPrice) {
-    console.log(`${ticker} - Rejected: Price too low ($${q.c} < $${minPrice})`);
-    return null;
-  }
-  if (q.c > scanPriceLimit) {
-    console.log(`${ticker} - Rejected: Price above limit ($${q.c} > $${scanPriceLimit})`);
-    return null;
-  }
-}
 
         // 5. Fetch or use cached profile (using Twelve Data)
 let p;
@@ -2427,11 +2558,6 @@ const headlines = newsArticles.length > 0
   ? newsArticles.slice(0, 10).map(i => `[${new Date(i.published_utc).toLocaleDateString()}] ${i.title}`).join(" | ") 
   : "No recent company-specific news found.";
 
-// Date context for AI
-const todayFormatted = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-const oneWeekAgoFormatted = new Date(Date.now() - 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-const currentYear = new Date().getFullYear();
-
         const fiftyTwoWeekHigh = q.h;
         const fiftyTwoWeekLow = q.l;
         const currentPrice = q.c;
@@ -2454,12 +2580,230 @@ CRITICAL DATE REQUIREMENT - READ CAREFULLY
 ══════════════════════════════════════════════════════════
 TODAY'S DATE: ${todayFormatted}
 CURRENT YEAR: ${currentYear}
-VALID DATE RANGE: ${oneWeekAgoFormatted} to ${todayFormatted}
+VALID DATE RANGE: ${twoWeeksAgoFormatted} to ${todayFormatted}
 
 ⚠️ ONLY cite news, events, or catalysts from the PAST 14 DAYS.
-⚠️ Any date before ${oneWeekAgoFormatted} is TOO OLD - do not reference it.
+⚠️ Any date before ${twoWeeksAgoFormatted} is TOO OLD - do not reference it.
 ⚠️ If you cannot find news from the past 14 days, say "No recent news found."
 ══════════════════════════════════════════════════════════
+
+CATALYST REQUIREMENTS:
+- Look for news events from the past 14 days
+- GOOD catalysts (return BULLISH or BEARISH):
+
+  EARNINGS & FINANCIALS:
+  * Earnings reports (beat, miss, guidance, pre-announcements)
+  * Revenue growth or decline announcements
+  * Margin expansion or compression
+  * Cash flow improvements
+  * Guidance raised, lowered, or reaffirmed
+  * Backlog or order book updates
+  * Same-store sales or comparable metrics
+  * EBITDA or profit updates
+  * Break-even announcements
+  * First profitable quarter
+
+  ANALYST & INVESTOR ACTIVITY:
+  * Analyst upgrades, downgrades, price target changes
+  * Initiation of coverage by analysts
+  * Activist investor involvement
+  * Institutional buying (13F filings)
+  * Insider BUYING over $500K
+  * Short interest changes or short squeeze potential
+  * Inclusion/removal from major indices (S&P 500, Russell, etc.)
+  * ETF additions or removals
+
+  M&A & CORPORATE ACTIONS:
+  * M&A news, acquisition rumors, buyout speculation
+  * Spin-offs or divestitures
+  * Stock buyback announcements
+  * Secondary offerings or equity raises
+  * Debt refinancing or credit rating changes
+  * Bankruptcy filing or emergence
+  * Restructuring or cost-cutting announcements
+  * Leadership changes (CEO, CFO, board members)
+  * Board shake-ups
+
+  HEALTHCARE & BIOTECH:
+  * FDA approvals, rejections, CRL (complete response letters)
+  * Clinical trial results (Phase 1, 2, 3)
+  * PDUFA dates approaching
+  * Drug/therapy designations (breakthrough, fast track, orphan, priority review)
+  * NDA or BLA submissions
+  * Advisory committee (AdCom) votes
+  * Patent expirations or extensions
+  * Generic competition news
+  * Drug pricing news
+  * Medicare/Medicaid coverage decisions
+  * Hospital or pharmacy partnerships
+  * Label expansions for existing drugs
+
+  TECHNOLOGY & SOFTWARE:
+  * Product launches or major updates
+  * Subscriber or user growth numbers
+  * Monthly/daily active users (MAU/DAU)
+  * Customer wins or losses
+  * Churn rate improvements
+  * ARR (annual recurring revenue) updates
+  * Cloud migration deals
+  * AI/ML product announcements
+  * Cybersecurity incidents or solutions
+  * Data center expansions
+  * Chip/semiconductor orders or shortages
+  * Software licensing deals
+  * Platform partnerships (AWS, Azure, Google Cloud)
+  * Developer ecosystem growth
+  * API integrations announced
+
+  ENERGY & OIL/GAS:
+  * Drilling results or well completions
+  * Exploration results
+  * Reserve estimates updated
+  * Production or output numbers
+  * Pipeline capacity or infrastructure news
+  * Refinery utilization updates
+  * LNG export contracts
+  * OPEC decisions affecting company
+  * Oil/gas price hedging updates
+  * Rig count changes
+  * Acreage acquisitions
+  * Midstream capacity expansions
+  * Renewable energy investments by traditional energy companies
+  * Carbon capture initiatives
+
+  RETAIL & CONSUMER:
+  * Same-store sales or comps
+  * Store openings or closures
+  * E-commerce growth numbers
+  * Holiday sales previews or results
+  * Inventory updates
+  * Foot traffic data
+  * New product line launches
+  * Celebrity or influencer partnerships
+  * Loyalty program growth
+  * Private label expansion
+  * Pricing actions (increases or decreases)
+  * Supply chain improvements
+
+  INDUSTRIALS & MANUFACTURING:
+  * Factory openings, closures, or expansions
+  * Production ramp-ups
+  * Capacity utilization updates
+  * Supply chain updates
+  * Raw material cost impacts
+  * Automation investments
+  * Reshoring or offshoring news
+  * Union negotiations or labor news
+  * Safety incidents or improvements
+  * Quality control updates
+  * Delivery or shipment numbers
+  * Maintenance capex updates
+
+  FINANCIALS & BANKING:
+  * Net interest margin changes
+  * Loan growth or decline
+  * Deposit growth
+  * Credit quality updates (NPLs, charge-offs)
+  * Capital ratios (CET1, etc.)
+  * Stress test results
+  * Branch openings or closures
+  * Fintech partnerships
+  * Trading revenue updates
+  * Wealth management AUM
+  * Insurance premium growth
+  * Claims experience updates
+  * Underwriting profitability
+
+  REAL ESTATE & REITs:
+  * Occupancy rate changes
+  * Rent growth or decline
+  * Lease renewals or expirations
+  * Property acquisitions or dispositions
+  * Development pipeline updates
+  * Cap rate movements
+  * FFO (funds from operations) updates
+  * Tenant bankruptcies or new tenants
+  * Geographic expansion
+  * Property type pivots
+
+  TRANSPORTATION & LOGISTICS:
+  * Load volumes or shipping rates
+  * Fleet expansion or contraction
+  * Fuel cost hedging
+  * Route additions or cuts
+  * On-time performance
+  * Passenger numbers (airlines)
+  * Revenue per available seat mile (RASM)
+  * Freight rates updates
+  * Port congestion impacts
+  * EV fleet transitions
+
+  TELECOM & MEDIA:
+  * Subscriber additions or losses
+  * ARPU (average revenue per user) changes
+  * 5G rollout updates
+  * Spectrum acquisitions
+  * Content deals or losses
+  * Streaming subscriber numbers
+  * Advertising revenue updates
+  * Cord-cutting impacts
+  * Network investment updates
+  * Roaming agreement changes
+
+  MATERIALS & MINING:
+  * Commodity price impacts
+  * Production volumes
+  * Grade improvements or declines
+  * New deposit discoveries
+  * Mine openings or closures
+  * Processing capacity updates
+  * Offtake agreements
+  * Royalty or streaming deals
+  * Environmental permits
+  * Reclamation updates
+
+  UTILITIES:
+  * Rate case decisions
+  * Regulatory approvals
+  * Renewable energy capacity additions
+  * Grid investment updates
+  * Storm damage or restoration
+  * Nuclear plant updates
+  * Coal plant retirements
+  * Customer growth
+  * Energy efficiency programs
+  * Electric vehicle charging infrastructure
+
+  GENERAL (ALL SECTORS):
+  * Major contracts, partnerships, or collaborations
+  * Government contracts or grants
+  * International expansion news
+  * Joint ventures announced
+  * Licensing agreements
+  * Distribution deals
+  * Patent approvals or IP developments
+  * Legal settlements or lawsuit outcomes
+  * Regulatory approvals (FCC, EPA, SEC, etc.)
+  * Import/export tariff impacts
+  * Weather events affecting operations
+  * ESG/sustainability initiatives
+  * Conference presentations or investor day events
+  * Awards or recognitions
+  * Customer testimonials or case studies publicized
+  * Website traffic or app download surges
+  * Social media buzz or viral moments
+  * Significant price movement with volume (>5% move)
+
+- BAD catalysts (return NEUTRAL only for these):
+  * Routine quarterly dividends with NO other news
+  * Small insider SELLING (<$1M) with NO other news  
+  * Absolutely NO company news in past 14 days
+  * Only generic sector commentary with no company-specific info
+  * Stock mentioned only in a "stocks to watch" list with no substance
+
+- DEFAULT TO BULLISH OR BEARISH - only use NEUTRAL when there truly is ZERO company-specific news
+  
+- If the only news is dividends, small insider trades, or technical patterns, return [SIG] NEUTRAL [/SIG]
 
 TICKER: ${ticker}
 PRICE: $${q.c} (52W: $${q.l} - $${q.h})
@@ -2525,12 +2869,230 @@ CRITICAL DATE REQUIREMENT - READ CAREFULLY
 ══════════════════════════════════════════════════════════
 TODAY'S DATE: ${todayFormatted}
 CURRENT YEAR: ${currentYear}
-VALID DATE RANGE: ${oneWeekAgoFormatted} to ${todayFormatted}
+VALID DATE RANGE: ${twoWeeksAgoFormatted}to ${todayFormatted}
 
 ⚠️ ONLY cite news, events, or catalysts from the PAST 14 DAYS.
-⚠️ Any date before ${oneWeekAgoFormatted} is TOO OLD - do not reference it.
+⚠️ Any date before ${twoWeeksAgoFormatted} is TOO OLD - do not reference it.
 ⚠️ If you cannot find news from the past 14 days, say "No recent news found."
 ══════════════════════════════════════════════════════════
+
+CATALYST REQUIREMENTS:
+- Look for news events from the past 14 days
+- GOOD catalysts (return BULLISH or BEARISH):
+
+  EARNINGS & FINANCIALS:
+  * Earnings reports (beat, miss, guidance, pre-announcements)
+  * Revenue growth or decline announcements
+  * Margin expansion or compression
+  * Cash flow improvements
+  * Guidance raised, lowered, or reaffirmed
+  * Backlog or order book updates
+  * Same-store sales or comparable metrics
+  * EBITDA or profit updates
+  * Break-even announcements
+  * First profitable quarter
+
+  ANALYST & INVESTOR ACTIVITY:
+  * Analyst upgrades, downgrades, price target changes
+  * Initiation of coverage by analysts
+  * Activist investor involvement
+  * Institutional buying (13F filings)
+  * Insider BUYING over $500K
+  * Short interest changes or short squeeze potential
+  * Inclusion/removal from major indices (S&P 500, Russell, etc.)
+  * ETF additions or removals
+
+  M&A & CORPORATE ACTIONS:
+  * M&A news, acquisition rumors, buyout speculation
+  * Spin-offs or divestitures
+  * Stock buyback announcements
+  * Secondary offerings or equity raises
+  * Debt refinancing or credit rating changes
+  * Bankruptcy filing or emergence
+  * Restructuring or cost-cutting announcements
+  * Leadership changes (CEO, CFO, board members)
+  * Board shake-ups
+
+  HEALTHCARE & BIOTECH:
+  * FDA approvals, rejections, CRL (complete response letters)
+  * Clinical trial results (Phase 1, 2, 3)
+  * PDUFA dates approaching
+  * Drug/therapy designations (breakthrough, fast track, orphan, priority review)
+  * NDA or BLA submissions
+  * Advisory committee (AdCom) votes
+  * Patent expirations or extensions
+  * Generic competition news
+  * Drug pricing news
+  * Medicare/Medicaid coverage decisions
+  * Hospital or pharmacy partnerships
+  * Label expansions for existing drugs
+
+  TECHNOLOGY & SOFTWARE:
+  * Product launches or major updates
+  * Subscriber or user growth numbers
+  * Monthly/daily active users (MAU/DAU)
+  * Customer wins or losses
+  * Churn rate improvements
+  * ARR (annual recurring revenue) updates
+  * Cloud migration deals
+  * AI/ML product announcements
+  * Cybersecurity incidents or solutions
+  * Data center expansions
+  * Chip/semiconductor orders or shortages
+  * Software licensing deals
+  * Platform partnerships (AWS, Azure, Google Cloud)
+  * Developer ecosystem growth
+  * API integrations announced
+
+  ENERGY & OIL/GAS:
+  * Drilling results or well completions
+  * Exploration results
+  * Reserve estimates updated
+  * Production or output numbers
+  * Pipeline capacity or infrastructure news
+  * Refinery utilization updates
+  * LNG export contracts
+  * OPEC decisions affecting company
+  * Oil/gas price hedging updates
+  * Rig count changes
+  * Acreage acquisitions
+  * Midstream capacity expansions
+  * Renewable energy investments by traditional energy companies
+  * Carbon capture initiatives
+
+  RETAIL & CONSUMER:
+  * Same-store sales or comps
+  * Store openings or closures
+  * E-commerce growth numbers
+  * Holiday sales previews or results
+  * Inventory updates
+  * Foot traffic data
+  * New product line launches
+  * Celebrity or influencer partnerships
+  * Loyalty program growth
+  * Private label expansion
+  * Pricing actions (increases or decreases)
+  * Supply chain improvements
+
+  INDUSTRIALS & MANUFACTURING:
+  * Factory openings, closures, or expansions
+  * Production ramp-ups
+  * Capacity utilization updates
+  * Supply chain updates
+  * Raw material cost impacts
+  * Automation investments
+  * Reshoring or offshoring news
+  * Union negotiations or labor news
+  * Safety incidents or improvements
+  * Quality control updates
+  * Delivery or shipment numbers
+  * Maintenance capex updates
+
+  FINANCIALS & BANKING:
+  * Net interest margin changes
+  * Loan growth or decline
+  * Deposit growth
+  * Credit quality updates (NPLs, charge-offs)
+  * Capital ratios (CET1, etc.)
+  * Stress test results
+  * Branch openings or closures
+  * Fintech partnerships
+  * Trading revenue updates
+  * Wealth management AUM
+  * Insurance premium growth
+  * Claims experience updates
+  * Underwriting profitability
+
+  REAL ESTATE & REITs:
+  * Occupancy rate changes
+  * Rent growth or decline
+  * Lease renewals or expirations
+  * Property acquisitions or dispositions
+  * Development pipeline updates
+  * Cap rate movements
+  * FFO (funds from operations) updates
+  * Tenant bankruptcies or new tenants
+  * Geographic expansion
+  * Property type pivots
+
+  TRANSPORTATION & LOGISTICS:
+  * Load volumes or shipping rates
+  * Fleet expansion or contraction
+  * Fuel cost hedging
+  * Route additions or cuts
+  * On-time performance
+  * Passenger numbers (airlines)
+  * Revenue per available seat mile (RASM)
+  * Freight rates updates
+  * Port congestion impacts
+  * EV fleet transitions
+
+  TELECOM & MEDIA:
+  * Subscriber additions or losses
+  * ARPU (average revenue per user) changes
+  * 5G rollout updates
+  * Spectrum acquisitions
+  * Content deals or losses
+  * Streaming subscriber numbers
+  * Advertising revenue updates
+  * Cord-cutting impacts
+  * Network investment updates
+  * Roaming agreement changes
+
+  MATERIALS & MINING:
+  * Commodity price impacts
+  * Production volumes
+  * Grade improvements or declines
+  * New deposit discoveries
+  * Mine openings or closures
+  * Processing capacity updates
+  * Offtake agreements
+  * Royalty or streaming deals
+  * Environmental permits
+  * Reclamation updates
+
+  UTILITIES:
+  * Rate case decisions
+  * Regulatory approvals
+  * Renewable energy capacity additions
+  * Grid investment updates
+  * Storm damage or restoration
+  * Nuclear plant updates
+  * Coal plant retirements
+  * Customer growth
+  * Energy efficiency programs
+  * Electric vehicle charging infrastructure
+
+  GENERAL (ALL SECTORS):
+  * Major contracts, partnerships, or collaborations
+  * Government contracts or grants
+  * International expansion news
+  * Joint ventures announced
+  * Licensing agreements
+  * Distribution deals
+  * Patent approvals or IP developments
+  * Legal settlements or lawsuit outcomes
+  * Regulatory approvals (FCC, EPA, SEC, etc.)
+  * Import/export tariff impacts
+  * Weather events affecting operations
+  * ESG/sustainability initiatives
+  * Conference presentations or investor day events
+  * Awards or recognitions
+  * Customer testimonials or case studies publicized
+  * Website traffic or app download surges
+  * Social media buzz or viral moments
+  * Significant price movement with volume (>5% move)
+
+- BAD catalysts (return NEUTRAL only for these):
+  * Routine quarterly dividends with NO other news
+  * Small insider SELLING (<$1M) with NO other news  
+  * Absolutely NO company news in past 14 days
+  * Only generic sector commentary with no company-specific info
+  * Stock mentioned only in a "stocks to watch" list with no substance
+
+- DEFAULT TO BULLISH OR BEARISH - only use NEUTRAL when there truly is ZERO company-specific news
+  
+- If the only news is dividends, small insider trades, or technical patterns, return [SIG] NEUTRAL [/SIG]
 
 TICKER: ${ticker}
 PRICE: $${q.c} (52W: $${q.l} - $${q.h})
@@ -2599,27 +3161,63 @@ COMPANY: ${p.name || ticker}
     Only use NEUTRAL if headlines literally say "No recent company-specific news found"
   `;
 
-        const analysis = await aiModel.generateContent(analysisPrompt);
+const analysis = await aiModel.generateContent(analysisPrompt);
         const resText = await analysis.response.text();
 
         const signal = extract("SIG", resText).toUpperCase();
-if (!isManual && signal.includes("NEUTRAL")) {
-  console.log(`${ticker} - Rejected: AI signal is NEUTRAL`);
-  return null;
-}
+        if (!isManual && signal.includes("NEUTRAL")) {
+          console.log(`${ticker} - Rejected: AI signal is NEUTRAL`);
+          return null;
+        }
+
+        // Extract catalyst and filter out stocks under legal investigation
+        const catalystText = extract("CAT", resText).toUpperCase();
+        if (!isManual && (
+          catalystText.includes('INVESTIGATION') ||
+          catalystText.includes('SECURITIES CLAIMS') ||
+          catalystText.includes('LAW FIRM') ||
+          catalystText.includes('LAWSUIT') ||
+          catalystText.includes('SECURITIES FRAUD') ||
+          catalystText.includes('CLASS ACTION')
+        )) {
+          console.log(`${ticker} - Rejected: Under legal investigation`);
+          return null;
+        }
 
         const aiConfidence = getScore(extract("CONF", resText), 65);
         const volumeRatio = (q.v || 0) / (q.av || 1);
 
         // Extract similar stocks
-const similarRaw = extract("SIMILAR", resText);
-const similarStocks = similarRaw
-  ? similarRaw
-      .split(',')
-      .map(s => s.trim().toUpperCase().replace(/[^A-Z]/g, ''))
-      .filter(s => s.length >= 2 && s.length <= 5 && s !== ticker.toUpperCase())
-      .slice(0, 5)
-  : [];
+        const similarRaw = extract("SIMILAR", resText);
+        const similarStocks = similarRaw
+          ? similarRaw
+              .split(',')
+              .map(s => s.trim().toUpperCase().replace(/[^A-Z]/g, ''))
+              .filter(s => s.length >= 2 && s.length <= 5 && s !== ticker.toUpperCase())
+              .slice(0, 5)
+          : [];
+
+        // Filter out depositary shares, preferred stocks, notes, etc. by name
+        const companyName = (p.name || '').toUpperCase();
+        if (!isManual && (
+          companyName.includes('DEPOSITARY') ||
+          companyName.includes('DEPOSITORY') ||
+          companyName.includes('PREFERRED') ||
+          companyName.includes('PERPETUAL') ||
+          companyName.includes('CUMULATIVE') ||
+          companyName.includes('FIXED-RATE') ||
+          companyName.includes('FIXED RATE') ||
+          companyName.includes('FLOATING RATE') ||
+          companyName.includes('SERIES A') ||
+          companyName.includes('SERIES B') ||
+          companyName.includes('SERIES C') ||
+          companyName.includes('% NOTES') ||
+          companyName.includes('ETN') ||
+          companyName.includes('TRUST UNITS')
+        )) {
+          console.log(`${ticker} - Rejected: Depositary/Preferred/Note (${p.name})`);
+          return null;
+        }
 
 const newStock = {
   symbol: ticker.trim().toUpperCase(),
