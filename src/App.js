@@ -13,7 +13,7 @@ import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
-import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart } from 'lucide-react';import PlaidLink from './PlaidLink';
+import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History } from 'lucide-react';import PlaidLink from './PlaidLink';
 import StockChatModal from './StockChatModal';
 import UserProfileModal from './UserProfileModal';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, Sector } from 'recharts';
@@ -778,6 +778,8 @@ const [loadingFeed, setLoadingFeed] = useState(false);
 const [following, setFollowing] = useState([]);
 const [showDashboardNews, setShowDashboardNews] = useState(false);
 const [showAllNews, setShowAllNews] = useState(false);
+const [scanHistory, setScanHistory] = useState([]);
+const [showScanHistory, setShowScanHistory] = useState(false);
 
 
 
@@ -1416,6 +1418,58 @@ const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
   }
 }, []);
 
+// Log scanned stocks to Firestore
+const logScanHistory = async (scannedStocks) => {
+  if (!user?.uid || !db || scannedStocks.length === 0) return;
+  try {
+    const { doc, setDoc, getDoc } = await import('firebase/firestore');
+    const histRef = doc(db, 'users', user.uid, 'scanHistory', 'recent');
+    const existing = await getDoc(histRef);
+    const prev = existing.exists() ? existing.data().scans || [] : [];
+    
+    const newEntries = scannedStocks.map(s => ({
+      symbol: s.symbol,
+      name: s.name,
+      price: s.price,
+      change: s.change,
+      catalystType: s.catalystType || 'manual',
+      timestamp: new Date().toISOString()
+    }));
+    
+    // Keep last 50 scans
+    const merged = [...newEntries, ...prev].slice(0, 50);
+    await setDoc(histRef, { scans: merged });
+    setScanHistory(merged);
+  } catch (e) {
+    console.error('Failed to log scan history:', e);
+  }
+};
+
+// Get tickers scanned in last 24 hours
+const getRecentTickers = () => {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return new Set(
+    scanHistory
+      .filter(s => new Date(s.timestamp) > cutoff)
+      .map(s => s.symbol)
+  );
+};
+
+// Load scan history on auth
+const loadScanHistory = async () => {
+  if (!user?.uid || !db) return;
+  try {
+    const { doc, getDoc } = await import('firebase/firestore');
+    const histRef = doc(db, 'users', user.uid, 'scanHistory', 'recent');
+    const snap = await getDoc(histRef);
+    if (snap.exists()) {
+      setScanHistory(snap.data().scans || []);
+    }
+  } catch (e) {
+    console.error('Failed to load scan history:', e);
+  }
+};
+
 // Clear recently scanned stocks every 24 hours
 useEffect(() => {
   const timer = setInterval(() => {
@@ -1498,6 +1552,10 @@ useEffect(() => {
     loadPublicLists();
   }
 }, [activeTab]);
+
+useEffect(() => {
+  loadScanHistory();
+}, [user, db]);
 
 const removeStockFromList = async (listId, stockSymbol) => {
   try {
@@ -2667,6 +2725,35 @@ const updateScanPosition = (newIndex, totalCandidates) => {
   return wrappedIndex;
 };
 
+const fetchEarningsDate = async (symbol) => {
+  try {
+    const today = new Date();
+    const from = today.toISOString().split('T')[0];
+    const futureDate = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const to = futureDate.toISOString().split('T')[0];
+    
+    const res = await fetch(
+      `https://finnhub.io/api/v1/calendar/earnings?symbol=${symbol}&from=${from}&to=${to}&token=${FINNHUB_KEY}`
+    );
+    const data = await res.json();
+    console.log(`Earnings data for ${symbol}:`, data);
+    const upcoming = data.earningsCalendar
+  ?.sort((a, b) => new Date(a.date) - new Date(b.date))
+  .find(e => new Date(e.date) >= today);
+    if (upcoming) {
+      return {
+        date: upcoming.date,
+        estimate: upcoming.epsEstimate,
+        quarter: upcoming.quarter,
+        year: upcoming.year
+      };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+};
+
 // --- STREAMLINED SCANNER ---
 const runScanner = useCallback(async (tickerToSearch = null) => {
   const isManual = Boolean(tickerToSearch);
@@ -2705,6 +2792,8 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
       const news = newsData.results || [];
       const profile = profileData.results || {};
       const change = ((quote.c - quote.o) / quote.o) * 100;
+      const earnings = await fetchEarningsDate(ticker);
+
       
       const stock = {
         symbol: ticker,
@@ -2719,10 +2808,14 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
         news: news.slice(0, 3),
         volume: quote.v,
         industry: profile.sic_description || '',
-        source: 'manual'
+        source: 'manual',
+        earnings: earnings,
       };
+
+      console.log('Stock earnings:', stock.earnings);
       
       setStocks([stock]);
+      logScanHistory([stock]);
       setScanProgress(100);
       setScanStatus("ANALYSIS COMPLETE");
       setScanComplete(true);
@@ -2766,9 +2859,17 @@ setScanProgress(60);
 
 // Verify each stock
 const verified = [];
+
+const recentTickers = getRecentTickers();
+
 for (const stock of candidates) {
   if (verified.length >= 5) break;
   if (!stock.ticker) continue;
+  
+  if (recentTickers.has(stock.ticker)) {
+  console.log(`⏭️ Skipped (scanned recently): ${stock.ticker}`);
+  continue;
+}
   
   try {
     const profileRes = await fetch(
@@ -2817,6 +2918,9 @@ for (const stock of candidates) {
         continue;
       }
     }
+
+  const earnings = await fetchEarningsDate(stock.ticker);
+
     
     // Valid stock!
     verified.push({
@@ -2836,7 +2940,8 @@ for (const stock of candidates) {
       volumeRatio: stock.volumeRatio,
       trigger: stock.trigger,
       source: stock.source,
-      industry: profileData.results?.sic_description || ''
+      industry: profileData.results?.sic_description || '',
+      earnings: earnings,
     });
     
     console.log(`✅ Added: ${stock.ticker} - ${stock.catalystType}: ${stock.catalyst?.slice(0, 50)}`);
@@ -2859,6 +2964,7 @@ verified.forEach(s => {
 });
 
 setStocks(verified);
+logScanHistory(verified);
 setScanProgress(100);
 setScanStatus(`FOUND ${verified.length} STOCKS`);
 setScanComplete(true);
@@ -3342,9 +3448,9 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
   <div className="space-y-4 md:space-y-6 mb-6 md:mb-8">
     
     {/* Page Title */}
-    <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight">
-      Dashboard
-    </h1>
+    <h1 className="text-2xl md:text-3xl font-black text-[#00ff4e] uppercase tracking-tight flex items-center gap-3" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}>
+  <LayoutDashboard size={28} className="md:w-8 md:h-8 text-[#00ff4e]" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Dashboard
+</h1>
 
     {/* Desktop: Side by side | Mobile: Stacked */}
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
@@ -3544,6 +3650,86 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
   
 </div>
 
+{/* SCAN HISTORY */}
+{user && scanHistory.length > 0 && (
+  <div className="mt-4">
+    <button 
+      onClick={() => setShowScanHistory(!showScanHistory)} 
+      className="flex items-center gap-2 md:gap-3 transition-all mb-3"
+    >
+      <History size={14} className={`md:w-4 md:h-4 ${showScanHistory ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+      <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showScanHistory ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+        Scan History ({scanHistory.filter(s => new Date(s.timestamp) > new Date(Date.now() - 24*60*60*1000)).length} in 24hr)
+      </span>
+      <motion.span animate={{ rotate: showScanHistory ? 180 : 0 }} className={`text-[10px] ${showScanHistory ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+    </button>
+    
+    <AnimatePresence>
+      {showScanHistory && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.3 }}
+          className="overflow-hidden"
+        >
+          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+            {scanHistory.map((scan, i) => {
+              const isRecent = new Date(scan.timestamp) > new Date(Date.now() - 24*60*60*1000);
+              const timeAgo = (() => {
+                const diff = Date.now() - new Date(scan.timestamp).getTime();
+                const mins = Math.floor(diff / 60000);
+                if (mins < 60) return `${mins}m ago`;
+                const hrs = Math.floor(mins / 60);
+                if (hrs < 24) return `${hrs}h ago`;
+                return `${Math.floor(hrs / 24)}d ago`;
+              })();
+              const change = parseFloat(scan.change);
+              
+              return (
+                <button
+                  key={`${scan.symbol}-${i}`}
+                  onClick={() => {
+                    setManualSearch(scan.symbol);
+                    setIsManualResult(true);
+                    setStocks([]);
+                    runScanner(scan.symbol);
+                    setShowScanHistory(false);
+                  }}
+                  className="w-full flex items-center justify-between p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 transition-all text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-black text-white">{scan.symbol}</span>
+                      <span className="text-[10px] text-zinc-500 truncate max-w-[120px]">{scan.name}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <span className="text-sm font-black text-white">${scan.price}</span>
+                      <span className={`text-xs font-bold ml-2 ${change >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
+                        {change >= 0 ? '+' : ''}{change.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <span className={`text-[9px] font-bold ${isRecent ? 'text-[#00ff4e]' : 'text-zinc-600'}`}>
+                        {timeAgo}
+                      </span>
+                      {isRecent && (
+                        <span className="text-[8px] text-zinc-600 uppercase">24hr lock</span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </div>
+)}
+
 {/* MANUAL SEARCH RESULTS - Shows right after search box */}
 {isManualResult && displayedStocks.length > 0 && (
   <div className="space-y-6 md:space-y-8 mb-6">
@@ -3633,11 +3819,6 @@ setFilterSignal("all");
 <div className="space-y-6 md:space-y-8 mt-6 md:mt-10">
   {activeTab === "DASHBOARD" ? (
     <>
-      {stocks.length === 0 && !loading && (
-        <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-          <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">Scanner Idle</p>
-        </div>
-      )}
 {/* Initial Loading State - No stocks yet */}
 {loading && stocks.length === 0 && (
   <div className="py-32 text-center">
@@ -3963,9 +4144,8 @@ setFilterSignal("all");
  ) : activeTab === "TRENDING" ? (
   <>
     {/* Page Title */}
-    <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight mb-6">
-      Trending
-    </h1>
+<h1 className="text-2xl md:text-3xl font-black text-[#00ff4e] uppercase tracking-tight flex items-center gap-3" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}> <Flame size={28} className="md:w-8 md:h-8 text-[#00ff4e]" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Trending
+</h1>
 
     {/* Interval Filter */}
     <div className="mb-6">
@@ -4061,9 +4241,8 @@ setFilterSignal("all");
 ) : activeTab === "MY LISTS" ? (
   <>
     {/* Page Title */}
-    <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight mb-6">
-      My Lists
-    </h1>
+<h1 className="text-2xl md:text-3xl font-black text-[#00ff4e] uppercase tracking-tight flex items-center gap-3" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}>  <List size={28} className="md:w-8 md:h-8 text-[#00ff4e]" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} /> My Lists
+</h1>
 
     {/* Create New List Button */}
     {user && (
@@ -4311,9 +4490,8 @@ setFilterSignal("all");
 
 ) : activeTab === "FEED" ? (
   <>
-    <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight mb-2">
-      Activity Feed
-    </h1>
+<h1 className="text-2xl md:text-3xl font-black text-[#00ff4e] uppercase tracking-tight flex items-center gap-3" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}> <Activity size={28} className="md:w-8 md:h-8 text-[#00ff4e]" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Activity Feed
+</h1>
     <p className="text-xs text-zinc-500 font-bold mb-6">
       {following.length > 0 ? 'What people you follow are watching' : 'Discover what the community is watching'}
     </p>
@@ -4472,9 +4650,8 @@ setFilterSignal("all");
 ) : activeTab === "MY POSITIONS" ? (
   <>
     {/* Page Title */}
-    <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight mb-6">
-      My Positions
-    </h1>
+<h1 className="text-2xl md:text-3xl font-black text-[#00ff4e] uppercase tracking-tight flex items-center gap-3" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}>  <Briefcase size={28} className="md:w-8 md:h-8 text-[#00ff4e]" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />My Positions
+</h1>
 
     {!user ? (
       <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
@@ -5436,6 +5613,20 @@ useEffect(() => {
     }
   };
 
+  const getEarningsLabel = (earnings) => {
+  if (!earnings?.date) return null;
+  const today = new Date();
+  const earningsDate = new Date(earnings.date + 'T00:00:00');
+  const diffDays = Math.ceil((earningsDate - today) / (1000 * 60 * 60 * 24));
+  
+  if (diffDays < 0) return null;
+  if (diffDays === 0) return 'TODAY';
+  if (diffDays === 1) return 'TOMORROW';
+  if (diffDays <= 7) return `IN ${diffDays} DAYS`;
+  if (diffDays <= 30) return new Date(earnings.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return null; // Don't show if more than 30 days out
+};
+
   const catalystStyle = getCatalystStyle(stock.catalystType);
   const CatalystIcon = catalystStyle.icon;
 
@@ -5708,25 +5899,65 @@ const sendChatMessage = async (messageText) => {
           </div>
         </div>
 
-        {/* Catalyst Type Badge */}
-        <div className="md:text-right md:border-l-2 md:border-zinc-900 md:pl-8">
+{/* Catalyst Type Badge */}
+<div className="md:text-right md:border-l-2 md:border-zinc-900 md:pl-8">
           <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-wider md:tracking-widest mb-2">Trigger</p>
-          <div 
-            className="inline-flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg font-black text-base md:text-xl uppercase tracking-tight border"
-            style={{ 
-              color: catalystStyle.color, 
-              backgroundColor: `${catalystStyle.color}15`,
-              borderColor: `${catalystStyle.color}40`
-            }}
-          >
-            <CatalystIcon size={20} className="md:w-6 md:h-6" />
-            <span>{catalystStyle.label}</span>
+          <div className="flex flex-wrap gap-2">
+            <div 
+              className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
+              style={{ 
+                color: catalystStyle.color, 
+                backgroundColor: `${catalystStyle.color}15`,
+                borderColor: `${catalystStyle.color}40`
+              }}
+            >
+              <CatalystIcon size={14} className="md:w-4 md:h-4" />
+              <span>{catalystStyle.label}</span>
+            </div>
+            {/* Earnings Badge */}
+            {getEarningsLabel(stock.earnings) && (
+              <div 
+                className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
+                style={{ 
+                  color: '#f59e0b', 
+                  backgroundColor: 'rgba(245,158,11,0.08)',
+                  borderColor: 'rgba(245,158,11,0.25)'
+                }}
+              >
+                <BarChart3 size={14} className="md:w-4 md:h-4" style={{ color: '#f59e0b' }} />
+                <span>EARNINGS {getEarningsLabel(stock.earnings)}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
+            {/* CHART TOGGLE */}
+<div className="border-t-2 border-zinc-900 mt-4 md:mt-6 pt-4 md:pt-6 pb-4 md:pb-6">
+          <button onClick={() => setShowChart(!showChart)} className="flex items-center gap-2 md:gap-3 transition-all">
+  <TrendingUp size={14} className={`md:w-4 md:h-4 ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+  <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+    {showChart ? "Hide Chart" : "View Chart"}
+  </span>
+  <motion.span animate={{ rotate: showChart ? 180 : 0 }} className={`text-[10px] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+</button>
+
+        <AnimatePresence>
+          {showChart && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
+              exit={{ height: 0, opacity: 0 }}
+              className="mt-4 md:mt-6 overflow-hidden"
+            >
+              <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       {/* CATALYST - Why It's Moving */}
-      <div className="border-t-2 border-zinc-900 pt-4 md:pt-8 mb-6 md:mb-8">
+      <div className="border-t-2 border-zinc-900 pt-4 md:pt-8 mt-0 md:mt-0 mb-6 md:mb-8">
         <div className="flex items-start gap-3 md:gap-4">
           <div 
             className="flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center mt-0.5"
@@ -5796,7 +6027,7 @@ const sendChatMessage = async (messageText) => {
 
 {/* CHAT SECTION WITH BORDER */}
       {chatMessages.length > 0 && (
-        <div className="border-t-2 border-zinc-900 pt-4 md:pt-6 mb-4 md:mb-6">
+        <div className="border-t-2 border-zinc-900 pt-4 md:pt-6 mb-0">
           <AnimatePresence>
             {chatOpen && (
               <motion.div
@@ -5906,10 +6137,13 @@ const sendChatMessage = async (messageText) => {
       )}
 
       {/* ASK AI SECTION */}
-      <div className="pt-4 md:pt-6 mb- md:mb-6">
-        <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-3">
-          Ask AI
-        </p>
+      <div className="pt-0 md:pt-0 mb-2 md:mb-3">
+<div className="flex items-center gap-2 md:gap-3 mb-3">
+ <Lightbulb size={14} className="md:w-4 md:h-4 text-[#00ff4e]" />
+  <span className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-white">
+    Ask AI
+  </span>
+</div>
         
         {/* Quick Prompt Pills - compact, wrapping row */}
         <div className="flex flex-wrap gap-1.5 md:gap-2 mb-3">
@@ -5965,16 +6199,16 @@ const sendChatMessage = async (messageText) => {
         </div>
       </div>
 
-      {/* NEWS ARTICLES TOGGLE */}
+{/* NEWS ARTICLES TOGGLE */}
       {stock.news && stock.news.length > 0 && (
-        <div className="border-t-2 border-zinc-900 pt-4 md:pt-6">
-          <button onClick={() => setShowNews(!showNews)} className="group flex items-center gap-2 md:gap-3 transition-all">
-            <span className={`h-1 w-1 md:h-1.5 md:w-1.5 rounded-full ${showNews ? 'bg-[#00ff4e] shadow-[0_0_8px_#00ff4e]' : 'bg-zinc-700'}`} />
-            <span className={`text-[8px] md:text-[10px] font-black uppercase tracking-[0.25em] md:tracking-[0.3em] ${showNews ? 'text-[#00ff4e]' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
-              {showNews ? "Hide News" : `View ${stock.news.length} Related ${stock.news.length === 1 ? 'Article' : 'Articles'}`}
-            </span>
-            <motion.span animate={{ rotate: showNews ? 180 : 0 }} className={`text-[8px] md:text-[10px] ${showNews ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
-          </button>
+        <div className="border-t-2 border-zinc-900 mt-4 md:mt-6 pt-4 md:pt-6">
+          <button onClick={() => setShowNews(!showNews)} className="flex items-center gap-2 md:gap-3 transition-all">
+  <Newspaper size={14} className={`md:w-4 md:h-4 ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+  <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+    {showNews ? "Hide News" : `View ${stock.news.length} Related ${stock.news.length === 1 ? 'Article' : 'Articles'}`}
+  </span>
+  <motion.span animate={{ rotate: showNews ? 180 : 0 }} className={`text-[10px] ${showNews ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+</button>
 
           <AnimatePresence>
             {showNews && (
@@ -6022,36 +6256,7 @@ const sendChatMessage = async (messageText) => {
           </AnimatePresence>
         </div>
       )}
-
-      {/* CHART TOGGLE */}
-      <div className={`${stock.news && stock.news.length > 0 ? '' : 'border-t-2 border-zinc-900'} pt-4 md:pt-6 ${stock.news && stock.news.length > 0 ? 'mt-4' : ''}`}>
-        <button onClick={() => setShowChart(!showChart)} className="group flex items-center gap-2 md:gap-3 transition-all">
-          <span className={`h-1 w-1 md:h-1.5 md:w-1.5 rounded-full ${showChart ? 'bg-[#00ff4e] shadow-[0_0_8px_#00ff4e]' : 'bg-zinc-700'}`} />
-          <span className={`text-[8px] md:text-[10px] font-black uppercase tracking-[0.25em] md:tracking-[0.3em] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
-                        {showChart ? "Hide Chart" : "View Price Action"}
-          </span>
-          <motion.span animate={{ rotate: showChart ? 180 : 0 }} className={`text-[8px] md:text-[10px] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
-        </button>
-
-        <AnimatePresence>
-          {showChart && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
-              exit={{ height: 0, opacity: 0 }}
-              className="mt-4 md:mt-6 overflow-hidden"
-            >
-              <div className="bg-zinc-950/50 border border-zinc-800 rounded-xl p-3 md:p-4">
-                <div className="flex justify-between items-center mb-3 md:mb-4">
-                  <h4 className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-zinc-500">Intraday Pulse</h4>
-                  <span className="text-[8px] md:text-[10px] font-bold text-[#00ff4e]">LIVE</span>
-                </div>
-                <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} />
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+      <div className="pb-2 md:pb-4" />
     </div>
   );
 }, (prevProps, nextProps) => {
@@ -6079,6 +6284,7 @@ const PortfolioAnalytics = React.memo(function PortfolioAnalytics({ positions, p
   // Fetch sector data for all positions
   useEffect(() => {
     if (!positions || positions.length === 0) return;
+
     
     const fetchSectors = async () => {
       setLoadingSectors(true);
