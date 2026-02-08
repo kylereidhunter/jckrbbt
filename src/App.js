@@ -4925,47 +4925,6 @@ setFilterSignal("all");
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Portfolio Summary for Selected Brokerage */}
-                <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500">
-                      {connectedBrokerages.find(b => b.id === selectedBrokerage)?.name || 'Portfolio'} Summary
-                    </h3>
-                    <button
-                      onClick={() => fetchAllPositions()}
-                      disabled={loadingPositions}
-                      className="flex items-center gap-2 text-xs text-zinc-500 hover:text-[#00ff4e] transition-colors"
-                    >
-                      <RefreshCw size={14} className={loadingPositions ? 'animate-spin' : ''} />
-                      Refresh
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <p className="text-xs text-zinc-600 mb-1">Total Value</p>
-                      <p className="text-2xl font-black text-white">
-                        ${positions.reduce((sum, p) => sum + (p.value ?? 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-zinc-600 mb-1">Total Gain/Loss</p>
-                      <p className={`text-2xl font-black ${positions.reduce((sum, p) => sum + (p.gain ?? 0), 0) >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
-                        {positions.reduce((sum, p) => sum + (p.gain ?? 0), 0) >= 0 ? '+' : ''}
-                        ${Math.abs(positions.reduce((sum, p) => sum + (p.gain ?? 0), 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
-                      <p className="text-2xl font-black text-white">
-                        ${positions.reduce((sum, p) => sum + (p.costBasis ?? 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-zinc-600 mb-1">Positions</p>
-                      <p className="text-2xl font-black text-white">{positions.length}</p>
-                    </div>
-                  </div>
-                </div>
 
                 {/* Combined Portfolio Summary (if multiple brokerages) */}
                 {connectedBrokerages.length > 1 && (
@@ -4999,11 +4958,20 @@ setFilterSignal("all");
                   </div>
                 )}
 
-{/* Portfolio Analytics */}
-                <PortfolioAnalytics 
-                  positions={positions} 
-                  polygonKey={POLYGON_KEY} 
-                />
+<PortfolioPerformanceChart 
+  positions={positions} 
+  polygonKey={POLYGON_KEY} 
+  user={user} 
+  db={db} 
+  brokerageName={connectedBrokerages.find(b => b.id === selectedBrokerage)?.name || 'Portfolio'}
+  onRefresh={() => fetchAllPositions()}
+  refreshing={loadingPositions}
+/>
+
+<PortfolioAnalytics 
+  positions={positions} 
+  polygonKey={POLYGON_KEY} 
+/>                
 
                 {/* Position Cards */}
                 {positions.map((position, index) => {
@@ -5482,7 +5450,7 @@ const StockChart = ({ symbol, polygonKey }) => {
           className="h-[200px] md:h-[260px]"
           onMouseLeave={() => setHoverData(null)}
         >
-          <ResponsiveContainer width="100%" height="100%">
+         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
             <ComposedChart 
               data={chartData} 
               margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
@@ -6393,6 +6361,400 @@ const sendChatMessage = async (messageText) => {
     prevProps.watchlist.length === nextProps.watchlist.length &&
     prevProps.aiModel === nextProps.aiModel &&
     prevProps.db === nextProps.db
+  );
+});
+
+// =============================================
+// PORTFOLIO PERFORMANCE CHART (with daily snapshots)
+// =============================================
+const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart({ positions, polygonKey, user, db, brokerageName, onRefresh, refreshing }) {  const [timeframe, setTimeframe] = useState('1M');
+  const [chartData, setChartData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [historicalCache, setHistoricalCache] = useState(null);
+  const [todayMovers, setTodayMovers] = useState([]);
+  const [hoverValue, setHoverValue] = useState(null);
+  const [snapshots, setSnapshots] = useState({});
+
+  const totalValue = positions.reduce((sum, p) => sum + (p.value ?? 0), 0);
+  const totalCost = positions.reduce((sum, p) => sum + (p.costBasis ?? 0), 0);
+
+  // Save daily snapshot to Firestore
+  useEffect(() => {
+    if (!user?.uid || !db || positions.length === 0 || totalValue === 0) return;
+    
+    const saveSnapshot = async () => {
+      try {
+        const { doc, setDoc } = await import('firebase/firestore');
+        const today = new Date().toISOString().split('T')[0];
+        await setDoc(doc(db, 'users', user.uid, 'portfolioSnapshots', today), {
+          date: today,
+          totalValue,
+          totalCost,
+          positionCount: positions.length,
+          positions: positions.map(p => ({ 
+            symbol: p.symbol, 
+            quantity: p.quantity, 
+            price: p.currentPrice || p.price 
+          })),
+          timestamp: Date.now()
+        }, { merge: true });
+      } catch (e) {
+        console.error('Failed to save portfolio snapshot:', e);
+      }
+    };
+    
+    saveSnapshot();
+  }, [user, db, totalValue]);
+
+  // Load snapshots from Firestore
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    
+    const loadSnapshots = async () => {
+      try {
+        const { collection, getDocs, query, orderBy } = await import('firebase/firestore');
+        const q = query(
+          collection(db, 'users', user.uid, 'portfolioSnapshots'),
+          orderBy('date', 'asc')
+        );
+        const snap = await getDocs(q);
+        const data = {};
+        snap.docs.forEach(d => {
+          data[d.data().date] = d.data();
+        });
+        setSnapshots(data);
+      } catch (e) {
+        console.error('Failed to load snapshots:', e);
+      }
+    };
+    
+    loadSnapshots();
+  }, [user, db]);
+
+  // Fetch historical data from Polygon
+  useEffect(() => {
+    if (!positions || positions.length === 0 || !polygonKey) return;
+    if (historicalCache) return;
+
+    const fetchHistory = async () => {
+      setLoading(true);
+      const cache = {};
+      const to = new Date().toISOString().split('T')[0];
+      const from = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      
+      const validPositions = positions.filter(p => 
+        p.symbol && p.symbol !== 'N/A' && !p.symbol.includes(':') && (p.quantity ?? 0) > 0
+      );
+
+      for (let i = 0; i < validPositions.length; i++) {
+        const pos = validPositions[i];
+        try {
+          const res = await fetch(
+            `https://api.polygon.io/v2/aggs/ticker/${pos.symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=100&apiKey=${polygonKey}`
+          );
+          const data = await res.json();
+          if (data.results) {
+            cache[pos.symbol] = data.results.map(bar => ({
+              date: new Date(bar.t).toISOString().split('T')[0],
+              close: bar.c,
+              timestamp: bar.t
+            }));
+          }
+        } catch (e) {
+          console.error(`Failed to fetch history for ${pos.symbol}:`, e);
+        }
+        // Rate limit: 250ms between calls
+        if (i < validPositions.length - 1) {
+          await new Promise(r => setTimeout(r, 250));
+        }
+      }
+      
+      setHistoricalCache(cache);
+      setLoading(false);
+    };
+
+    fetchHistory();
+  }, [positions, polygonKey]);
+
+  // Build chart data when cache or timeframe changes
+  useEffect(() => {
+    if (!historicalCache) return;
+    
+    const daysMap = { '1W': 7, '1M': 30, '3M': 90, 'ALL': 365 };
+    const days = daysMap[timeframe] || 30;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    // Collect all dates
+    const allDates = new Set();
+    Object.values(historicalCache).forEach(bars => {
+      bars.forEach(bar => { if (bar.date >= cutoff) allDates.add(bar.date); });
+    });
+    Object.keys(snapshots).forEach(date => { if (date >= cutoff) allDates.add(date); });
+    
+    const sortedDates = [...allDates].sort();
+    if (sortedDates.length === 0) { setChartData([]); return; }
+
+    const validPositions = positions.filter(p => 
+      p.symbol && p.symbol !== 'N/A' && !p.symbol.includes(':') && (p.quantity ?? 0) > 0
+    );
+
+    const dataPoints = sortedDates.map(date => {
+      // Prefer stored snapshot
+      if (snapshots[date]) {
+        return { date, label: formatLabel(date, timeframe), value: snapshots[date].totalValue };
+      }
+
+      // Calculate from bars
+      let val = 0;
+      let missing = 0;
+      
+      validPositions.forEach(pos => {
+        const bars = historicalCache[pos.symbol];
+        if (!bars) { missing++; return; }
+        
+        let closest = null;
+        for (let i = bars.length - 1; i >= 0; i--) {
+          if (bars[i].date <= date) { closest = bars[i]; break; }
+        }
+        
+        val += pos.quantity * (closest?.close ?? bars[0]?.close ?? pos.price ?? 0);
+      });
+      
+      if (missing > validPositions.length * 0.5) return null;
+      return { date, label: formatLabel(date, timeframe), value: parseFloat(val.toFixed(2)) };
+    }).filter(Boolean);
+    
+    // Ensure today's live value is the last point
+    const today = new Date().toISOString().split('T')[0];
+    const last = dataPoints[dataPoints.length - 1];
+    if (last && last.date === today) {
+      last.value = totalValue;
+      last.label = 'Today';
+    } else if (last) {
+      dataPoints.push({ date: today, label: 'Today', value: totalValue });
+    }
+
+    setChartData(dataPoints);
+
+    // Today's movers
+    const movers = validPositions.map(pos => {
+      const bars = historicalCache[pos.symbol];
+      if (!bars || bars.length < 2) return null;
+      const prevClose = bars[bars.length - 2]?.close;
+      const curPrice = pos.currentPrice || pos.price;
+      if (!prevClose || !curPrice) return null;
+      const dayChange = ((curPrice - prevClose) / prevClose) * 100;
+      const dayDollars = (curPrice - prevClose) * pos.quantity;
+      return { symbol: pos.symbol, dayChange, dayDollars, curPrice };
+    }).filter(Boolean).sort((a, b) => Math.abs(b.dayChange) - Math.abs(a.dayChange));
+    
+    setTodayMovers(movers.slice(0, 5));
+  }, [historicalCache, timeframe, snapshots, positions, totalValue]);
+
+  const formatLabel = (dateStr, tf) => {
+    const d = new Date(dateStr + 'T12:00:00');
+    if (tf === '1W') return d.toLocaleDateString([], { weekday: 'short' });
+    if (tf === '1M') return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  const fmtCurrency = (val) => {
+    if (val >= 1000000) return `$${(val / 1000000).toFixed(2)}M`;
+    if (val >= 1000) return `$${(val / 1000).toFixed(2)}K`;
+    return `$${val.toFixed(2)}`;
+  };
+
+  // Display values
+  const firstValue = chartData[0]?.value ?? totalCost;
+  const currentDisplay = hoverValue ?? totalValue;
+  const periodChange = firstValue > 0 ? ((currentDisplay - firstValue) / firstValue) * 100 : 0;
+  const periodDollars = currentDisplay - firstValue;
+  const isPositive = periodChange >= 0;
+  const chartColor = isPositive ? '#00ff4e' : '#FF4B2B';
+
+  const ChartTooltip = ({ active, payload }) => {
+    if (active && payload?.[0]) {
+      const val = payload[0].payload.value;
+      if (val !== hoverValue) setTimeout(() => setHoverValue(val), 0);
+    }
+    return null;
+  };
+
+if (positions.length === 0) return null;
+
+  const totalGain = positions.reduce((sum, p) => sum + (p.gain ?? 0), 0);
+  const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
+
+  return (
+    <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-6 mb-4">
+      {/* Header with brokerage name + refresh */}
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500">
+          {brokerageName} Summary
+        </h3>
+        <button
+          onClick={onRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2 text-xs text-zinc-500 hover:text-[#00ff4e] transition-colors"
+        >
+          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Main Value + Period Change */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 mb-4">
+        <div>
+          <p className="text-3xl md:text-4xl font-black text-white tabular-nums leading-none">
+            ${currentDisplay.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-sm md:text-base font-black tabular-nums" style={{ color: chartColor }}>
+              {isPositive ? '+' : ''}{periodChange.toFixed(2)}%
+            </span>
+            <span className="text-xs text-zinc-500 tabular-nums">
+              ({isPositive ? '+' : '-'}${Math.abs(periodDollars).toLocaleString(undefined, { maximumFractionDigits: 0 })})
+            </span>
+            <span className="text-[9px] text-zinc-700 uppercase font-bold">
+              {timeframe === 'ALL' ? 'All Time' : `Past ${timeframe}`}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex gap-1">
+          {['1W', '1M', '3M', 'ALL'].map(tf => (
+            <button
+              key={tf}
+              onClick={() => { setTimeframe(tf); setHoverValue(null); }}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
+                timeframe === tf
+                  ? 'text-black shadow-[0_0_15px_rgba(0,255,78,0.3)]'
+                  : 'bg-transparent text-zinc-600 hover:text-zinc-400 hover:bg-zinc-900 border border-zinc-800'
+              }`}
+              style={timeframe === tf ? { backgroundColor: chartColor } : {}}
+            >
+              {tf}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Summary Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5 pb-4 border-b border-zinc-800/50">
+        <div>
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Total Gain/Loss</p>
+          <p className={`text-lg md:text-xl font-black tabular-nums ${totalGain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+            {totalGain >= 0 ? '+' : ''}${Math.abs(totalGain).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+          <p className="text-[10px] text-zinc-600 tabular-nums">
+            {totalGainPercent >= 0 ? '+' : ''}{totalGainPercent.toFixed(1)}%
+          </p>
+        </div>
+        <div>
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Cost Basis</p>
+          <p className="text-lg md:text-xl font-black text-white tabular-nums">
+            ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+        </div>
+        <div>
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Positions</p>
+          <p className="text-lg md:text-xl font-black text-white">{positions.length}</p>
+        </div>
+        <div>
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Day's Best</p>
+          {todayMovers[0] ? (
+            <>
+              <p className="text-lg md:text-xl font-black tabular-nums" style={{ color: todayMovers[0].dayChange >= 0 ? '#00ff4e' : '#FF4B2B' }}>
+                {todayMovers[0].dayChange >= 0 ? '+' : ''}{todayMovers[0].dayChange.toFixed(1)}%
+              </p>
+              <p className="text-[10px] text-zinc-500 font-black">{todayMovers[0].symbol}</p>
+            </>
+          ) : (
+            <p className="text-lg font-black text-zinc-700">—</p>
+          )}
+        </div>
+      </div>
+
+      {/* Chart */}
+      {loading ? (
+        <div className="h-[200px] flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-5 h-5 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
+            <span className="text-xs text-zinc-600 font-bold">Loading historical data...</span>
+            <span className="text-[10px] text-zinc-700">Fetching {positions.filter(p => p.quantity > 0).length} positions</span>
+          </div>
+        </div>
+      ) : chartData.length < 2 ? (
+        <div className="h-[200px] flex items-center justify-center">
+          <div className="text-center">
+            <span className="text-xs text-zinc-600 font-bold uppercase tracking-wider block">Building history...</span>
+            <span className="text-[10px] text-zinc-700 mt-1 block">Daily snapshots will fill this chart over time</span>
+          </div>
+        </div>
+      ) : (
+        <div className="h-[200px]" onMouseLeave={() => setHoverValue(null)}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+              <defs>
+                <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={chartColor} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={chartColor} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis
+                dataKey="label"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#52525b', fontSize: 9, fontFamily: 'monospace' }}
+                interval="preserveStartEnd"
+                minTickGap={40}
+              />
+              <YAxis
+                domain={['dataMin', 'dataMax']}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#52525b', fontSize: 9, fontFamily: 'monospace' }}
+                tickFormatter={(v) => `$${(v/1000).toFixed(1)}K`}
+                width={55}
+              />
+              <Tooltip content={<ChartTooltip />} />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke={chartColor}
+                strokeWidth={2}
+                fill="url(#portfolioGrad)"
+                dot={false}
+                activeDot={{
+                  r: 4, fill: chartColor, stroke: '#000', strokeWidth: 2,
+                  style: { filter: `drop-shadow(0 0 6px ${chartColor})` }
+                }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Today's Top Movers */}
+      {todayMovers.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-zinc-800/50">
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-3">Today's Movers</p>
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            {todayMovers.map(m => (
+              <div key={m.symbol} className="flex-shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-lg px-3 py-2 min-w-[100px]">
+                <p className="text-xs font-black text-white">{m.symbol}</p>
+                <p className="text-sm font-black tabular-nums" style={{ color: m.dayChange >= 0 ? '#00ff4e' : '#FF4B2B' }}>
+                  {m.dayChange >= 0 ? '+' : ''}{m.dayChange.toFixed(2)}%
+                </p>
+                <p className="text-[10px] text-zinc-600 tabular-nums">
+                  {m.dayDollars >= 0 ? '+' : '-'}${Math.abs(m.dayDollars).toFixed(0)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 });
 
