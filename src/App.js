@@ -1734,7 +1734,9 @@ const fetchPositionsForBrokerage = useCallback(async (brokerageId) => {
         value: holding.institution_value,
         costBasis: holding.cost_basis,
         gain: holding.institution_value - holding.cost_basis,
-        gainPercent: ((holding.institution_value - holding.cost_basis) / holding.cost_basis) * 100,
+        gainPercent: holding.cost_basis > 0 
+  ? ((holding.institution_value - holding.cost_basis) / holding.cost_basis) * 100 
+  : 0,
       };
     });
     
@@ -6336,9 +6338,10 @@ const PortfolioAnalytics = React.memo(function PortfolioAnalytics({ positions, p
   const losers = positions.filter(p => (p.gain ?? 0) < 0);
   const winRate = positions.length > 0 ? (winners.length / positions.length) * 100 : 0;
   
-  const sortedByGain = [...positions].sort((a, b) => (b.gainPercent ?? 0) - (a.gainPercent ?? 0));
-  const bestStock = sortedByGain[0];
-  const worstStock = sortedByGain[sortedByGain.length - 1];
+const validPositions = positions.filter(p => p.costBasis > 0 && isFinite(p.gainPercent));
+const sortedByGain = [...validPositions].sort((a, b) => (b.gainPercent ?? 0) - (a.gainPercent ?? 0));
+const bestStock = sortedByGain[0];
+const worstStock = sortedByGain[sortedByGain.length - 1];
   
   const avgGainPercent = positions.length > 0 
     ? positions.reduce((sum, p) => sum + (p.gainPercent ?? 0), 0) / positions.length 
