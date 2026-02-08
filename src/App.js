@@ -1437,7 +1437,7 @@ const logScanHistory = async (scannedStocks) => {
     }));
     
     // Keep last 50 scans
-    const merged = [...newEntries, ...prev].slice(0, 50);
+    const merged = [...newEntries, ...prev].slice(0, 100);
     await setDoc(histRef, { scans: merged });
     setScanHistory(merged);
   } catch (e) {
@@ -2455,7 +2455,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
           change: change?.toFixed(2),
           volume,
           volumeRatio: volumeRatio.toFixed(1),
-          trigger: `🔥 Volume Spike: ${volumeRatio.toFixed(1)}x normal`,
+          trigger: `Volume Spike: ${volumeRatio.toFixed(1)}x normal`,
           triggerType: 'volume',
           source: 'volume'
         });
@@ -2470,7 +2470,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
             price,
             change: change?.toFixed(2),
             volume,
-            trigger: `📈 Breakout: ${distanceFromHigh < 1 ? 'At' : 'Near'} 52-week high`,
+            trigger: `Breakout: ${distanceFromHigh < 1 ? 'At' : 'Near'} 52-week high`,
             triggerType: 'breakout',
             source: 'breakout'
           });
@@ -2484,7 +2484,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
           price,
           change: change?.toFixed(2),
           volume,
-          trigger: `💹 Strong Move: +${change?.toFixed(1)}% on ${(volume/1000000).toFixed(1)}M vol`,
+          trigger: `Strong Move: +${change?.toFixed(1)}% on ${(volume/1000000).toFixed(1)}M vol`,
           triggerType: 'momentum',
           source: 'momentum'
         });
@@ -2504,7 +2504,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
 setScanStatus('FETCHING NEWS...');
 
 const sortedMovers = [...movers.entries()]
-  .sort((a, b) => parseFloat(b[1].change || 0) - parseFloat(a[1].change || 0))
+  .sort(() => Math.random() - 0.5)
   .slice(0, 80);
 
 console.log(`📰 Checking news for top ${sortedMovers.length} movers...`);
@@ -2517,12 +2517,11 @@ for (let i = 0; i < sortedMovers.length; i += 10) {
   const batchResults = await Promise.all(
     batch.map(async ([ticker, data]) => {
       try {
-        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-const newsRes = await fetch(
-  `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=3&published_utc.gte=${thirtyDaysAgo}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`
-);
-        const newsData = await newsRes.json();
-        const articles = newsData.results || [];
+const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+const polygonRes = await fetch(
+  `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=5&published_utc.gte=${thirtyDaysAgo}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`
+).then(r => r.json());
+const articles = polygonRes.results || [];
         
         return {
           ticker,
@@ -2757,6 +2756,46 @@ const fetchEarningsDate = async (symbol) => {
   }
 };
 
+  // Fetch news from Finnhub and normalize to Polygon format
+const fetchFinnhubNews = async (ticker, limit = 3) => {
+  try {
+    const today = new Date();
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const from = thirtyDaysAgo.toISOString().split('T')[0];
+    const to = today.toISOString().split('T')[0];
+    
+    const res = await fetch(
+      `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${from}&to=${to}&token=${FINNHUB_KEY}`
+    );
+    const articles = await res.json();
+    
+    // Normalize to Polygon format
+    return (articles || []).slice(0, limit).map(a => ({
+      title: a.headline,
+      publisher: { name: a.source },
+      published_utc: new Date(a.datetime * 1000).toISOString(),
+      article_url: a.url,
+      image_url: a.image,
+      description: a.summary,
+      tickers: a.related ? a.related.split(',') : [],
+      _source: 'finnhub'
+    }));
+  } catch (e) {
+    return [];
+  }
+};
+
+// Deduplicate articles by title similarity
+const dedupeArticles = (articles) => {
+  const seen = new Set();
+  return articles.filter(a => {
+    const key = a.title?.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 50);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 // --- STREAMLINED SCANNER ---
 const runScanner = useCallback(async (tickerToSearch = null) => {
   const isManual = Boolean(tickerToSearch);
@@ -2772,17 +2811,27 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
       const ticker = tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "");
       
       // Fetch data for manual ticker
-      const [quoteRes, newsRes, profileRes] = await Promise.all([
-        fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`),
-        fetch(`https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=5&published_utc.gte=${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`),
-        fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`)
-      ]);
-      
-      const [quoteData, newsData, profileData] = await Promise.all([
-        quoteRes.json(),
-        newsRes.json(),
-        profileRes.json()
-      ]);
+const [quoteRes, profileRes] = await Promise.all([
+  fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`),
+  fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`)
+]);
+
+const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+const newsRes = await fetch(
+  `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=3&published_utc.gte=${thirtyDaysAgo}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`
+);
+const newsData = await newsRes.json();
+const articles = newsData.results || [];
+
+const [quoteData, profileData] = await Promise.all([
+  quoteRes.json(),
+  profileRes.json()
+]);
+
+const finnhubNews = await fetchFinnhubNews(ticker, 5);
+const news = dedupeArticles([...articles, ...finnhubNews])
+  .sort((a, b) => new Date(b.published_utc) - new Date(a.published_utc))
+  .slice(0, 5);
       
       if (!quoteData.results?.[0]) {
         setScanStatus(`NO DATA FOUND FOR ${ticker}`);
@@ -2792,7 +2841,6 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
       }
       
       const quote = quoteData.results[0];
-      const news = newsData.results || [];
       const profile = profileData.results || {};
       const change = ((quote.c - quote.o) / quote.o) * 100;
       const earnings = await fetchEarningsDate(ticker);
@@ -2960,7 +3008,7 @@ if (verified.length === 0) {
   const fallbackCandidates = prioritized.slice(0, 120);
   
   for (const stock of fallbackCandidates) {
-    if (verified.length >= 3) break;
+    if (verified.length >= 5) break;
     if (!stock.ticker) continue;
     
     try {
@@ -2987,6 +3035,14 @@ if (verified.length === 0) {
       ) continue;
 
       // Skip sector filter in fallback
+
+if (scanSector !== 'all') {
+  const sic = profileData.results?.sic_description || '';
+  if (!matchesSector(sic, scanSector)) {
+    continue;
+  }
+}
+
       const earnings = await fetchEarningsDate(stock.ticker);
       
       verified.push({
@@ -6348,6 +6404,7 @@ const PortfolioAnalytics = React.memo(function PortfolioAnalytics({ positions, p
   const [loadingSectors, setLoadingSectors] = useState(true);
   const [activeChart, setActiveChart] = useState('allocation');
   const [activeIndex, setActiveIndex] = useState(null);
+
 
   // Fetch sector data for all positions
   useEffect(() => {
