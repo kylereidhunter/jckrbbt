@@ -253,11 +253,14 @@ const sourceString = REPUTABLE_SOURCES.map(s => `site:${s}`).join(" OR ");
 const cleanCompanyName = (name) => {
   if (!name) return name;
   return name
+    .replace(/,?\s*(common\s+stock|class\s+[a-z](\s+common\s+stock)?|ordinary\s+shares?|american\s+depositary\s+(shares?|receipts?)|ads|adr|warrant.*|units?|series\s+[a-z]).*$/gi, '')
     .replace(/,?\s*(inc\.?|corp\.?|ltd\.?|llc\.?|plc\.?|n\.?v\.?|s\.?a\.?|co\.?|group|holdings?|enterprises?|international|&\s*co\.?)$/gi, '')
-    .replace(/\s*(common\s+stock|class\s+[a-z](\s+common\s+stock)?|ordinary\s+shares?|american\s+depositary\s+(shares?|receipts?)|ads|adr|warrant.*|units?|series\s+[a-z])$/gi, '')
     .replace(/,?\s*$/, '')
     .trim();
 };
+
+
+
 
 
 
@@ -450,6 +453,32 @@ const BROKERAGE_LOGOS = {
   'm1': 'https://cdn.brandfetch.io/m1finance.com/w/400/h/400/logo',
 };
 
+const BROKERAGE_TRADE_URLS = {
+  'robinhood': (symbol) => `https://robinhood.com/stocks/${symbol}`,
+  'webull': (symbol) => `https://www.webull.com/quote/${symbol.toLowerCase()}`,
+  'fidelity': (symbol) => `https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=${symbol}`,
+  'schwab': (symbol) => `https://www.schwab.com/research/stocks/quotes/summary/${symbol}`,
+  'charles schwab': (symbol) => `https://www.schwab.com/research/stocks/quotes/summary/${symbol}`,
+  'e*trade': (symbol) => `https://us.etrade.com/etx/mkt/quotes?symbol=${symbol}`,
+  'etrade': (symbol) => `https://us.etrade.com/etx/mkt/quotes?symbol=${symbol}`,
+  'td ameritrade': (symbol) => `https://research.tdameritrade.com/grid/public/research/stocks/summary?symbol=${symbol}`,
+  'interactive brokers': (symbol) => `https://www.interactivebrokers.com/en/index.php?f=46777&symbology=IB&symbol=${symbol}`,
+  'sofi': (symbol) => `https://www.sofi.com/invest/stocks/${symbol.toLowerCase()}`,
+  'public': (symbol) => `https://public.com/stocks/${symbol}`,
+  'vanguard': (symbol) => `https://investor.vanguard.com/investment-products/stocks/profile/${symbol.toLowerCase()}`,
+  'ally': (symbol) => `https://www.ally.com/invest/stocks/${symbol}`,
+  'm1 finance': (symbol) => `https://m1.com/invest/stocks/${symbol}`,
+  'm1': (symbol) => `https://m1.com/invest/stocks/${symbol}`,
+};
+
+const getTradeUrl = (brokerageName, symbol) => {
+  const lowerName = brokerageName?.toLowerCase() || '';
+  for (const [key, urlFn] of Object.entries(BROKERAGE_TRADE_URLS)) {
+    if (lowerName.includes(key)) return urlFn(symbol);
+  }
+  return null;
+};
+
 // Fallback emoji icons
 const BROKERAGE_ICONS = {
   'robinhood': '🟢',
@@ -487,6 +516,9 @@ const getBrokerageIcon = (name) => {
   }
   return BROKERAGE_ICONS.default;
 };
+
+
+
 
 
 // --- TRADINGVIEW MINI CHART COMPONENT ---
@@ -1223,6 +1255,8 @@ const wsTickers = useMemo(() => {
 // Polygon websocket for real-time prices
 const { livePrices, wsStatus } = usePolygonWebSocket(POLYGON_KEY, wsTickers, !!auth.currentUser);
   
+
+
 
 const searchTimeoutRef = useRef(null);
   
@@ -3665,17 +3699,57 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
               return;
             }
             
-            searchTimeoutRef.current = setTimeout(async () => {
+searchTimeoutRef.current = setTimeout(async () => {
   try {
-    const res = await fetch(`https://api.polygon.io/v3/reference/tickers?search=${value}&active=true&limit=5&apiKey=${POLYGON_KEY}`);
-    const data = await res.json();
+    const query = value.toUpperCase();
     
-    const results = data.results?.slice(0, 5).map(item => ({
+    // Two parallel searches: exact ticker + name search
+    const [tickerRes, searchRes] = await Promise.all([
+      fetch(`https://api.polygon.io/v3/reference/tickers?ticker=${query}&active=true&limit=1&apiKey=${POLYGON_KEY}`),
+      fetch(`https://api.polygon.io/v3/reference/tickers?search=${value}&active=true&limit=10&apiKey=${POLYGON_KEY}`)
+    ]);
+    
+    const [tickerData, searchData] = await Promise.all([tickerRes.json(), searchRes.json()]);
+    
+    // Build combined results
+    const seen = new Set();
+    const combined = [];
+    
+    // 1. Exact ticker match first
+    if (tickerData.results) {
+      tickerData.results.forEach(item => {
+        if (!seen.has(item.ticker)) {
+          seen.add(item.ticker);
+          combined.push({ symbol: item.ticker, description: item.name });
+        }
+      });
+    }
+    
+    // 2. Then search results, sorted by relevance
+    const searchResults = (searchData.results || []).map(item => ({
       symbol: item.ticker,
       description: item.name
-    })) || [];
+    }));
     
-    setStockSearchResults(results);
+    searchResults.sort((a, b) => {
+      const aT = a.symbol.toUpperCase();
+      const bT = b.symbol.toUpperCase();
+      
+      // Ticker starts with query
+      if (aT.startsWith(query) && !bT.startsWith(query)) return -1;
+      if (bT.startsWith(query) && !aT.startsWith(query)) return 1;
+      // Shorter tickers first
+      return aT.length - bT.length;
+    });
+    
+    searchResults.forEach(item => {
+      if (!seen.has(item.symbol)) {
+        seen.add(item.symbol);
+        combined.push(item);
+      }
+    });
+    
+    setStockSearchResults(combined.slice(0, 5));
   } catch (err) {
     console.error('Search failed:', err);
     setStockSearchResults([]);
@@ -3935,6 +4009,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         onOpenChat={(stock) => setShowStockChat(stock)}
         onScanSimilar={handleScanSimilar}
         aiModel={aiModel}
+        connectedBrokerages={connectedBrokerages}
   db={db}
       />
     ))}
@@ -4116,6 +4191,7 @@ setFilterSignal("all");
       onScanSimilar={handleScanSimilar}
        aiModel={aiModel}
   db={db}
+  connectedBrokerages={connectedBrokerages}
     />
   ))}
 
@@ -4560,6 +4636,7 @@ setFilterSignal("all");
                         onScanSimilar={handleScanSimilar}
                          aiModel={aiModel}
                         db={db}
+                        connectedBrokerages={connectedBrokerages}
                       />
                     ))}
                   </div>
@@ -4660,6 +4737,7 @@ setFilterSignal("all");
                             onScanSimilar={handleScanSimilar}
                             aiModel={aiModel}
                             db={db}
+                            connectedBrokerages={connectedBrokerages}
                           />
                         ))}
                       </div>
@@ -5108,6 +5186,7 @@ setFilterSignal("all");
                       setActiveTab={setActiveTab}
                       runScanner={runScanner}
                       isMarketOpen={isMarketOpen}
+                      connectedBrokerages={connectedBrokerages}
                     />
                   );
                 })}
@@ -5680,6 +5759,89 @@ const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
   );
 };
 
+const TradeButton = ({ symbol, connectedBrokerages = [] }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  const brokeragesWithUrls = connectedBrokerages
+    .map(b => ({ ...b, url: getTradeUrl(b.name, symbol) }))
+    .filter(b => b.url);
+
+
+  if (brokeragesWithUrls.length === 0) return null;
+
+  // Single brokerage — just link directly
+  if (brokeragesWithUrls.length === 1) {
+    return (
+      <a
+        href={brokeragesWithUrls[0].url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg border border-[#00ff4e]/30 bg-[#00ff4e]/5 hover:bg-[#00ff4e]/15 hover:border-[#00ff4e] transition-all active:scale-95"
+      >
+        <Briefcase size={12} className="text-[#00ff4e]" />
+        <span className="text-[9px] md:text-[10px] font-black uppercase tracking-wider text-[#00ff4e]">
+          Trade on {brokeragesWithUrls[0].name}
+        </span>
+      </a>
+    );
+  }
+
+  // Multiple brokerages — dropdown
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg border border-[#00ff4e]/30 bg-[#00ff4e]/5 hover:bg-[#00ff4e]/15 hover:border-[#00ff4e] transition-all active:scale-95"
+      >
+        <Briefcase size={12} className="text-[#00ff4e]" />
+        <span className="text-[9px] md:text-[10px] font-black uppercase tracking-wider text-[#00ff4e]">
+          Trade
+        </span>
+        <ChevronDown size={12} className={`text-[#00ff4e] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="absolute top-full mt-2 right-0 bg-black border-2 border-zinc-800 rounded-lg shadow-2xl overflow-hidden z-50 min-w-[200px]"
+          >
+            {brokeragesWithUrls.map((b) => (
+              <a
+                key={b.id}
+                href={b.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-900 transition-colors border-b border-zinc-900 last:border-0"
+              >
+                <Briefcase size={14} className="text-[#00ff4e]" />
+                <span className="text-xs font-black text-white uppercase tracking-wider">
+                  {b.name}
+                </span>
+                <span className="ml-auto text-zinc-600 text-[10px]">→</span>
+              </a>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 // =============================================
 // REPLACE: MetricCard Component (v3 - Inline AI Chat)
 // =============================================
@@ -5691,7 +5853,7 @@ const MetricCard = React.memo(function MetricCard({
   stock, isMarketOpen, onAction, actionType, watchlist = [], 
   removeFromWatchlist, showAddToListMenu, onCloseMenu, 
   watchlists = [], onAddToList, user, onOpenChat, onScanSimilar,
-  aiModel, db
+  aiModel, db, connectedBrokerages
 }) {
   const [showChart, setShowChart] = useState(false);
   const [showNews, setShowNews] = useState(false);
@@ -5720,6 +5882,12 @@ const chatInputRef = useRef(null);
 
     const [chatLoaded, setChatLoaded] = useState(false);
   const [hasSavedChat, setHasSavedChat] = useState(false);
+  const [showBio, setShowBio] = useState(false);
+const [bioText, setBioText] = useState(null);
+const [bioLoading, setBioLoading] = useState(false);
+const [showRatings, setShowRatings] = useState(false);
+const [ratingsData, setRatingsData] = useState(null);
+const [ratingsLoading, setRatingsLoading] = useState(false);
 
   // Load saved chat history on mount
   useEffect(() => {
@@ -5767,6 +5935,106 @@ const chatInputRef = useRef(null);
     prevChange.current = stock.change;
     hasAnimatedRef.current = true;
   }, [stock.price, stock.change]);
+
+const fetchBio = async () => {
+    if (bioText) { setShowBio(!showBio); return; }
+    setBioLoading(true);
+    setShowBio(true);
+    
+    // Check Firestore cache first
+    if (db) {
+      try {
+        const { doc, getDoc } = await import('firebase/firestore');
+        const cached = await getDoc(doc(db, 'stockBios', stock.symbol));
+        if (cached.exists() && cached.data().bio) {
+          setBioText(cached.data().bio);
+          setBioLoading(false);
+          return;
+        }
+      } catch (e) {}
+    }
+
+    try {
+      const response = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: `Give a 2-3 sentence company overview of ${stock.name} (${stock.symbol}). Include what the company does, its sector, and what makes it notable. Be concise and factual. No disclaimers.` }] }]
+      });
+      const text = await response.response.text();
+      setBioText(text);
+      
+      // Cache in Firestore
+      if (db) {
+        try {
+          const { doc, setDoc } = await import('firebase/firestore');
+          await setDoc(doc(db, 'stockBios', stock.symbol), {
+            bio: text,
+            name: stock.name,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (e) {}
+      }
+    } catch (e) {
+      setBioText('Unable to load company bio.');
+    } finally {
+      setBioLoading(false);
+    }
+  };
+
+const fetchRatings = async () => {
+    if (ratingsData) { setShowRatings(!showRatings); return; }
+    setRatingsLoading(true);
+    setShowRatings(true);
+
+    try {
+      const res = await fetch(
+        `https://api.polygon.io/v3/reference/tickers/${stock.symbol}?apiKey=${process.env.REACT_APP_POLYGON_KEY}`
+      );
+      const tickerData = await res.json();
+      console.log('Polygon ticker data:', tickerData);
+
+      const recRes = await fetch(
+        `https://finnhub.io/api/v1/stock/recommendation?symbol=${stock.symbol}&token=${process.env.REACT_APP_FINNHUB_KEY}`
+      );
+      const recommendations = await recRes.json();
+      console.log('Finnhub recommendations:', recommendations);
+
+      let priceTarget = null;
+      try {
+        const ptResponse = await aiModel.generateContent({
+          contents: [{ role: "user", parts: [{ text: `What is the current 12-month analyst consensus price target for ${stock.symbol}? Return ONLY a JSON object like {"targetLow": 10.00, "targetMean": 15.00, "targetHigh": 20.00}. If unavailable, return {"unavailable": true}. No other text, no markdown, no backticks.` }] }],
+          tools: [{ googleSearch: {} }]
+        });
+        const ptText = await ptResponse.response.text();
+        console.log('AI price target raw:', ptText);
+        const jsonMatch = ptText.match(/\{[^}]+\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (!parsed.unavailable && parsed.targetMean) {
+            priceTarget = parsed;
+          }
+        }
+      } catch (e) {
+        console.log('Price target error:', e.message);
+      }
+
+      console.log('Final ratingsData:', {
+        marketCap: tickerData.results?.market_cap,
+        recommendations: recommendations?.slice(0, 3),
+        priceTarget
+      });
+
+      setRatingsData({
+        description: tickerData.results?.description,
+        marketCap: tickerData.results?.market_cap,
+        recommendations: recommendations?.slice(0, 3) || [],
+        priceTarget: priceTarget || null
+      });
+    } catch (e) {
+      console.error('Ratings fetch error:', e);
+      setRatingsData({ error: true });
+    } finally {
+      setRatingsLoading(false);
+    }
+  };
 
 useEffect(() => {
     if (!showAddToListMenu) return;
@@ -5943,7 +6211,7 @@ const sendChatMessage = async (messageText) => {
     "Upcoming catalysts?"
   ];
 
-  return (
+return (
     <div 
       ref={cardRef}
       className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-8 relative hover:border-zinc-600 transition-all overflow-hidden group"
@@ -6081,97 +6349,98 @@ const sendChatMessage = async (messageText) => {
         )}
       </div>
 
-      {/* HEADER: Symbol + Price */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-end mb-6 md:mb-8 gap-4">
-        <div className="flex-1">
-          <p className="text-[8px] md:text-[10px] text-[#ffffff] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 flex items-start gap-2 pr-24 md:pr-0">
-            <span 
-              className={`h-1.5 w-1.5 md:h-2 md:w-2 rounded-full flex-shrink-0 mt-1 ${isMarketOpen ? 'animate-pulse' : ''}`} 
-              style={{ backgroundColor: accent, boxShadow: isMarketOpen ? `0 0 15px ${accent}` : 'none' }} 
-            />
-            <span className="break-words leading-relaxed">{stock.name}</span>
-          </p>
+      {/* HEADER: Name + Symbol + Price */}
+      <div className="mb-6 md:mb-8">
+        <p className="text-[8px] md:text-[10px] text-[#ffffff] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 flex items-start gap-2 pr-24 md:pr-0">
+          <span 
+            className={`h-1.5 w-1.5 md:h-2 md:w-2 rounded-full flex-shrink-0 mt-1 ${isMarketOpen ? 'animate-pulse' : ''}`} 
+            style={{ backgroundColor: accent, boxShadow: isMarketOpen ? `0 0 15px ${accent}` : 'none' }} 
+          />
+          <span className="break-words leading-relaxed">{stock.name}</span>
+        </p>
+        
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3 md:gap-8">
+          <h2 className="text-4xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">{stock.symbol}</h2>
           
-          <div className="flex flex-col sm:flex-row sm:items-end gap-3 md:gap-8">
-            <h2 className="text-4xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">{stock.symbol}</h2>
+          <div className="flex items-baseline gap-2 md:gap-3">
+            <span className="text-3xl md:text-5xl font-black text-white tabular-nums leading-none">
+              ${shouldAnimate ? (
+                <CountUp end={parseFloat(stock.price)} decimals={2} duration={1200} />
+              ) : (
+                parseFloat(stock.price).toFixed(2)
+              )}
+            </span>
+            <span className="text-xl md:text-3xl font-black tabular-nums leading-none" style={{ color: trendColor }}>
+              {prefix}{shouldAnimate ? (
+                <CountUp end={Math.abs(parseFloat(stock.change))} decimals={2} duration={1200} />
+              ) : (
+                Math.abs(parseFloat(stock.change)).toFixed(2)
+              )}% <span className="text-lg md:text-2xl ml-1 md:ml-2 align-middle">{Triangle}</span>
+            </span>
             
-            <div className="flex items-baseline gap-2 md:gap-3">
-              <span className="text-3xl md:text-5xl font-black text-white tabular-nums leading-none">
-                ${shouldAnimate ? (
-                  <CountUp end={parseFloat(stock.price)} decimals={2} duration={1200} />
-                ) : (
-                  parseFloat(stock.price).toFixed(2)
-                )}
-              </span>
-              <span className="text-xl md:text-3xl font-black tabular-nums leading-none" style={{ color: trendColor }}>
-                {prefix}{shouldAnimate ? (
-                  <CountUp end={Math.abs(parseFloat(stock.change))} decimals={2} duration={1200} />
-                ) : (
-                  Math.abs(parseFloat(stock.change)).toFixed(2)
-                )}% <span className="text-lg md:text-2xl ml-1 md:ml-2 align-middle">{Triangle}</span>
-              </span>
-            </div>
           </div>
+                  {/* Trade Button */}
+        <TradeButton symbol={stock.symbol} connectedBrokerages={connectedBrokerages} />
         </div>
+      </div>
 
-{/* Catalyst Type Badge */}
-<div className="md:text-right md:border-l-2 md:border-zinc-900 md:pl-8">
-          <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-wider md:tracking-widest mb-2">Trigger</p>
-          <div className="flex flex-wrap gap-2">
+      
+
+      {/* QUICK STATS ROW */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 mb-6 md:mb-8 border-t-2 border-zinc-900 pt-4 md:pt-6">
+        {stock.volume && (
+          <div>
+            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">Volume</p>
+            <p className="text-base md:text-xl font-black text-white">{formatVolume(stock.volume)}</p>
+          </div>
+        )}
+        {stock.volumeRatio && parseFloat(stock.volumeRatio) > 1 && (
+          <div>
+            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">vs Avg Volume</p>
+            <p className="text-base md:text-xl font-black text-amber-400">{stock.volumeRatio}x</p>
+          </div>
+        )}
+        {stock.industry && (
+          <div>
+            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">Sector</p>
+            <p className="text-xs md:text-sm font-black text-zinc-300 uppercase leading-tight">{stock.industry}</p>
+          </div>
+        )}
+      </div>
+
+      {/* TRIGGER TAGS */}
+      <div className="mb-6 md:mb-8">
+        <div className="flex flex-wrap gap-2">
+          <div 
+            className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
+            style={{ 
+              color: catalystStyle.color, 
+              backgroundColor: `${catalystStyle.color}15`,
+              borderColor: `${catalystStyle.color}40`
+            }}
+          >
+            <CatalystIcon size={14} className="md:w-4 md:h-4" />
+            <span>{catalystStyle.label}</span>
+          </div>
+          {/* Earnings Badge */}
+          {getEarningsLabel(stock.earnings) && (
             <div 
               className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
               style={{ 
-                color: catalystStyle.color, 
-                backgroundColor: `${catalystStyle.color}15`,
-                borderColor: `${catalystStyle.color}40`
+                color: '#f59e0b', 
+                backgroundColor: 'rgba(245,158,11,0.08)',
+                borderColor: 'rgba(245,158,11,0.25)'
               }}
             >
-              <CatalystIcon size={14} className="md:w-4 md:h-4" />
-              <span>{catalystStyle.label}</span>
+              <BarChart3 size={14} className="md:w-4 md:h-4" style={{ color: '#f59e0b' }} />
+              <span>EARNINGS {getEarningsLabel(stock.earnings)}</span>
             </div>
-            {/* Earnings Badge */}
-            {getEarningsLabel(stock.earnings) && (
-              <div 
-                className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
-                style={{ 
-                  color: '#f59e0b', 
-                  backgroundColor: 'rgba(245,158,11,0.08)',
-                  borderColor: 'rgba(245,158,11,0.25)'
-                }}
-              >
-                <BarChart3 size={14} className="md:w-4 md:h-4" style={{ color: '#f59e0b' }} />
-                <span>EARNINGS {getEarningsLabel(stock.earnings)}</span>
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
-            {/* CHART TOGGLE */}
-<div className="border-t-2 border-zinc-900 mt-4 md:mt-6 pt-4 md:pt-6 pb-4 md:pb-6">
-          <button onClick={() => setShowChart(!showChart)} className="flex items-center gap-2 md:gap-3 transition-all">
-  <TrendingUp size={14} className={`md:w-4 md:h-4 ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
-  <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
-    {showChart ? "Hide Chart" : "View Chart"}
-  </span>
-  <motion.span animate={{ rotate: showChart ? 180 : 0 }} className={`text-[10px] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
-</button>
-
-        <AnimatePresence>
-          {showChart && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
-              exit={{ height: 0, opacity: 0 }}
-              className="mt-4 md:mt-6 overflow-hidden"
-            >
-<StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} />            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* CATALYST - Why It's Moving */}
-      <div className="border-t-2 border-zinc-900 pt-4 md:pt-8 mt-0 md:mt-0 mb-6 md:mb-8">
+      {/* WHY IT'S MOVING + SOURCE LINK */}
+      <div className="mb-6 md:mb-8">
         <div className="flex items-start gap-3 md:gap-4">
           <div 
             className="flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center mt-0.5"
@@ -6196,61 +6465,40 @@ const sendChatMessage = async (messageText) => {
             </p>
           </div>
         </div>
-      </div>
 
-      {/* QUICK STATS ROW */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 mb-6 md:mb-8">
-        {stock.volume && (
-          <div>
-            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">Volume</p>
-            <p className="text-base md:text-xl font-black text-white">{formatVolume(stock.volume)}</p>
-          </div>
-        )}
-        {stock.volumeRatio && parseFloat(stock.volumeRatio) > 1 && (
-          <div>
-            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">vs Avg Volume</p>
-            <p className="text-base md:text-xl font-black text-amber-400">{stock.volumeRatio}x</p>
-          </div>
-        )}
-        {stock.industry && (
-          <div>
-            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">Sector</p>
-            <p className="text-xs md:text-sm font-black text-zinc-300 uppercase leading-tight">{stock.industry}</p>
-          </div>
+        {/* Source Attribution Link */}
+        {stock.newsSource && (
+          <a 
+            href={stock.news?.[0]?.article_url || stock.news?.[0]?.url || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 mt-4 px-4 py-3 bg-zinc-900/50 rounded-lg border border-[#00ff4e]/30 hover:border-[#00ff4e] hover:bg-[#00ff4e]/5 transition-all cursor-pointer group/headline"
+          >
+            <Newspaper size={14} className="text-[#00ff4e]/50 group-hover/headline:text-[#00ff4e] flex-shrink-0 transition-colors" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs md:text-sm text-zinc-300 group-hover/headline:text-white truncate transition-colors">{stock.headline}</p>
+              <p className="text-[10px] text-zinc-600">
+                {stock.newsSource}{stock.newsDate ? ` · ${stock.newsDate}` : ''}
+              </p>
+            </div>
+            <span className="text-zinc-700 group-hover/headline:text-[#00ff4e] transition-colors flex-shrink-0 hidden md:block">→</span>
+          </a>
         )}
       </div>
 
-      {/* NEWS SOURCE ATTRIBUTION */}
-      {stock.newsSource && (
-        <a 
-          href={stock.news?.[0]?.article_url || stock.news?.[0]?.url || '#'}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-3 mb-6 md:mb-8 px-4 py-3 bg-zinc-900/50 rounded-lg border border-[#00ff4e]/30 hover:border-[#00ff4e] hover:bg-[#00ff4e]/5 transition-all cursor-pointer group/headline"
-        >
-          <Newspaper size={14} className="text-[#00ff4e]/50 group-hover/headline:text-[#00ff4e] flex-shrink-0 transition-colors" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs md:text-sm text-zinc-300 group-hover/headline:text-white truncate transition-colors">{stock.headline}</p>
-            <p className="text-[10px] text-zinc-600">
-              {stock.newsSource}{stock.newsDate ? ` · ${stock.newsDate}` : ''}
-            </p>
-          </div>
-          <span className="text-zinc-700 group-hover/headline:text-[#00ff4e] transition-colors flex-shrink-0 hidden md:block">→</span>
-        </a>
-      )}
+            {/* ASK AI HEADER */}
+      <div className="border-t-2 border-zinc-900 pt-4 md:pt-6 mb-3">
+        <div className="flex items-center gap-2 md:gap-3">
+          <Lightbulb size={14} className="md:w-4 md:h-4 text-[#00ff4e]" />
+          <span className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-white">
+            Ask AI
+          </span>
+        </div>
+      </div>
 
-      {/* ASK AI HEADER */}
-
-
-{/* CHAT SECTION WITH BORDER */}
+      {/* CHAT SECTION */}
       {chatMessages.length > 0 && (
-        <div className="border-t-2 border-zinc-900 pt-4 md:pt-6 mb-0">
-                <div className="flex items-center gap-2 md:gap-3 mb-3">
-        <Lightbulb size={14} className="md:w-4 md:h-4 text-[#00ff4e]" />
-        <span className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-white">
-          Ask AI
-        </span>
-      </div>
+        <div className="mb-0">
           <AnimatePresence>
             {chatOpen && (
               <motion.div
@@ -6298,7 +6546,7 @@ const sendChatMessage = async (messageText) => {
                   </div>
 
                   {/* Messages */}
-                 <div ref={chatContainerRef} className="space-y-3 max-h-[400px] overflow-y-auto">
+                  <div ref={chatContainerRef} className="space-y-3 max-h-[400px] overflow-y-auto">
                     {chatMessages.map((msg, i) => (
                       <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[90%] px-3 md:px-4 py-2.5 rounded-lg ${
@@ -6357,10 +6605,9 @@ const sendChatMessage = async (messageText) => {
         </div>
       )}
 
-{/* PROMPTS + INPUT */}
+      {/* PROMPTS + INPUT */}
       <div className="pt-0 md:pt-0 mb-2 md:mb-3">
-        
-        {/* Quick Prompt Pills - compact, wrapping row */}
+        {/* Quick Prompt Pills */}
         <div className="flex flex-wrap gap-1.5 md:gap-2 mb-3">
           {quickPrompts.map((prompt, i) => (
             <button
@@ -6414,16 +6661,176 @@ const sendChatMessage = async (messageText) => {
         </div>
       </div>
 
-{/* NEWS ARTICLES TOGGLE */}
+      {/* CHART TOGGLE */}
+      <div className="border-t-2 border-zinc-900 pt-4 md:pt-6 pb-4 md:pb-6">
+        <button onClick={() => setShowChart(!showChart)} className="flex items-center gap-2 md:gap-3 transition-all">
+          <TrendingUp size={14} className={`md:w-4 md:h-4 ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+          <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+            {showChart ? "Hide Chart" : "View Chart"}
+          </span>
+          <motion.span animate={{ rotate: showChart ? 180 : 0 }} className={`text-[10px] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+        </button>
+
+        <AnimatePresence>
+          {showChart && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
+              exit={{ height: 0, opacity: 0 }}
+              className="mt-4 md:mt-6 overflow-hidden"
+            >
+              <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* COMPANY BIO TOGGLE */}
+      <div className="border-t-2 border-zinc-900 pt-4 md:pt-6 pb-4 md:pb-6">
+        <button onClick={fetchBio} className="flex items-center gap-2 md:gap-3 transition-all">
+          <Building2 size={14} className={`md:w-4 md:h-4 ${showBio ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+          <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showBio ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+            {showBio ? "Hide Bio" : "Company Bio"}
+          </span>
+          <motion.span animate={{ rotate: showBio ? 180 : 0 }} className={`text-[10px] ${showBio ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+        </button>
+
+        <AnimatePresence>
+          {showBio && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
+              exit={{ height: 0, opacity: 0 }}
+              className="mt-4 overflow-hidden"
+            >
+              <div className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-4">
+                {bioLoading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
+                    <span className="text-xs text-zinc-500 font-bold">Loading company info...</span>
+                  </div>
+                ) : (
+                  <p className="text-sm text-zinc-300 leading-relaxed">{bioText}</p>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* ANALYST RATINGS TOGGLE */}
+<div className="border-t-2 border-zinc-900 pt-4 md:pt-6">
+          <button onClick={fetchRatings} className="flex items-center gap-2 md:gap-3 transition-all">
+          <Target size={14} className={`md:w-4 md:h-4 ${showRatings ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+          <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showRatings ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+            {showRatings ? "Hide Ratings" : "Analyst Ratings"}
+          </span>
+          <motion.span animate={{ rotate: showRatings ? 180 : 0 }} className={`text-[10px] ${showRatings ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+        </button>
+
+        <AnimatePresence>
+          {showRatings && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
+              exit={{ height: 0, opacity: 0 }}
+              className="mt-4 overflow-hidden"
+            >
+              <div className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-4">
+                {ratingsLoading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
+                    <span className="text-xs text-zinc-500 font-bold">Loading analyst data...</span>
+                  </div>
+                ) : ratingsData?.error ? (
+                  <p className="text-xs text-zinc-500">Unable to load analyst data.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Price Target */}
+                    {ratingsData?.priceTarget?.targetMean && (
+                      <div>
+<p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">12-Month Price Target</p>                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <p className="text-[9px] text-zinc-600 uppercase font-bold">Low</p>
+                            <p className="text-sm font-black text-red-400">${ratingsData.priceTarget.targetLow?.toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] text-zinc-600 uppercase font-bold">Average</p>
+                            <p className="text-sm font-black text-white">${ratingsData.priceTarget.targetMean?.toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] text-zinc-600 uppercase font-bold">High</p>
+                            <p className="text-sm font-black text-[#00ff4e]">${ratingsData.priceTarget.targetHigh?.toFixed(2)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recommendations */}
+                    {ratingsData?.recommendations?.length > 0 && (
+                      <div>
+                        <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Recent Consensus</p>
+                        <div className="space-y-2">
+                          {ratingsData.recommendations.map((rec, i) => {
+                            const total = (rec.buy || 0) + (rec.hold || 0) + (rec.sell || 0) + (rec.strongBuy || 0) + (rec.strongSell || 0);
+                            const bullish = ((rec.buy || 0) + (rec.strongBuy || 0)) / (total || 1) * 100;
+                            return (
+                              <div key={i} className="flex items-center gap-3">
+                                <span className="text-[10px] text-zinc-600 font-mono w-20 flex-shrink-0">
+                                  {new Date(rec.period).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
+                                </span>
+                                <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full rounded-full transition-all"
+                                    style={{ 
+                                      width: `${bullish}%`,
+                                      backgroundColor: bullish > 60 ? '#00ff4e' : bullish > 40 ? '#f59e0b' : '#ef4444'
+                                    }} 
+                                  />
+                                </div>
+                                <span className="text-[10px] font-black w-12 text-right" style={{ 
+                                  color: bullish > 60 ? '#00ff4e' : bullish > 40 ? '#f59e0b' : '#ef4444'
+                                }}>
+                                  {bullish.toFixed(0)}% Buy
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Market Cap */}
+                    {ratingsData?.marketCap && (
+                      <div>
+                        <p className="text-[8px] text-zinc-500 font-black uppercase tracking-widest mb-1">Market Cap</p>
+                        <p className="text-sm font-black text-white">
+                          ${ratingsData.marketCap >= 1e12 ? (ratingsData.marketCap / 1e12).toFixed(2) + 'T' :
+                            ratingsData.marketCap >= 1e9 ? (ratingsData.marketCap / 1e9).toFixed(2) + 'B' :
+                            ratingsData.marketCap >= 1e6 ? (ratingsData.marketCap / 1e6).toFixed(2) + 'M' :
+                            ratingsData.marketCap.toLocaleString()}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+
+      {/* NEWS ARTICLES TOGGLE */}
       {stock.news && stock.news.length > 0 && (
         <div className="border-t-2 border-zinc-900 mt-4 md:mt-6 pt-4 md:pt-6">
           <button onClick={() => setShowNews(!showNews)} className="flex items-center gap-2 md:gap-3 transition-all">
-  <Newspaper size={14} className={`md:w-4 md:h-4 ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
-  <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
-    {showNews ? "Hide News" : `View ${stock.news.length} Related ${stock.news.length === 1 ? 'Article' : 'Articles'}`}
-  </span>
-  <motion.span animate={{ rotate: showNews ? 180 : 0 }} className={`text-[10px] ${showNews ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
-</button>
+            <Newspaper size={14} className={`md:w-4 md:h-4 ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+            <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+              {showNews ? "Hide News" : `View ${stock.news.length} Related ${stock.news.length === 1 ? 'Article' : 'Articles'}`}
+            </span>
+            <motion.span animate={{ rotate: showNews ? 180 : 0 }} className={`text-[10px] ${showNews ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+          </button>
 
           <AnimatePresence>
             {showNews && (
@@ -7503,7 +7910,8 @@ const PositionCard = React.memo(function PositionCard({
   setEditingCostBasis,
   costBasisInput,
   setCostBasisInput,
-  saveCostBasisOverride
+  saveCostBasisOverride,
+  connectedBrokerages,
 }) {
   const [showChart, setShowChart] = useState(false);
 
@@ -7749,6 +8157,10 @@ const flashClass = live?.direction === 'up' ? 'price-flash-up' : live?.direction
           </div>
         </div>
       </div>
+
+      <div className="mt-4">
+          <TradeButton symbol={position.symbol} connectedBrokerages={connectedBrokerages} />
+        </div>
 
       {/* Chart Toggle Section */}
       <div className="mt-6 pt-4 border-t-2 border-zinc-900">
