@@ -780,6 +780,7 @@ const [showDashboardNews, setShowDashboardNews] = useState(false);
 const [showAllNews, setShowAllNews] = useState(false);
 const [scanHistory, setScanHistory] = useState([]);
 const [showScanHistory, setShowScanHistory] = useState(false);
+const [accountsExpanded, setAccountsExpanded] = useState(false);
 
 
 
@@ -4793,8 +4794,13 @@ setFilterSignal("all");
         <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-6 mb-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-2">Connected Accounts</h3>
-              <p className="text-xs text-zinc-600">
+<h3 
+  className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-2 cursor-pointer flex items-center gap-2"
+  onClick={() => setAccountsExpanded(!accountsExpanded)}
+>
+  Connected Accounts
+  <ChevronDown size={14} className={`transition-transform ${accountsExpanded ? 'rotate-180' : ''}`} />
+</h3>              <p className="text-xs text-zinc-600">
                 {connectedBrokerages.length === 0 
                   ? 'No accounts connected yet' 
                   : `${connectedBrokerages.length} account${connectedBrokerages.length > 1 ? 's' : ''} connected`
@@ -4828,9 +4834,17 @@ setFilterSignal("all");
           </div>
 
           {/* Connected Brokerages List */}
-          {connectedBrokerages.length > 0 && (
-            <div className="mt-6 space-y-3">
-              {connectedBrokerages.map((brokerage) => (
+         {connectedBrokerages.length > 0 && (
+  <div 
+    style={{
+      maxHeight: accountsExpanded ? '1000px' : '0px',
+      opacity: accountsExpanded ? 1 : 0,
+      overflow: 'hidden',
+      transition: 'max-height 0.3s ease, opacity 0.2s ease'
+    }}
+  >
+    <div className="mt-6 space-y-3">
+    {connectedBrokerages.map((brokerage) => (
                 <div 
                   key={brokerage.id}
                   onClick={() => setSelectedBrokerage(brokerage.id)}
@@ -4892,6 +4906,7 @@ setFilterSignal("all");
                 </div>
               ))}
             </div>
+          </div>
           )}
         </div>
 
