@@ -2517,9 +2517,10 @@ for (let i = 0; i < sortedMovers.length; i += 10) {
   const batchResults = await Promise.all(
     batch.map(async ([ticker, data]) => {
       try {
-        const newsRes = await fetch(
-          `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=3&apiKey=${POLYGON_KEY}`
-        );
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+const newsRes = await fetch(
+  `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=3&published_utc.gte=${thirtyDaysAgo}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`
+);
         const newsData = await newsRes.json();
         const articles = newsData.results || [];
         
@@ -2773,7 +2774,7 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
       // Fetch data for manual ticker
       const [quoteRes, newsRes, profileRes] = await Promise.all([
         fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`),
-        fetch(`https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=5&apiKey=${POLYGON_KEY}`),
+        fetch(`https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=5&published_utc.gte=${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`),
         fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`)
       ]);
       
@@ -2954,10 +2955,75 @@ for (const stock of candidates) {
 }
 
 if (verified.length === 0) {
-  setScanStatus('NO VALID STOCKS FOUND');
-  setLoading(false);
-  setScanComplete(true);
-  return;
+  // Fallback: relax filters - allow recently scanned, expand candidates
+  setScanStatus('EXPANDING SEARCH...');
+  const fallbackCandidates = prioritized.slice(0, 120);
+  
+  for (const stock of fallbackCandidates) {
+    if (verified.length >= 3) break;
+    if (!stock.ticker) continue;
+    
+    try {
+      const profileRes = await fetch(
+        `https://api.polygon.io/v3/reference/tickers/${stock.ticker}?apiKey=${POLYGON_KEY}`
+      );
+      const profileData = await profileRes.json();
+      const name = profileData.results?.name || stock.ticker;
+      const nameLower = name.toLowerCase();
+      
+      if (
+        nameLower.includes(' etf') || nameLower.includes(' etn') ||
+        nameLower.includes('direxion') || nameLower.includes('proshares') ||
+        nameLower.includes('graniteshares') || nameLower.includes('leveraged') ||
+        nameLower.includes('inverse') || nameLower.includes('ishares') ||
+        nameLower.includes('spdr ') || nameLower.includes('vanguard ') ||
+        nameLower.includes('wisdomtree') || nameLower.includes('first trust') ||
+        nameLower.includes('invesco ') || nameLower.includes('global x ') ||
+        nameLower.includes('vaneck') || nameLower.includes('schwab ') ||
+        nameLower.includes('depositary') || nameLower.includes('preferred') ||
+        nameLower.includes('% notes') || nameLower.includes('trust units') ||
+        nameLower.includes(' 2x') || nameLower.includes(' 3x') ||
+        nameLower.includes('2x ') || nameLower.includes('3x ')
+      ) continue;
+
+      // Skip sector filter in fallback
+      const earnings = await fetchEarningsDate(stock.ticker);
+      
+      verified.push({
+        symbol: stock.ticker,
+        name: cleanCompanyName(name),
+        price: stock.price?.toFixed ? stock.price.toFixed(2) : String(stock.price || '0.00'),
+        change: stock.change || '0.00',
+        isPositive: parseFloat(stock.change || 0) >= 0,
+        catalyst: stock.catalyst,
+        catalystType: stock.catalystType,
+        headline: stock.headline,
+        newsSource: stock.newsSource,
+        newsDate: stock.newsDate,
+        newsCount: stock.newsCount || 0,
+        news: stock.news || [],
+        volume: stock.volume,
+        volumeRatio: stock.volumeRatio,
+        trigger: stock.trigger,
+        source: stock.source,
+        industry: profileData.results?.sic_description || '',
+        earnings: earnings,
+      });
+      
+      console.log(`🔄 Fallback added: ${stock.ticker}`);
+    } catch (e) {
+      continue;
+    }
+  }
+  
+  if (verified.length === 0) {
+    setScanStatus('NO VALID STOCKS FOUND');
+    setLoading(false);
+    setScanComplete(true);
+    return;
+  }
+  
+  setScanStatus(`FOUND ${verified.length} STOCKS (EXPANDED SEARCH)`);
 }
 
 // Update recently scanned
