@@ -1,8 +1,3 @@
-// =============================================
-// REPLACE #2: StockChatModal Component
-// =============================================
-// Replace the entire StockChatModal.js file with this
-
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, MessageCircle, ExternalLink } from 'lucide-react';
 
@@ -10,11 +5,41 @@ const StockChatModal = ({ isOpen, onClose, stock, aiModel }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const isUserScrolledUp = useRef(false);
 
+  // Auto-scroll chat container only
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (!isUserScrolledUp.current && messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+  }, [messages, isLoading]);
+
+  // Lock page scroll completely when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      const scrollY = window.scrollY;
+      document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = '100%';
+    } else {
+      const scrollY = document.body.style.top;
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      window.scrollTo(0, parseInt(scrollY || '0') * -1);
+    }
+    return () => {
+      const scrollY = document.body.style.top;
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      if (scrollY) window.scrollTo(0, parseInt(scrollY) * -1);
+    };
+  }, [isOpen]);
 
   // Reset when stock changes + handle suggested prompt
   useEffect(() => {
@@ -24,10 +49,8 @@ const StockChatModal = ({ isOpen, onClose, stock, aiModel }) => {
         text: `I can help you research **${stock.symbol}** (${stock.name}). I have access to web search for the latest data.\n\nCurrently trading at $${stock.price} (${parseFloat(stock.change) >= 0 ? '+' : ''}${stock.change}%)${stock.catalyst ? `\n\n**What's happening:** ${stock.catalyst}` : ''}\n\nWhat would you like to know?`
       }]);
       
-      // If opened with a suggested prompt, auto-send it
       if (stock.suggestedPrompt) {
         setInput(stock.suggestedPrompt);
-        // Small delay to show the UI first, then auto-send
         setTimeout(() => {
           sendMessageDirect(stock.suggestedPrompt);
         }, 500);
@@ -38,7 +61,6 @@ const StockChatModal = ({ isOpen, onClose, stock, aiModel }) => {
   }, [isOpen, stock?.symbol, stock?.suggestedPrompt]);
 
   const buildContext = (userQuestion) => {
-    // Build context from what we actually have in the new data model
     const dataPoints = [];
     dataPoints.push(`Price: $${stock.price}`);
     dataPoints.push(`Change: ${parseFloat(stock.change) >= 0 ? '+' : ''}${stock.change}%`);
@@ -51,7 +73,6 @@ const StockChatModal = ({ isOpen, onClose, stock, aiModel }) => {
     if (stock.headline) dataPoints.push(`Latest headline: "${stock.headline}"`);
     if (stock.newsSource) dataPoints.push(`Source: ${stock.newsSource}`);
     
-    // Include actual news article titles if available
     let newsContext = '';
     if (stock.news && stock.news.length > 0) {
       newsContext = '\n\nRECENT NEWS ARTICLES:\n' + stock.news.map((n, i) => 
@@ -84,6 +105,7 @@ INSTRUCTIONS:
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+    isUserScrolledUp.current = false;
 
     try {
       const context = buildContext(messageText);
@@ -122,8 +144,15 @@ INSTRUCTIONS:
   if (!isOpen || !stock) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-[100000] flex items-center justify-center p-4">
-      <div className="bg-[#050505] border-2 border-zinc-800 rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+    <div 
+      className="fixed inset-0 bg-black/80 z-[100000] flex items-center justify-center p-4"
+      style={{ overscrollBehavior: 'contain' }}
+      onTouchMove={(e) => e.stopPropagation()}
+    >
+      <div 
+        className="bg-[#050505] border-2 border-zinc-800 rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col"
+        style={{ overscrollBehavior: 'contain' }}
+      >
         
         {/* Header */}
         <div className="p-4 md:p-6 border-b-2 border-zinc-900 flex justify-between items-start flex-shrink-0">
@@ -156,8 +185,15 @@ INSTRUCTIONS:
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-          {/* Suggested Questions - shown only when just the intro message exists and no auto-prompt */}
+        <div 
+          ref={messagesContainerRef}
+          onScroll={(e) => {
+            const { scrollTop, scrollHeight, clientHeight } = e.target;
+            isUserScrolledUp.current = scrollHeight - scrollTop - clientHeight > 100;
+          }}
+          className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4"
+          style={{ overscrollBehavior: 'contain' }}
+        >
           {messages.length === 1 && !stock.suggestedPrompt && (
             <div className="space-y-2 mb-6">
               <p className="text-[10px] text-zinc-500 uppercase tracking-[0.3em] font-black mb-3">
@@ -167,7 +203,9 @@ INSTRUCTIONS:
                 {suggestedQuestions.map((q, i) => (
                   <button 
                     key={i}
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
                       setInput(q.text);
                       sendMessageDirect(q.text);
                     }}
@@ -189,7 +227,6 @@ INSTRUCTIONS:
                   : 'bg-zinc-900 text-zinc-300 border border-zinc-800'
               }`}>
                 <p className="text-sm md:text-base whitespace-pre-wrap leading-relaxed">
-                  {/* Simple markdown bold rendering */}
                   {msg.text.split(/(\*\*[^*]+\*\*)/).map((part, j) => {
                     if (part.startsWith('**') && part.endsWith('**')) {
                       return <strong key={j} className="text-white font-black">{part.slice(2, -2)}</strong>;
@@ -215,8 +252,6 @@ INSTRUCTIONS:
               </div>
             </div>
           )}
-          
-          <div ref={messagesEndRef} />
         </div>
 
         {/* Input */}
@@ -226,14 +261,23 @@ INSTRUCTIONS:
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
               placeholder={`Ask anything about ${stock.symbol}...`}
               disabled={isLoading}
               className="flex-1 bg-zinc-900 border-2 border-zinc-800 rounded-lg px-4 py-3 text-white text-sm md:text-base focus:outline-none focus:border-[#00ff4e]/50 transition-colors disabled:opacity-50 font-mono"
               style={{ caretColor: '#00ff4e' }}
             />
             <button
-              onClick={sendMessage}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                sendMessage();
+              }}
               disabled={!input.trim() || isLoading}
               className="px-4 md:px-6 py-3 bg-[#00ff4e]/10 border-2 border-[#00ff4e]/50 text-[#00ff4e] rounded-lg font-black text-sm md:text-base hover:bg-[#00ff4e]/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-2"
             >

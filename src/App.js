@@ -13,7 +13,7 @@ import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
-import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History } from 'lucide-react';import PlaidLink from './PlaidLink';
+import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History, Pencil } from 'lucide-react';import PlaidLink from './PlaidLink';
 import StockChatModal from './StockChatModal';
 import UserProfileModal from './UserProfileModal';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, Sector } from 'recharts';
@@ -781,6 +781,10 @@ const [showAllNews, setShowAllNews] = useState(false);
 const [scanHistory, setScanHistory] = useState([]);
 const [showScanHistory, setShowScanHistory] = useState(false);
 const [accountsExpanded, setAccountsExpanded] = useState(false);
+const [positionSortBy, setPositionSortBy] = useState('value-high');
+const [editingCostBasis, setEditingCostBasis] = useState(null);
+const [costBasisInput, setCostBasisInput] = useState('');
+const [costBasisOverrides, setCostBasisOverrides] = useState({});
 
 
 
@@ -1181,6 +1185,20 @@ const positions = useMemo(() => {
   return brokeragePositions[selectedBrokerage] || [];
 }, [selectedBrokerage, brokeragePositions]);
 
+const sortedPositions = useMemo(() => {
+  const sorted = [...positions];
+  switch (positionSortBy) {
+    case 'gain-high': return sorted.sort((a, b) => (b.gainPercent ?? 0) - (a.gainPercent ?? 0));
+    case 'gain-low': return sorted.sort((a, b) => (a.gainPercent ?? 0) - (b.gainPercent ?? 0));
+    case 'value-high': return sorted.sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+    case 'value-low': return sorted.sort((a, b) => (a.value ?? 0) - (b.value ?? 0));
+    case 'price-high': return sorted.sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
+    case 'price-low': return sorted.sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
+    case 'alpha': return sorted.sort((a, b) => (a.symbol || '').localeCompare(b.symbol || ''));
+    default: return sorted;
+  }
+}, [positions, positionSortBy]);
+
 // Computed: all positions across all brokerages (for portfolio summary)
 const allPositions = useMemo(() => {
   return Object.values(brokeragePositions).flat();
@@ -1243,15 +1261,18 @@ const addStockToList = async (stock, listId) => {
     }
 
     // Log activity for feed
+    const targetList = watchlists.find(w => w.id === listId);
+if (targetList?.isPublic) {
     logActivity(db, {
       userId: user.uid,
-      userName: user.displayName,
-      userAvatar: user.photoURL,
+      userName: userProfile?.username || user.displayName,
+      userAvatar: userProfile?.profilePicUrl || user.photoURL,
       type: 'add_stock',
       targetSymbol: stock.symbol,
       targetListId: listId,
       targetListName: watchlists.find(w => w.id === listId)?.name || 'a list',
     });
+  }
     
     // Refresh lists - this updates the UI
     const lists = await getUserWatchlists(user.uid);
@@ -1555,6 +1576,17 @@ useEffect(() => {
 }, [activeTab]);
 
 useEffect(() => {
+  if (!user?.uid || !db) return;
+  const loadOverrides = async () => {
+    const { doc, getDoc } = await import('firebase/firestore');
+    const snap = await getDoc(doc(db, 'users', user.uid, 'settings', 'costBasisOverrides'));
+    if (snap.exists()) setCostBasisOverrides(snap.data());
+  };
+  loadOverrides();
+}, [user?.uid, db]);
+
+
+useEffect(() => {
   loadScanHistory();
 }, [user, db]);
 
@@ -1572,6 +1604,15 @@ const removeStockFromList = async (listId, stockSymbol) => {
   }
 };
 
+const saveCostBasisOverride = async (symbol, value) => {
+  if (!user?.uid || !db) return;
+  const newOverrides = { ...costBasisOverrides, [symbol]: parseFloat(value) };
+  setCostBasisOverrides(newOverrides);
+  setEditingCostBasis(null);
+  const { doc, setDoc } = await import('firebase/firestore');
+  await setDoc(doc(db, 'users', user.uid, 'settings', 'costBasisOverrides'), newOverrides);
+};
+
 const handleCreateWatchlist = async ({ name, description, isPublic }) => {
   if (!user) return;
   
@@ -1581,7 +1622,7 @@ const handleCreateWatchlist = async ({ name, description, isPublic }) => {
     logActivity(db, {
       userId: user.uid,
       userName: user.displayName,
-      userAvatar: user.photoURL,
+      userAvatar: userProfile?.profilePicUrl || user.photoURL,
       type: 'create_list',
       targetListName: name,
     });
@@ -1725,19 +1766,21 @@ const fetchPositionsForBrokerage = useCallback(async (brokerageId) => {
     }
     
     // Transform Plaid data to our format
-    const holdingsData = result.holdings.map(holding => {
+const holdingsData = result.holdings.map(holding => {
       const security = result.securities?.find(s => s.security_id === holding.security_id);
+      const rawCost = holding.cost_basis ?? 0;
+      const costBasis = costBasisOverrides[security?.ticker_symbol] ?? rawCost;
       return {
         symbol: security?.ticker_symbol || 'N/A',
         name: security?.name || 'Unknown',
         quantity: holding.quantity,
         price: holding.institution_price,
         value: holding.institution_value,
-        costBasis: holding.cost_basis,
-        gain: holding.institution_value - holding.cost_basis,
-        gainPercent: holding.cost_basis > 0 
-  ? ((holding.institution_value - holding.cost_basis) / holding.cost_basis) * 100 
-  : 0,
+        costBasis: costBasis,
+        gain: (holding.institution_value ?? 0) - costBasis,
+        gainPercent: costBasis > 0 
+          ? ((holding.institution_value - costBasis) / costBasis) * 100 
+          : 0,
       };
     });
     
@@ -1746,7 +1789,7 @@ const fetchPositionsForBrokerage = useCallback(async (brokerageId) => {
     console.error(`Error fetching positions for ${brokerageId}:`, error);
     return null;
   }
-}, [user]);
+}, [user, costBasisOverrides]);
 
 // Fetch all positions for all connected brokerages
 const fetchAllPositions = useCallback(async () => {
@@ -1901,6 +1944,26 @@ const handlePlaidError = useCallback((error) => {
   console.error('Plaid error details:', error);
 }, []);
 
+
+// Load followed lists from Firestore on auth
+useEffect(() => {
+  if (!user?.uid || !db) return;
+  
+  const loadFollowedLists = async () => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        setFollowedLists(userDoc.data().followedLists || []);
+        setFollowing(userDoc.data().following || []);
+      }
+    } catch (e) {
+      console.error('Failed to load followed lists:', e);
+    }
+  };
+  
+  loadFollowedLists();
+}, [user, db]);
+
 // Fetch positions when brokerages change
 useEffect(() => {
   if (connectedBrokerages.length > 0 && user) {
@@ -1911,14 +1974,10 @@ useEffect(() => {
 const handleViewUserProfile = async (userId) => {
   console.log('View profile clicked:', userId);
   
-try {
-  const userDocRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userDocRef);
-  
-  if (userDoc.exists()) {
-    setFollowedLists(userDoc.data().followedLists || []);
-    setFollowing(userDoc.data().following || []);
-  }
+  try {
+    const userDocRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userDocRef);
+    
     const userData = { id: userId, ...userDoc.data() };
     
     // Load their public watchlists
@@ -3894,7 +3953,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
             Filters:
           </span>
           
-          <div className="grid grid-cols-2 sm:flex gap-2 md:gap-4 w-full sm:w-auto">
+          <div className="grid grid-cols-1 sm:flex gap-2 md:gap-4 w-full sm:w-auto">
             <CustomDropdown
               value={sortBy}
               onChange={setSortBy}
@@ -4527,30 +4586,27 @@ setFilterSignal("all");
                 transition={{ delay: index * 0.05, duration: 0.3 }}
                 className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
               >
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-1">
-                      <h3
-                        onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
-                        className="text-xl font-black text-white uppercase tracking-tight cursor-pointer hover:text-[#00ff4e] transition-colors"
-                      >
-                        {list.name}
-                      </h3>
-                      <span className="text-[8px] font-black bg-[#00ff4e]/10 text-[#00ff4e] px-2 py-1 rounded border border-[#00ff4e]/30 uppercase">
-                        Following
-                      </span>
-                    </div>
-                    {list.description && (
-                      <p className="text-sm text-zinc-400 mb-1">{list.description}</p>
-                    )}
-                    <p className="text-xs text-zinc-600">
+{/* Header Row */}
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <h3
+                      onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
+                      className="text-xl font-black text-white uppercase tracking-tight cursor-pointer hover:text-[#00ff4e] transition-colors truncate"
+                    >
+                      {list.name}
+                    </h3>
+                    <p className="text-xs text-zinc-600 mt-1">
                       {list.stocks?.length || 0} stocks · {list.followerCount || 0} followers
                     </p>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className="text-[8px] font-black bg-[#00ff4e]/10 text-[#00ff4e] px-2 py-1 rounded border border-[#00ff4e]/30 uppercase hidden sm:inline-block">
+                      Following
+                    </span>
                     <button
                       onClick={async () => {
+                        if (!window.confirm('Unfollow this list?')) return;
                         try {
                           const { toggleFollowWatchlist } = await import('./watchlistService');
                           await toggleFollowWatchlist(user.uid, list.id, false);
@@ -4559,18 +4615,22 @@ setFilterSignal("all");
                           console.error('Unfollow error:', e);
                         }
                       }}
-                      className="text-zinc-500 hover:text-red-500 transition-colors p-2 text-[10px] font-black uppercase"
+                      className="text-zinc-600 hover:text-red-500 transition-colors text-[10px] font-black uppercase tracking-wider"
                     >
                       Unfollow
                     </button>
                     <button
                       onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
-                      className="text-zinc-500 hover:text-white transition-colors text-sm font-bold uppercase"
+                      className="text-zinc-500 hover:text-white transition-colors text-[10px] font-black uppercase tracking-wider"
                     >
                       {selectedWatchlist?.id === list.id ? 'Hide ▲' : 'View ▼'}
                     </button>
                   </div>
                 </div>
+
+                {list.description && (
+                  <p className="text-sm text-zinc-500 mt-2">{list.description}</p>
+                )}
 
                 {/* Expanded stocks */}
                 <AnimatePresence>
@@ -4987,14 +5047,49 @@ setFilterSignal("all");
   positions={positions} 
   polygonKey={POLYGON_KEY} 
 />                
+                  {/* Sort Bar */}
+                  <div className="bg-[#111111] border border-zinc-900 rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4">
+                    <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
+                      Sort:
+                    </span>
+                    <div className="grid grid-cols-1 sm:flex gap-2 md:gap-4 w-full sm:w-auto">
+                      <CustomDropdown
+                        value={positionSortBy}
+                        onChange={setPositionSortBy}
+                        label="Sort"
+                        options={[
+                          { value: 'value-high', label: 'Value ↓' },
+                          { value: 'value-low', label: 'Value ↑' },
+                          { value: 'gain-high', label: 'Gain % ↓' },
+                          { value: 'gain-low', label: 'Gain % ↑' },
+                          { value: 'price-high', label: 'Price ↓' },
+                          { value: 'price-low', label: 'Price ↑' },
+                          { value: 'alpha', label: 'A → Z' },
+                        ]}
+                      />
+                    </div>
+                    {positionSortBy !== 'value-high' && (
+                      <button
+                        onClick={() => setPositionSortBy('value-high')}
+                        className="text-zinc-500 hover:text-[#00ff4e] text-[10px] md:text-xs font-black uppercase tracking-wider transition-colors whitespace-nowrap"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
 
                 {/* Position Cards */}
-                {positions.map((position, index) => {
+                {sortedPositions.map((position, index) => {
                   const isPositionAdded = flattenedWatchlist.some(s => s.symbol === position.symbol);
                   const isHoveringThisPosition = hoveringPositionSymbol === position.symbol;
                   
                   return (
                     <PositionCard
+                      editingCostBasis={editingCostBasis}
+                      setEditingCostBasis={setEditingCostBasis}
+                      costBasisInput={costBasisInput}
+                      setCostBasisInput={setCostBasisInput}
+                      saveCostBasisOverride={saveCostBasisOverride}
                       key={position.symbol}
                       position={position}
                       index={index}
@@ -5012,6 +5107,7 @@ setFilterSignal("all");
                       setManualSearch={setManualSearch}
                       setActiveTab={setActiveTab}
                       runScanner={runScanner}
+                      isMarketOpen={isMarketOpen}
                     />
                   );
                 })}
@@ -5122,7 +5218,7 @@ onFollowList={async (listId) => {
     logActivity(db, {
       userId: user.uid,
       userName: user.displayName,
-      userAvatar: user.photoURL,
+      userAvatar: userProfile?.profilePicUrl || user.photoURL,
       type: 'follow_list',
       targetListId: listId,
       targetListName: followedListsData.find(l => l.id === listId)?.name || 
@@ -5256,13 +5352,14 @@ function CustomDropdown({ value, onChange, options, label }) {
 }
 
 
-const StockChart = ({ symbol, polygonKey }) => {
+const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('1D');
   const [showVolume, setShowVolume] = useState(false);
   const [priceChange, setPriceChange] = useState(null);
   const [hoverData, setHoverData] = useState(null);
+  
 
   const TIME_RANGES = [
     { label: '1D', multiplier: 5, timespan: 'minute', days: 1 },
@@ -5389,8 +5486,8 @@ const StockChart = ({ symbol, polygonKey }) => {
   const pricePadding = (maxPrice - minPrice) * 0.1 || 1;
 
   return (
-    <div className="bg-zinc-950/50 border border-zinc-800 rounded-xl p-3 md:p-4">
-      {/* Header */}
+<div className="bg-zinc-950/50 rounded-xl p-3 md:p-4">     
+ {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 md:mb-4">
         <div className="flex items-center gap-3">
           <h4 className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-zinc-500">
@@ -5412,6 +5509,17 @@ const StockChart = ({ symbol, polygonKey }) => {
           {displayTime && (
             <span className="text-[10px] text-zinc-600 font-mono">{displayTime}</span>
           )}
+                  {/* Live indicator */}
+        <span className={`text-[8px] md:text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 ${
+          isMarketOpen ? 'text-[#00ff4e]' : 'text-zinc-600'
+        }`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${
+            isMarketOpen 
+              ? 'bg-[#00ff4e] shadow-[0_0_6px_#00ff4e] animate-pulse' 
+              : 'bg-zinc-700'
+          }`} />
+          {isMarketOpen ? 'LIVE' : 'CLOSED'}
+        </span>
         </div>
 
         {/* Volume Toggle */}
@@ -5593,8 +5701,8 @@ const MetricCard = React.memo(function MetricCard({
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const cardRef = useRef(null);
-  const chatEndRef = useRef(null);
-  const chatInputRef = useRef(null);
+const chatContainerRef = useRef(null);
+const chatInputRef = useRef(null);
   const prevPrice = useRef(null);
   const prevChange = useRef(null);
   const hasAnimatedRef = useRef(false);
@@ -5688,12 +5796,12 @@ useEffect(() => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [showChart, showNews, chatOpen]);
 
-  // Auto-scroll chat
-  useEffect(() => {
-    if (chatOpen && chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+// Auto-scroll chat container only (not the page)
+useEffect(() => {
+    if (chatOpen && chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
-  }, [chatMessages, chatOpen]);
+}, [chatMessages, chatOpen]);
 
   // Focus input when chat opens
   useEffect(() => {
@@ -6057,8 +6165,7 @@ const sendChatMessage = async (messageText) => {
               exit={{ height: 0, opacity: 0 }}
               className="mt-4 md:mt-6 overflow-hidden"
             >
-              <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} />
-            </motion.div>
+<StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} />            </motion.div>
           )}
         </AnimatePresence>
       </div>
@@ -6132,9 +6239,18 @@ const sendChatMessage = async (messageText) => {
         </a>
       )}
 
+      {/* ASK AI HEADER */}
+
+
 {/* CHAT SECTION WITH BORDER */}
       {chatMessages.length > 0 && (
         <div className="border-t-2 border-zinc-900 pt-4 md:pt-6 mb-0">
+                <div className="flex items-center gap-2 md:gap-3 mb-3">
+        <Lightbulb size={14} className="md:w-4 md:h-4 text-[#00ff4e]" />
+        <span className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-white">
+          Ask AI
+        </span>
+      </div>
           <AnimatePresence>
             {chatOpen && (
               <motion.div
@@ -6182,7 +6298,7 @@ const sendChatMessage = async (messageText) => {
                   </div>
 
                   {/* Messages */}
-                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                 <div ref={chatContainerRef} className="space-y-3 max-h-[400px] overflow-y-auto">
                     {chatMessages.map((msg, i) => (
                       <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[90%] px-3 md:px-4 py-2.5 rounded-lg ${
@@ -6216,13 +6332,11 @@ const sendChatMessage = async (messageText) => {
                         </div>
                       </div>
                     )}
-                    
-                    <div ref={chatEndRef} />
                   </div>
 
                   {/* Disclaimer */}
                   <p className="text-[9px] text-zinc-700 mt-3 text-center">
-                    AI-powered research with web search <br /> Not financial advice
+                    AI-powered research · Not financial advice
                   </p>
                 </div>
               </motion.div>
@@ -6243,14 +6357,8 @@ const sendChatMessage = async (messageText) => {
         </div>
       )}
 
-      {/* ASK AI SECTION */}
+{/* PROMPTS + INPUT */}
       <div className="pt-0 md:pt-0 mb-2 md:mb-3">
-<div className="flex items-center gap-2 md:gap-3 mb-3">
- <Lightbulb size={14} className="md:w-4 md:h-4 text-[#00ff4e]" />
-  <span className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-white">
-    Ask AI
-  </span>
-</div>
         
         {/* Quick Prompt Pills - compact, wrapping row */}
         <div className="flex flex-wrap gap-1.5 md:gap-2 mb-3">
@@ -6380,15 +6488,13 @@ const sendChatMessage = async (messageText) => {
 });
 
 // =============================================
-// PORTFOLIO PERFORMANCE CHART (with daily snapshots)
+// PORTFOLIO PERFORMANCE CHART (Intraday Only)
 // =============================================
-const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart({ positions, polygonKey, user, db, brokerageName, onRefresh, refreshing }) {  const [timeframe, setTimeframe] = useState('1M');
+const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart({ positions, polygonKey, user, db, brokerageName, onRefresh, refreshing }) {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [historicalCache, setHistoricalCache] = useState(null);
   const [todayMovers, setTodayMovers] = useState([]);
   const [hoverValue, setHoverValue] = useState(null);
-  const [snapshots, setSnapshots] = useState({});
 
   const totalValue = positions.reduce((sum, p) => sum + (p.value ?? 0), 0);
   const totalCost = positions.reduce((sum, p) => sum + (p.costBasis ?? 0), 0);
@@ -6421,41 +6527,14 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
     saveSnapshot();
   }, [user, db, totalValue]);
 
-  // Load snapshots from Firestore
-  useEffect(() => {
-    if (!user?.uid || !db) return;
-    
-    const loadSnapshots = async () => {
-      try {
-        const { collection, getDocs, query, orderBy } = await import('firebase/firestore');
-        const q = query(
-          collection(db, 'users', user.uid, 'portfolioSnapshots'),
-          orderBy('date', 'asc')
-        );
-        const snap = await getDocs(q);
-        const data = {};
-        snap.docs.forEach(d => {
-          data[d.data().date] = d.data();
-        });
-        setSnapshots(data);
-      } catch (e) {
-        console.error('Failed to load snapshots:', e);
-      }
-    };
-    
-    loadSnapshots();
-  }, [user, db]);
-
-  // Fetch historical data from Polygon
+  // Fetch today's intraday data from Polygon
   useEffect(() => {
     if (!positions || positions.length === 0 || !polygonKey) return;
-    if (historicalCache) return;
 
-    const fetchHistory = async () => {
+    const fetchIntraday = async () => {
       setLoading(true);
-      const cache = {};
-      const to = new Date().toISOString().split('T')[0];
-      const from = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const today = new Date().toISOString().split('T')[0];
+      const intradayData = {};
       
       const validPositions = positions.filter(p => 
         p.symbol && p.symbol !== 'N/A' && !p.symbol.includes(':') && (p.quantity ?? 0) > 0
@@ -6465,113 +6544,108 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
         const pos = validPositions[i];
         try {
           const res = await fetch(
-            `https://api.polygon.io/v2/aggs/ticker/${pos.symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=100&apiKey=${polygonKey}`
+            `https://api.polygon.io/v2/aggs/ticker/${pos.symbol}/range/5/minute/${today}/${today}?adjusted=true&sort=asc&apiKey=${polygonKey}`
           );
           const data = await res.json();
-          if (data.results) {
-            cache[pos.symbol] = data.results.map(bar => ({
-              date: new Date(bar.t).toISOString().split('T')[0],
-              close: bar.c,
-              timestamp: bar.t
+          if (data.results && data.results.length > 0) {
+            intradayData[pos.symbol] = data.results.map(bar => ({
+              timestamp: bar.t,
+              close: bar.c
             }));
           }
         } catch (e) {
-          console.error(`Failed to fetch history for ${pos.symbol}:`, e);
+          console.error(`Failed to fetch intraday for ${pos.symbol}:`, e);
         }
-        // Rate limit: 250ms between calls
         if (i < validPositions.length - 1) {
           await new Promise(r => setTimeout(r, 250));
         }
       }
-      
-      setHistoricalCache(cache);
+
+      // Collect all unique timestamps and sort
+      const allTimestamps = new Set();
+      Object.values(intradayData).forEach(bars => {
+        bars.forEach(bar => allTimestamps.add(bar.timestamp));
+      });
+      const sortedTimestamps = [...allTimestamps].sort((a, b) => a - b);
+
+      if (sortedTimestamps.length === 0) {
+        setChartData([]);
+        setLoading(false);
+        return;
+      }
+
+      // Build portfolio value at each timestamp
+      const dataPoints = sortedTimestamps.map(ts => {
+        let portfolioValue = 0;
+        let hasData = false;
+
+        validPositions.forEach(pos => {
+          const bars = intradayData[pos.symbol];
+          if (!bars) {
+            // Use current price as fallback
+            portfolioValue += pos.quantity * (pos.currentPrice || pos.price || 0);
+            return;
+          }
+
+          // Find closest bar at or before this timestamp
+          let closest = null;
+          for (let i = bars.length - 1; i >= 0; i--) {
+            if (bars[i].timestamp <= ts) { closest = bars[i]; break; }
+          }
+          
+          if (closest) {
+            portfolioValue += pos.quantity * closest.close;
+            hasData = true;
+          } else {
+            portfolioValue += pos.quantity * bars[0].close;
+            hasData = true;
+          }
+        });
+
+        if (!hasData) return null;
+
+        const time = new Date(ts);
+        const label = time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+        return { timestamp: ts, label, value: parseFloat(portfolioValue.toFixed(2)) };
+      }).filter(Boolean);
+
+      // Add current live value as the last point
+      if (dataPoints.length > 0) {
+        const now = new Date();
+        const lastPoint = dataPoints[dataPoints.length - 1];
+        if (totalValue > 0 && Math.abs(now.getTime() - lastPoint.timestamp) > 60000) {
+          dataPoints.push({
+            timestamp: now.getTime(),
+            label: 'Now',
+            value: totalValue
+          });
+        } else if (totalValue > 0) {
+          lastPoint.value = totalValue;
+          lastPoint.label = 'Now';
+        }
+      }
+
+      setChartData(dataPoints);
+
+      // Today's movers
+      const movers = validPositions.map(pos => {
+        const bars = intradayData[pos.symbol];
+        if (!bars || bars.length < 2) return null;
+        const openPrice = bars[0].close;
+        const curPrice = pos.currentPrice || pos.price;
+        if (!openPrice || !curPrice) return null;
+        const dayChange = ((curPrice - openPrice) / openPrice) * 100;
+        const dayDollars = (curPrice - openPrice) * pos.quantity;
+        return { symbol: pos.symbol, dayChange, dayDollars, curPrice };
+      }).filter(Boolean).sort((a, b) => Math.abs(b.dayChange) - Math.abs(a.dayChange));
+
+      setTodayMovers(movers.slice(0, 5));
       setLoading(false);
     };
 
-    fetchHistory();
-  }, [positions, polygonKey]);
-
-  // Build chart data when cache or timeframe changes
-  useEffect(() => {
-    if (!historicalCache) return;
-    
-    const daysMap = { '1W': 7, '1M': 30, '3M': 90, 'ALL': 365 };
-    const days = daysMap[timeframe] || 30;
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    
-    // Collect all dates
-    const allDates = new Set();
-    Object.values(historicalCache).forEach(bars => {
-      bars.forEach(bar => { if (bar.date >= cutoff) allDates.add(bar.date); });
-    });
-    Object.keys(snapshots).forEach(date => { if (date >= cutoff) allDates.add(date); });
-    
-    const sortedDates = [...allDates].sort();
-    if (sortedDates.length === 0) { setChartData([]); return; }
-
-    const validPositions = positions.filter(p => 
-      p.symbol && p.symbol !== 'N/A' && !p.symbol.includes(':') && (p.quantity ?? 0) > 0
-    );
-
-    const dataPoints = sortedDates.map(date => {
-      // Prefer stored snapshot
-      if (snapshots[date]) {
-        return { date, label: formatLabel(date, timeframe), value: snapshots[date].totalValue };
-      }
-
-      // Calculate from bars
-      let val = 0;
-      let missing = 0;
-      
-      validPositions.forEach(pos => {
-        const bars = historicalCache[pos.symbol];
-        if (!bars) { missing++; return; }
-        
-        let closest = null;
-        for (let i = bars.length - 1; i >= 0; i--) {
-          if (bars[i].date <= date) { closest = bars[i]; break; }
-        }
-        
-        val += pos.quantity * (closest?.close ?? bars[0]?.close ?? pos.price ?? 0);
-      });
-      
-      if (missing > validPositions.length * 0.5) return null;
-      return { date, label: formatLabel(date, timeframe), value: parseFloat(val.toFixed(2)) };
-    }).filter(Boolean);
-    
-    // Ensure today's live value is the last point
-    const today = new Date().toISOString().split('T')[0];
-    const last = dataPoints[dataPoints.length - 1];
-    if (last && last.date === today) {
-      last.value = totalValue;
-      last.label = 'Today';
-    } else if (last) {
-      dataPoints.push({ date: today, label: 'Today', value: totalValue });
-    }
-
-    setChartData(dataPoints);
-
-    // Today's movers
-    const movers = validPositions.map(pos => {
-      const bars = historicalCache[pos.symbol];
-      if (!bars || bars.length < 2) return null;
-      const prevClose = bars[bars.length - 2]?.close;
-      const curPrice = pos.currentPrice || pos.price;
-      if (!prevClose || !curPrice) return null;
-      const dayChange = ((curPrice - prevClose) / prevClose) * 100;
-      const dayDollars = (curPrice - prevClose) * pos.quantity;
-      return { symbol: pos.symbol, dayChange, dayDollars, curPrice };
-    }).filter(Boolean).sort((a, b) => Math.abs(b.dayChange) - Math.abs(a.dayChange));
-    
-    setTodayMovers(movers.slice(0, 5));
-  }, [historicalCache, timeframe, snapshots, positions, totalValue]);
-
-  const formatLabel = (dateStr, tf) => {
-    const d = new Date(dateStr + 'T12:00:00');
-    if (tf === '1W') return d.toLocaleDateString([], { weekday: 'short' });
-    if (tf === '1M') return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  };
+    fetchIntraday();
+  }, [positions, polygonKey, totalValue]);
 
   const fmtCurrency = (val) => {
     if (val >= 1000000) return `$${(val / 1000000).toFixed(2)}M`;
@@ -6580,11 +6654,11 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
   };
 
   // Display values
-  const firstValue = chartData[0]?.value ?? totalCost;
+  const firstValue = chartData[0]?.value ?? totalValue;
   const currentDisplay = hoverValue ?? totalValue;
-  const periodChange = firstValue > 0 ? ((currentDisplay - firstValue) / firstValue) * 100 : 0;
-  const periodDollars = currentDisplay - firstValue;
-  const isPositive = periodChange >= 0;
+  const dayChange = firstValue > 0 ? ((currentDisplay - firstValue) / firstValue) * 100 : 0;
+  const dayDollars = currentDisplay - firstValue;
+  const isPositive = dayChange >= 0;
   const chartColor = isPositive ? '#00ff4e' : '#FF4B2B';
 
   const ChartTooltip = ({ active, payload }) => {
@@ -6595,7 +6669,7 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
     return null;
   };
 
-if (positions.length === 0) return null;
+  if (positions.length === 0) return null;
 
   const totalGain = positions.reduce((sum, p) => sum + (p.gain ?? 0), 0);
   const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
@@ -6617,7 +6691,7 @@ if (positions.length === 0) return null;
         </button>
       </div>
 
-      {/* Main Value + Period Change */}
+      {/* Main Value + Day Change */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 mb-4">
         <div>
           <p className="text-3xl md:text-4xl font-black text-white tabular-nums leading-none">
@@ -6625,32 +6699,13 @@ if (positions.length === 0) return null;
           </p>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-sm md:text-base font-black tabular-nums" style={{ color: chartColor }}>
-              {isPositive ? '+' : ''}{periodChange.toFixed(2)}%
+              {isPositive ? '+' : ''}{dayChange.toFixed(2)}%
             </span>
             <span className="text-xs text-zinc-500 tabular-nums">
-              ({isPositive ? '+' : '-'}${Math.abs(periodDollars).toLocaleString(undefined, { maximumFractionDigits: 0 })})
+              ({isPositive ? '+' : '-'}${Math.abs(dayDollars).toLocaleString(undefined, { maximumFractionDigits: 0 })})
             </span>
-            <span className="text-[9px] text-zinc-700 uppercase font-bold">
-              {timeframe === 'ALL' ? 'All Time' : `Past ${timeframe}`}
-            </span>
+            <span className="text-[9px] text-zinc-700 uppercase font-bold">Today</span>
           </div>
-        </div>
-
-        <div className="flex gap-1">
-          {['1W', '1M', '3M', 'ALL'].map(tf => (
-            <button
-              key={tf}
-              onClick={() => { setTimeframe(tf); setHoverValue(null); }}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
-                timeframe === tf
-                  ? 'text-black shadow-[0_0_15px_rgba(0,255,78,0.3)]'
-                  : 'bg-transparent text-zinc-600 hover:text-zinc-400 hover:bg-zinc-900 border border-zinc-800'
-              }`}
-              style={timeframe === tf ? { backgroundColor: chartColor } : {}}
-            >
-              {tf}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -6695,20 +6750,20 @@ if (positions.length === 0) return null;
         <div className="h-[200px] flex items-center justify-center">
           <div className="flex flex-col items-center gap-2">
             <div className="w-5 h-5 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
-            <span className="text-xs text-zinc-600 font-bold">Loading historical data...</span>
+            <span className="text-xs text-zinc-600 font-bold">Loading today's data...</span>
             <span className="text-[10px] text-zinc-700">Fetching {positions.filter(p => p.quantity > 0).length} positions</span>
           </div>
         </div>
       ) : chartData.length < 2 ? (
         <div className="h-[200px] flex items-center justify-center">
           <div className="text-center">
-            <span className="text-xs text-zinc-600 font-bold uppercase tracking-wider block">Building history...</span>
-            <span className="text-[10px] text-zinc-700 mt-1 block">Daily snapshots will fill this chart over time</span>
+            <span className="text-xs text-zinc-600 font-bold uppercase tracking-wider block">Market hasn't opened yet</span>
+            <span className="text-[10px] text-zinc-700 mt-1 block">Intraday chart will appear once trading begins</span>
           </div>
         </div>
       ) : (
         <div className="h-[200px]" onMouseLeave={() => setHoverValue(null)}>
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
             <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
               <defs>
                 <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
@@ -6729,7 +6784,7 @@ if (positions.length === 0) return null;
                 axisLine={false}
                 tickLine={false}
                 tick={{ fill: '#52525b', fontSize: 9, fontFamily: 'monospace' }}
-                tickFormatter={(v) => `$${(v/1000).toFixed(1)}K`}
+                tickFormatter={(v) => fmtCurrency(v)}
                 width={55}
               />
               <Tooltip content={<ChartTooltip />} />
@@ -7430,6 +7485,7 @@ const PositionCard = React.memo(function PositionCard({
   position,
   index,
   livePrices,
+  isMarketOpen,
   isPositionAdded,
   isHoveringThisPosition,
   setHoveringPositionSymbol,
@@ -7442,7 +7498,12 @@ const PositionCard = React.memo(function PositionCard({
   removeStockFromList,
   setManualSearch,
   setActiveTab,
-  runScanner
+  runScanner,
+  editingCostBasis,
+  setEditingCostBasis,
+  costBasisInput,
+  setCostBasisInput,
+  saveCostBasisOverride
 }) {
   const [showChart, setShowChart] = useState(false);
 
@@ -7633,9 +7694,52 @@ const flashClass = live?.direction === 'up' ? 'price-flash-up' : live?.direction
             <p className="text-xs text-zinc-600 mb-1">Market Value</p>
             <p className="text-lg font-black text-white">${position.value?.toLocaleString() ?? '0'}</p>
           </div>
-          <div>
+<div>
             <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
-            <p className="text-lg font-black text-white">${position.costBasis?.toLocaleString() ?? '0'}</p>
+            <div className="flex items-center gap-2">
+              {editingCostBasis === position.symbol ? (
+                <div className="flex items-center gap-1">
+                  <span className="text-zinc-500">$</span>
+                  <input
+                    type="number"
+                    value={costBasisInput}
+                    onChange={(e) => setCostBasisInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveCostBasisOverride(position.symbol, costBasisInput);
+                      if (e.key === 'Escape') setEditingCostBasis(null);
+                    }}
+                    autoFocus
+                    className="w-24 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-white text-sm font-mono focus:outline-none focus:border-[#00ff4e]/50"
+                  />
+                  <button
+                    onClick={() => saveCostBasisOverride(position.symbol, costBasisInput)}
+                    className="text-[#00ff4e] text-xs font-black px-2 py-1 hover:bg-[#00ff4e]/10 rounded"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    onClick={() => setEditingCostBasis(null)}
+                    className="text-zinc-500 text-xs font-black px-2 py-1 hover:bg-zinc-800 rounded"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-lg font-black text-white">${position.costBasis?.toLocaleString() ?? '0'}</p>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCostBasisInput(position.costBasis?.toFixed(2) ?? '0');
+                      setEditingCostBasis(position.symbol);
+                    }}
+                    className="text-zinc-700 hover:text-[#00ff4e] transition-colors"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                </>
+              )}
+            </div>
           </div>
           <div>
             <p className="text-xs text-zinc-600 mb-1">Gain/Loss</p>
@@ -7677,14 +7781,7 @@ const flashClass = live?.direction === 'up' ? 'price-flash-up' : live?.direction
               className="overflow-hidden mt-4"
             >
               <div className="bg-zinc-950/50 border border-zinc-800 rounded-xl p-3 md:p-4">
-                <div className="flex justify-between items-center mb-3 md:mb-4">
-                  <h4 className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                    {position.symbol} - Intraday
-                  </h4>
-                  <span className="text-[8px] md:text-[10px] font-bold text-[#00ff4e]">LIVE</span>
-                </div>
-                <MiniChart symbol={position.symbol} />
-              </div>
+<StockChart symbol={position.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} />              </div>
             </motion.div>
           )}
         </AnimatePresence>
