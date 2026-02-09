@@ -569,20 +569,30 @@ const MiniChart = ({ symbol }) => {
 // =============================================
 const usePolygonWebSocket = (apiKey, tickers, enabled = true) => {
   const [livePrices, setLivePrices] = useState({});
-  const [wsStatus, setWsStatus] = useState('disconnected'); // 'connecting' | 'connected' | 'disconnected'
+  const [wsStatus, setWsStatus] = useState('disconnected');
   const wsRef = useRef(null);
   const reconnectTimeout = useRef(null);
   const subscribedTickers = useRef(new Set());
   const enabledRef = useRef(enabled);
+  const tickersRef = useRef(tickers);
+  const connectRef = useRef(null);
   enabledRef.current = enabled;
+  tickersRef.current = tickers;
 
-  const connect = useCallback(() => {
-    if (!apiKey || !enabled || tickers.length === 0) return;
+  // Store connect in a ref to avoid useCallback/dependency issues
+  connectRef.current = () => {
+    const currentTickers = tickersRef.current;
+    if (!apiKey || !enabledRef.current || currentTickers.length === 0) return;
     
-    // Clean up existing connection
+    if (reconnectTimeout.current) {
+      clearTimeout(reconnectTimeout.current);
+      reconnectTimeout.current = null;
+    }
     if (wsRef.current) {
-      wsRef.current.close();
+      const old = wsRef.current;
       wsRef.current = null;
+      old.onclose = null;
+      old.close();
     }
 
     setWsStatus('connecting');
@@ -591,37 +601,28 @@ const usePolygonWebSocket = (apiKey, tickers, enabled = true) => {
 
     ws.onopen = () => {
       console.log('[WS] Connected to Polygon');
-      // Authenticate
       ws.send(JSON.stringify({ action: 'auth', params: apiKey }));
     };
 
     ws.onmessage = (event) => {
       const messages = JSON.parse(event.data);
-      
       messages.forEach((msg) => {
-        // Auth success
         if (msg.ev === 'status' && msg.status === 'auth_success') {
           console.log('[WS] Authenticated');
           setWsStatus('connected');
-          
-          // Subscribe to aggregate per second for all tickers
-          const subs = tickers.map(t => `A.${t}`).join(',');
+          const subs = tickersRef.current.map(t => `A.${t}`).join(',');
           ws.send(JSON.stringify({ action: 'subscribe', params: subs }));
-          subscribedTickers.current = new Set(tickers);
-          console.log(`[WS] Subscribed to ${tickers.length} tickers`);
+          subscribedTickers.current = new Set(tickersRef.current);
+          console.log(`[WS] Subscribed to ${tickersRef.current.length} tickers`);
         }
-        
-        // Auth failed
         if (msg.ev === 'status' && msg.status === 'auth_failed') {
           console.error('[WS] Auth failed');
           setWsStatus('disconnected');
         }
-
-        // Aggregate per second event
         if (msg.ev === 'A') {
           setLivePrices(prev => {
             const prevPrice = prev[msg.sym]?.price;
-            const newPrice = msg.c; // close price of aggregate
+            const newPrice = msg.c;
             return {
               ...prev,
               [msg.sym]: {
@@ -646,12 +647,13 @@ const usePolygonWebSocket = (apiKey, tickers, enabled = true) => {
       console.error('[WS] Error:', err);
     };
 
-ws.onclose = () => {
-      console.log('[WS] Disconnected');
+   ws.onclose = (event) => {
+      // Only handle if this is still the active socket
+      if (wsRef.current !== ws) return;
+      console.log(`[WS] Disconnected - code: ${event.code}, reason: ${event.reason || 'none'}`);
       setWsStatus('disconnected');
       wsRef.current = null;
       
-      // Only reconnect during market hours (Mon-Fri, 4am-8pm ET)
       const now = new Date();
       const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
       const day = et.getDay();
@@ -660,40 +662,47 @@ ws.onclose = () => {
       const isMarketWindow = hour >= 4 && hour <= 20;
       
       if (enabledRef.current && isMarketDay && isMarketWindow) {
+        // Exponential backoff: 5s, 10s, 20s, 40s, max 60s
+        const attempts = (ws._reconnectAttempts || 0) + 1;
+        const delay = Math.min(5000 * Math.pow(2, attempts - 1), 60000);
+        console.log(`[WS] Reconnecting in ${delay/1000}s (attempt ${attempts})...`);
         reconnectTimeout.current = setTimeout(() => {
-          console.log('[WS] Reconnecting...');
-          connect();
-        }, 5000);
-      } else {
-        console.log('[WS] Market closed, skipping reconnect');
+          const newWs = connectRef.current?.();
+          if (wsRef.current) wsRef.current._reconnectAttempts = attempts;
+        }, delay);
       }
     };
-  }, [apiKey, tickers, enabled]);
+  };
 
-
-
-  // Connect on mount / when tickers change
+  // Connect once on mount, disconnect on unmount
   useEffect(() => {
-    if (!enabled || tickers.length === 0) return;
-    connect();
+    if (!enabled) return;
+    // Small delay to let tickers populate
+    const timer = setTimeout(() => {
+      if (tickersRef.current.length > 0) {
+        connectRef.current?.();
+      }
+    }, 1000);
     
     return () => {
+      clearTimeout(timer);
       if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
       if (wsRef.current) {
-        wsRef.current.close();
+        const ws = wsRef.current;
         wsRef.current = null;
+        ws.onclose = null;
+        ws.close();
       }
     };
-  }, [connect, enabled, tickers.length]);
+  }, [enabled]); // ONLY depends on enabled, not tickers
 
-  // Handle ticker changes without full reconnect
+  // Handle ticker changes by subscribing/unsubscribing (no reconnect)
   useEffect(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     
     const currentSubs = subscribedTickers.current;
     const newTickers = new Set(tickers);
     
-    // Unsubscribe removed tickers
     const toUnsub = [...currentSubs].filter(t => !newTickers.has(t));
     if (toUnsub.length > 0) {
       wsRef.current.send(JSON.stringify({ 
@@ -702,13 +711,13 @@ ws.onclose = () => {
       }));
     }
     
-    // Subscribe new tickers
     const toSub = [...newTickers].filter(t => !currentSubs.has(t));
     if (toSub.length > 0) {
       wsRef.current.send(JSON.stringify({ 
         action: 'subscribe', 
         params: toSub.map(t => `A.${t}`).join(',') 
       }));
+      console.log(`[WS] Added ${toSub.length} tickers (total: ${newTickers.size})`);
     }
     
     subscribedTickers.current = newTickers;
@@ -5127,6 +5136,7 @@ setFilterSignal("all");
   polygonKey={POLYGON_KEY} 
   user={user} 
   db={db} 
+  livePrices={livePrices}
   brokerageName={connectedBrokerages.find(b => b.id === selectedBrokerage)?.name || 'Portfolio'}
   onRefresh={() => fetchAllPositions()}
   refreshing={loadingPositions}
@@ -6908,16 +6918,19 @@ className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounde
 });
 
 // =============================================
-// PORTFOLIO PERFORMANCE CHART (Intraday Only)
+// PORTFOLIO PERFORMANCE CHART
 // =============================================
-const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart({ positions, polygonKey, user, db, brokerageName, onRefresh, refreshing }) {
-  const [chartData, setChartData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [todayMovers, setTodayMovers] = useState([]);
-  const [hoverValue, setHoverValue] = useState(null);
 
-  const totalValue = positions.reduce((sum, p) => sum + (p.value ?? 0), 0);
+const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart({ positions, polygonKey, user, db, livePrices, brokerageName, onRefresh, refreshing }) {
+
   const totalCost = positions.reduce((sum, p) => sum + (p.costBasis ?? 0), 0);
+  
+  // Live total value using WebSocket prices when available
+  const totalValue = positions.reduce((sum, p) => {
+    const live = livePrices?.[p.symbol];
+    const price = live?.price ?? p.price ?? 0;
+    return sum + (price * (p.quantity ?? 0));
+  }, 0);
 
   // Save daily snapshot to Firestore
   useEffect(() => {
@@ -6935,7 +6948,7 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
           positions: positions.map(p => ({ 
             symbol: p.symbol, 
             quantity: p.quantity, 
-            price: p.currentPrice || p.price 
+            price: livePrices?.[p.symbol]?.price || p.price 
           })),
           timestamp: Date.now()
         }, { merge: true });
@@ -6947,148 +6960,6 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
     saveSnapshot();
   }, [user, db, totalValue]);
 
-  // Fetch today's intraday data from Polygon
-  useEffect(() => {
-    if (!positions || positions.length === 0 || !polygonKey) return;
-
-    const fetchIntraday = async () => {
-      setLoading(true);
-      const today = new Date().toISOString().split('T')[0];
-      const intradayData = {};
-      
-      const validPositions = positions.filter(p => 
-        p.symbol && p.symbol !== 'N/A' && !p.symbol.includes(':') && (p.quantity ?? 0) > 0
-      );
-
-      for (let i = 0; i < validPositions.length; i++) {
-        const pos = validPositions[i];
-        try {
-          const res = await fetch(
-            `https://api.polygon.io/v2/aggs/ticker/${pos.symbol}/range/5/minute/${today}/${today}?adjusted=true&sort=asc&apiKey=${polygonKey}`
-          );
-          const data = await res.json();
-          if (data.results && data.results.length > 0) {
-            intradayData[pos.symbol] = data.results.map(bar => ({
-              timestamp: bar.t,
-              close: bar.c
-            }));
-          }
-        } catch (e) {
-          console.error(`Failed to fetch intraday for ${pos.symbol}:`, e);
-        }
-        if (i < validPositions.length - 1) {
-          await new Promise(r => setTimeout(r, 250));
-        }
-      }
-
-      // Collect all unique timestamps and sort
-      const allTimestamps = new Set();
-      Object.values(intradayData).forEach(bars => {
-        bars.forEach(bar => allTimestamps.add(bar.timestamp));
-      });
-      const sortedTimestamps = [...allTimestamps].sort((a, b) => a - b);
-
-      if (sortedTimestamps.length === 0) {
-        setChartData([]);
-        setLoading(false);
-        return;
-      }
-
-      // Build portfolio value at each timestamp
-      const dataPoints = sortedTimestamps.map(ts => {
-        let portfolioValue = 0;
-        let hasData = false;
-
-        validPositions.forEach(pos => {
-          const bars = intradayData[pos.symbol];
-          if (!bars) {
-            // Use current price as fallback
-            portfolioValue += pos.quantity * (pos.currentPrice || pos.price || 0);
-            return;
-          }
-
-          // Find closest bar at or before this timestamp
-          let closest = null;
-          for (let i = bars.length - 1; i >= 0; i--) {
-            if (bars[i].timestamp <= ts) { closest = bars[i]; break; }
-          }
-          
-          if (closest) {
-            portfolioValue += pos.quantity * closest.close;
-            hasData = true;
-          } else {
-            portfolioValue += pos.quantity * bars[0].close;
-            hasData = true;
-          }
-        });
-
-        if (!hasData) return null;
-
-        const time = new Date(ts);
-        const label = time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
-        return { timestamp: ts, label, value: parseFloat(portfolioValue.toFixed(2)) };
-      }).filter(Boolean);
-
-      // Add current live value as the last point
-      if (dataPoints.length > 0) {
-        const now = new Date();
-        const lastPoint = dataPoints[dataPoints.length - 1];
-        if (totalValue > 0 && Math.abs(now.getTime() - lastPoint.timestamp) > 60000) {
-          dataPoints.push({
-            timestamp: now.getTime(),
-            label: 'Now',
-            value: totalValue
-          });
-        } else if (totalValue > 0) {
-          lastPoint.value = totalValue;
-          lastPoint.label = 'Now';
-        }
-      }
-
-      setChartData(dataPoints);
-
-      // Today's movers
-      const movers = validPositions.map(pos => {
-        const bars = intradayData[pos.symbol];
-        if (!bars || bars.length < 2) return null;
-        const openPrice = bars[0].close;
-        const curPrice = pos.currentPrice || pos.price;
-        if (!openPrice || !curPrice) return null;
-        const dayChange = ((curPrice - openPrice) / openPrice) * 100;
-        const dayDollars = (curPrice - openPrice) * pos.quantity;
-        return { symbol: pos.symbol, dayChange, dayDollars, curPrice };
-      }).filter(Boolean).sort((a, b) => Math.abs(b.dayChange) - Math.abs(a.dayChange));
-
-      setTodayMovers(movers.slice(0, 5));
-      setLoading(false);
-    };
-
-    fetchIntraday();
-  }, [positions, polygonKey, totalValue]);
-
-  const fmtCurrency = (val) => {
-    if (val >= 1000000) return `$${(val / 1000000).toFixed(2)}M`;
-    if (val >= 1000) return `$${(val / 1000).toFixed(2)}K`;
-    return `$${val.toFixed(2)}`;
-  };
-
-  // Display values
-  const firstValue = chartData[0]?.value ?? totalValue;
-  const currentDisplay = hoverValue ?? totalValue;
-  const dayChange = firstValue > 0 ? ((currentDisplay - firstValue) / firstValue) * 100 : 0;
-  const dayDollars = currentDisplay - firstValue;
-  const isPositive = dayChange >= 0;
-  const chartColor = isPositive ? '#00ff4e' : '#FF4B2B';
-
-  const ChartTooltip = ({ active, payload }) => {
-    if (active && payload?.[0]) {
-      const val = payload[0].payload.value;
-      if (val !== hoverValue) setTimeout(() => setHoverValue(val), 0);
-    }
-    return null;
-  };
-
   if (positions.length === 0) return null;
 
   const totalGain = positions.reduce((sum, p) => sum + (p.gain ?? 0), 0);
@@ -7098,9 +6969,12 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
     <div className="rounded-xl p-4 md:p-6 mb-4" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
       {/* Header with brokerage name + refresh */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500">
-          {brokerageName} Summary
-        </h3>
+        <div>
+          <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500">
+            {brokerageName} Summary
+          </h3>
+          <p className="text-[9px] text-zinc-700 mt-0.5">Positions sync daily via Plaid · Recent trades may take up to 24 hours</p>
+        </div>
         <button
           onClick={onRefresh}
           disabled={refreshing}
@@ -7111,26 +6985,15 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
         </button>
       </div>
 
-      {/* Main Value + Day Change */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 mb-4">
-        <div>
-          <p className="text-3xl md:text-4xl font-black text-white tabular-nums leading-none">
-            ${currentDisplay.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </p>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-sm md:text-base font-black tabular-nums" style={{ color: chartColor }}>
-              {isPositive ? '+' : ''}{dayChange.toFixed(2)}%
-            </span>
-            <span className="text-xs text-zinc-500 tabular-nums">
-              ({isPositive ? '+' : '-'}${Math.abs(dayDollars).toLocaleString(undefined, { maximumFractionDigits: 0 })})
-            </span>
-            <span className="text-[9px] text-zinc-700 uppercase font-bold">Today</span>
-          </div>
-        </div>
+      {/* Main Value */}
+      <div className="mb-4">
+        <p className="text-3xl md:text-4xl font-black text-white tabular-nums leading-none">
+          ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </p>
       </div>
 
       {/* Summary Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5 pb-4 border-b border-zinc-800/50">
+      <div className="grid grid-cols-3 gap-4">
         <div>
           <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Total Gain/Loss</p>
           <p className={`text-lg md:text-xl font-black tabular-nums ${totalGain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
@@ -7150,100 +7013,7 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
           <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Positions</p>
           <p className="text-lg md:text-xl font-black text-white">{positions.length}</p>
         </div>
-        <div>
-          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Day's Best</p>
-          {todayMovers[0] ? (
-            <>
-              <p className="text-lg md:text-xl font-black tabular-nums" style={{ color: todayMovers[0].dayChange >= 0 ? '#00ff4e' : '#FF4B2B' }}>
-                {todayMovers[0].dayChange >= 0 ? '+' : ''}{todayMovers[0].dayChange.toFixed(1)}%
-              </p>
-              <p className="text-[10px] text-zinc-500 font-black">{todayMovers[0].symbol}</p>
-            </>
-          ) : (
-            <p className="text-lg font-black text-zinc-700">—</p>
-          )}
-        </div>
       </div>
-
-      {/* Chart */}
-      {loading ? (
-        <div className="h-[200px] flex items-center justify-center">
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-5 h-5 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
-            <span className="text-xs text-zinc-600 font-bold">Loading today's data...</span>
-            <span className="text-[10px] text-zinc-700">Fetching {positions.filter(p => p.quantity > 0).length} positions</span>
-          </div>
-        </div>
-      ) : chartData.length < 2 ? (
-        <div className="h-[200px] flex items-center justify-center">
-          <div className="text-center">
-            <span className="text-xs text-zinc-600 font-bold uppercase tracking-wider block">Market hasn't opened yet</span>
-            <span className="text-[10px] text-zinc-700 mt-1 block">Intraday chart will appear once trading begins</span>
-          </div>
-        </div>
-      ) : (
-        <div className="h-[200px]" onMouseLeave={() => setHoverValue(null)}>
-          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-            <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-              <defs>
-                <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={chartColor} stopOpacity={0.3} />
-                  <stop offset="100%" stopColor={chartColor} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis
-                dataKey="label"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#52525b', fontSize: 9, fontFamily: 'monospace' }}
-                interval="preserveStartEnd"
-                minTickGap={40}
-              />
-              <YAxis
-                domain={['dataMin', 'dataMax']}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#52525b', fontSize: 9, fontFamily: 'monospace' }}
-                tickFormatter={(v) => fmtCurrency(v)}
-                width={55}
-              />
-              <Tooltip content={<ChartTooltip />} />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={chartColor}
-                strokeWidth={2}
-                fill="url(#portfolioGrad)"
-                dot={false}
-                activeDot={{
-                  r: 4, fill: chartColor, stroke: '#000', strokeWidth: 2,
-                  style: { filter: `drop-shadow(0 0 6px ${chartColor})` }
-                }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* Today's Top Movers */}
-      {todayMovers.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-zinc-800/50">
-          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-3">Today's Movers</p>
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            {todayMovers.map(m => (
-              <div key={m.symbol} className="flex-shrink-0 bg-zinc-900/50 border border-zinc-800 rounded-lg px-3 py-2 min-w-[100px]">
-                <p className="text-xs font-black text-white">{m.symbol}</p>
-                <p className="text-sm font-black tabular-nums" style={{ color: m.dayChange >= 0 ? '#00ff4e' : '#FF4B2B' }}>
-                  {m.dayChange >= 0 ? '+' : ''}{m.dayChange.toFixed(2)}%
-                </p>
-                <p className="text-[10px] text-zinc-600 tabular-nums">
-                  {m.dayDollars >= 0 ? '+' : '-'}${Math.abs(m.dayDollars).toFixed(0)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 });
