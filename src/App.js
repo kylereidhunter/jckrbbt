@@ -2073,7 +2073,21 @@ const fetchNews = useCallback(async () => {
         image: article.image_url || null,
         datetime: new Date(article.published_utc).getTime() / 1000,
         tickers: article.tickers || [],
-        category: article.tickers?.length > 0 ? 'Stocks' : 'Markets',
+        category: (() => {
+          const t = (article.title || '').toLowerCase();
+          if (/\bearnings\b|revenue|profit|quarterly|eps\b|q[1-4]\b/i.test(t)) return 'Earnings';
+          if (/\bipo\b|goes public|public offering/i.test(t)) return 'IPO';
+          if (/\bmerger|acquisition|acquire|buyout|deal\b/i.test(t)) return 'M&A';
+          if (/\bfda\b|approval|drug|pharma|biotech|trial/i.test(t)) return 'Biotech';
+          if (/\bcrypto|bitcoin|ethereum|blockchain/i.test(t)) return 'Crypto';
+          if (/\bfed\b|interest rate|inflation|cpi\b|fomc|treasury/i.test(t)) return 'Economy';
+          if (/\boil\b|energy|crude|gas\b|opec/i.test(t)) return 'Energy';
+          if (/\bai\b|artificial intelligence|chip|semiconductor|nvidia|tech/i.test(t)) return 'Tech';
+          if (/\banalyst|upgrade|downgrade|price target|rating/i.test(t)) return 'Analyst';
+          if (/\blayoff|restructur|cut.*jobs/i.test(t)) return 'Layoffs';
+          if (article.tickers?.length > 0) return article.tickers.slice(0, 2).join(', ');
+          return 'Markets';
+        })(),
       }));
       setNewsArticles(articles);
     } else {
@@ -4258,7 +4272,7 @@ setFilterSignal("all");
             )}
             <div className="space-y-3">
               {newsArticles.slice(0, 10).map(article => (
-                <NewsCard key={article.id} article={article} />
+                <NewsCard key={article.id} article={article} aiModel={aiModel} />
               ))}
             </div>
             {newsArticles.length > 10 && (
@@ -4278,7 +4292,7 @@ setFilterSignal("all");
                   className="space-y-3 mt-3 overflow-hidden"
                 >
                   {newsArticles.slice(10).map(article => (
-                    <NewsCard key={article.id} article={article} />
+                    <NewsCard key={article.id} article={article} aiModel={aiModel} />
                   ))}
                 </motion.div>
               )}
@@ -5232,7 +5246,7 @@ setFilterSignal("all");
         </div>
       )}
       {newsArticles.map(article => (
-        <NewsCard key={article.id} article={article} />
+        <NewsCard key={article.id} article={article} aiModel={aiModel} />
       ))}
     </>
   )}
@@ -6427,7 +6441,7 @@ ref={cardRef}
         {stock.industry && (
           <div>
             <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">Sector</p>
-            <p className="text-xs md:text-sm font-black text-zinc-300 uppercase leading-tight">{stock.industry}</p>
+            <p className="text-xs md:text-sm font-black text-white uppercase leading-tight">{stock.industry}</p>
           </div>
         )}
       </div>
@@ -6496,9 +6510,9 @@ ref={cardRef}
             href={stock.news?.[0]?.article_url || stock.news?.[0]?.url || '#'}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-3 mt-4 px-4 py-3 bg-zinc-900/50 rounded-lg border border-[#00ff4e]/30 hover:border-[#00ff4e] hover:bg-[#00ff4e]/5 transition-all cursor-pointer group/headline"
+            className="flex items-center gap-3 mt-4 px-4 py-3 bg-black rounded-lg border border-[#00ff4e]/60 hover:border-[#00ff4e] hover:bg-[#00ff4e]/5 transition-all cursor-pointer group/headline"
           >
-            <Newspaper size={14} className="text-[#00ff4e]/50 group-hover/headline:text-[#00ff4e] flex-shrink-0 transition-colors" />
+            <Newspaper size={14} className="text-[#00ff4e] group-hover/headline:text-[#00ff4e] flex-shrink-0 transition-colors" />
             <div className="flex-1 min-w-0">
               <p className="text-xs md:text-sm text-zinc-300 group-hover/headline:text-white truncate transition-colors">{stock.headline}</p>
               <p className="text-[10px] text-zinc-600">
@@ -6664,7 +6678,7 @@ className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounde
               onFocus={() => { if (!chatOpen && chatMessages.length > 0) setChatOpen(true); }}
               placeholder={`Ask anything about ${stock.symbol}...`}
               disabled={chatLoading}
-              className="w-full bg-zinc-900 border-2 border-zinc-800 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-[#00ff4e]/50 transition-colors disabled:opacity-50 font-mono placeholder:text-zinc-600"
+              className="w-full bg-zinc-800 border-2 border-zinc-600 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-[#00ff4e]/50 transition-colors disabled:opacity-50 font-mono placeholder:text-zinc-400"
               style={{ caretColor: '#00ff4e' }}
             />
             {!chatInput && chatMessages.length === 0 && (
@@ -7990,7 +8004,11 @@ const flashClass = live?.direction === 'up' ? 'price-flash-up' : live?.direction
 
 
 // NEWS CARD COMPONENT
-function NewsCard({ article }) {
+function NewsCard({ article, aiModel }) {
+  const [showSummary, setShowSummary] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
   const categoryColors = {
     'Markets': '#00ff4e',
     'Stocks': '#3b82f6',
@@ -7998,11 +8016,38 @@ function NewsCard({ article }) {
     'Tech': '#8b5cf6',
     'Economy': '#ef4444',
     'Policy': '#ec4899',
-    'Earnings': '#10b981'
+    'Earnings': '#10b981',
+    'M&A': '#6366f1',
+    'IPO': '#14b8a6',
+    'Biotech': '#f43f5e',
+    'Analyst': '#3b82f6',
+    'Energy': '#eab308',
+    'Layoffs': '#ef4444'
   };
 
   const categoryColor = categoryColors[article.category] || '#00ff4e';
   const timeAgo = new Date(article.datetime * 1000).toLocaleString();
+
+  const handleAISummary = async (e) => {
+    e.stopPropagation();
+    if (summary) {
+      setShowSummary(!showSummary);
+      return;
+    }
+    setShowSummary(true);
+    setSummaryLoading(true);
+    try {
+      const prompt = `You are a financial news analyst. Summarize this news article in 2-3 concise sentences. Focus on: what happened, why it matters for investors, and any actionable takeaway. Be direct and specific.\n\nHeadline: ${article.headline}\nDescription: ${article.summary || 'No description available.'}\nTickers mentioned: ${article.tickers?.join(', ') || 'None'}`;
+      const response = await aiModel.generateContent(prompt);
+      const text = response.response.text();
+      setSummary(text);
+    } catch (err) {
+      console.error('AI summary error:', err);
+      setSummary('Unable to generate summary. Try again later.');
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
 
   return (
     <motion.div
@@ -8058,20 +8103,60 @@ function NewsCard({ article }) {
             {article.summary}
           </p>
 
-          {/* Ticker Tags */}
-          {article.tickers && article.tickers.length > 0 && (
+          {/* Ticker Tags + AI Summary Button */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[8px] md:text-[9px] text-zinc-600 font-black uppercase tracking-widest">
-                Mentioned:
-              </span>
-              {article.tickers.map((ticker, idx) => (
-                <span 
-                  key={idx}
-                  className="text-[9px] md:text-[10px] font-black bg-zinc-900 text-[#00ff4e] px-2 py-1 rounded border border-zinc-800 uppercase tracking-wider"
-                >
-                  ${ticker}
-                </span>
-              ))}
+              {article.tickers && article.tickers.length > 0 && (
+                <>
+                  <span className="text-[8px] md:text-[9px] text-zinc-600 font-black uppercase tracking-widest">
+                    Mentioned:
+                  </span>
+                  {article.tickers.map((ticker, idx) => (
+                    <span 
+                      key={idx}
+                      className="text-[9px] md:text-[10px] font-black bg-zinc-900 text-[#00ff4e] px-2 py-1 rounded border border-zinc-800 uppercase tracking-wider"
+                    >
+                      ${ticker}
+                    </span>
+                  ))}
+                </>
+              )}
+            </div>
+            {aiModel && (
+              <button
+                onClick={handleAISummary}
+                className="flex items-center gap-1.5 text-[9px] md:text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-full transition-all duration-200"
+                style={{
+                  backgroundColor: showSummary ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.1)',
+                  color: '#a78bfa',
+                  border: `1px solid ${showSummary ? 'rgba(139,92,246,0.4)' : 'rgba(139,92,246,0.2)'}`,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(139,92,246,0.25)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.5)'; }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = showSummary ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.1)'; e.currentTarget.style.borderColor = showSummary ? 'rgba(139,92,246,0.4)' : 'rgba(139,92,246,0.2)'; }}
+              >
+                ✦ AI Summary {showSummary && summary ? '▲' : '▼'}
+              </button>
+            )}
+          </div>
+
+          {/* AI Summary Dropdown */}
+          {showSummary && (
+            <div 
+              className="mt-3 p-3 rounded-lg text-xs md:text-sm leading-relaxed"
+              style={{
+                backgroundColor: 'rgba(139,92,246,0.08)',
+                border: '1px solid rgba(139,92,246,0.2)',
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              {summaryLoading ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" />
+                  <span className="text-purple-300/70 text-xs font-bold">Analyzing article...</span>
+                </div>
+              ) : (
+                <p className="text-zinc-300">{summary}</p>
+              )}
             </div>
           )}
         </div>
