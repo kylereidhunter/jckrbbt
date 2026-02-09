@@ -1289,15 +1289,27 @@ const addStockToList = async (stock, listId) => {
     
     // Track this stock being watched in Firestore
     try {
+      const { doc, getDoc, setDoc, updateDoc, arrayUnion, Timestamp } = await import('firebase/firestore');
       const watchRef = doc(db, 'trending', stock.symbol);
       const watchDoc = await getDoc(watchRef);
       
-      const now = new Date();
+      const now = Timestamp.now();
       
       if (watchDoc.exists()) {
-        // ... existing trending code ...
+        await updateDoc(watchRef, {
+          adds: arrayUnion(now),
+          totalCount: (watchDoc.data().totalCount || 0) + 1,
+          lastAdded: now
+        });
       } else {
-        // ... existing trending code ...
+        await setDoc(watchRef, {
+          symbol: stock.symbol,
+          name: stock.name || '',
+          adds: [now],
+          totalCount: 1,
+          lastAdded: now,
+          createdAt: now
+        });
       }
     } catch (trendingError) {
       console.log('Trending update failed (non-critical):', trendingError.message);
@@ -1418,7 +1430,7 @@ const fetchMarketIndices = useCallback(async () => {
 const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
   setLoadingTrending(true);
   try {
-    const { collection, query, getDocs } = await import('firebase/firestore');
+    const { collection, getDocs } = await import('firebase/firestore');
     const trendingRef = collection(db, 'trending');
     const snapshot = await getDocs(trendingRef);
     
@@ -1429,47 +1441,40 @@ const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
     if (interval === 'daily') {
       cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     } else if (interval === 'weekly') {
-      cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     } else { // monthly
       cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     }
-    
-    
 
     const trending = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      let adds = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data();
       
-      // Filter adds based on interval
-      if (interval === 'daily' && data.dailyAdds) {
-        adds = data.dailyAdds.filter(add => {
-          const addDate = add.toDate ? add.toDate() : new Date(add);
-          return addDate >= cutoffDate;
-        });
-      } else if (interval === 'weekly' && data.weeklyAdds) {
-        adds = data.weeklyAdds.filter(add => {
-          const addDate = add.toDate ? add.toDate() : new Date(add);
-          return addDate >= cutoffDate;
-        });
-      } else if (interval === 'monthly' && data.monthlyAdds) {
-        adds = data.monthlyAdds.filter(add => {
-          const addDate = add.toDate ? add.toDate() : new Date(add);
-          return addDate >= cutoffDate;
-        });
+      // Support both new unified 'adds' array and legacy separate arrays
+      let allAdds = data.adds || [];
+      
+      // Also check legacy fields
+      if (allAdds.length === 0) {
+        if (interval === 'daily' && data.dailyAdds) allAdds = data.dailyAdds;
+        else if (interval === 'weekly' && data.weeklyAdds) allAdds = data.weeklyAdds;
+        else if (interval === 'monthly' && data.monthlyAdds) allAdds = data.monthlyAdds;
       }
       
-      if (adds.length > 0) {
+      // Filter adds within the time window
+      const recentAdds = allAdds.filter(add => {
+        const addDate = add.toDate ? add.toDate() : new Date(add);
+        return addDate >= cutoffDate;
+      });
+      
+      if (recentAdds.length > 0) {
         trending.push({
           symbol: data.symbol,
           name: data.name,
-          watchCount: adds.length,
+          watchCount: recentAdds.length,
           totalWatches: data.totalCount || 0
         });
       }
     });
-
-
     
     // Sort by watch count
     trending.sort((a, b) => b.watchCount - a.watchCount);
@@ -3461,7 +3466,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         transition={{ duration: 0.3 }}
         className="overflow-hidden mt-6"
       >
-       <div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
+       <div className="p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
   <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
     Find Users & Watchlists
   </h3>
@@ -3478,7 +3483,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
         }
       }}
       placeholder="Search by username..."
-      className="w-full bg-black border border-zinc-800 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
+      className="w-full bg-black/50 border border-zinc-700/50 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-600 focus:border-[#00ff4e]/50"
       style={{ caretColor: '#00ff4e' }}
     />
   </div>
@@ -3498,7 +3503,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
                       handleViewUserProfile(user.id);
                       setShowSearch(false);
                     }}
-                  className="flex items-center justify-between p-4 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
+                  className="flex items-center justify-between p-4 bg-black/70 border border-zinc-700 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
                     {user.profilePicUrl ? (
@@ -3537,7 +3542,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
                 {publicWatchlists.slice(0, 5).map(list => (
                   <div
                     key={list.id}
-                    className="p-4 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
+                    className="p-4 bg-black/70 border border-zinc-700 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
                     onClick={() => {
                       handleViewUserProfile(list.ownerId);
                       setShowSearch(false);
@@ -4341,7 +4346,7 @@ setFilterSignal("all");
           placeholder="Search by username..."
           value={userSearchTerm}
           onChange={(e) => handleSearchUsers(e.target.value)}
-          className="w-full bg-black border border-zinc-800 text-white px-4 py-3 rounded-lg outline-none transition-all font-mono text-sm placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
+          className="w-full bg-black/50 border border-zinc-700/50 text-white px-4 py-3 rounded-lg outline-none transition-all font-mono text-sm placeholder:text-zinc-600 focus:border-[#00ff4e]/50"
         />
         
         {/* Search Results */}
@@ -4350,7 +4355,7 @@ setFilterSignal("all");
             {searchResults.map(searchUser => (
               <div
                 key={searchUser.id}
-                className="flex items-center justify-between p-3 bg-zinc-900 rounded-lg hover:bg-zinc-800 transition-all cursor-pointer"
+                className="flex items-center justify-between p-3 bg-black/70 border border-zinc-700 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
                 onClick={() => handleViewUserProfile(searchUser.id)}
               >
                 <div className="flex items-center gap-3">
@@ -4431,7 +4436,7 @@ setFilterSignal("all");
                   {list.stocks.slice(0, 5).map((stock) => (
                     <span
                       key={stock.symbol}
-                      className="text-xs font-black bg-zinc-900 text-[#00ff4e] px-3 py-1 rounded border border-zinc-800 uppercase"
+                      className="text-xs font-black bg-black/70 text-[#00ff4e] px-3 py-1 rounded border border-zinc-700 uppercase"
                     >
                       {stock.symbol}
                     </span>
@@ -6228,15 +6233,15 @@ CRITICAL: Be honest and balanced. If this is a speculative stock, say so. This i
       
       // Parse sections
       const sections = [];
-      const expectedTitles = ['EXECUTIVE', 'MOVING', 'BULL', 'BEAR', 'TECHNICAL', 'FINANCIAL', 'CATALYST', 'RISK', 'VERDICT'];
-      const parts = text.split(/^## /m).filter(Boolean);
+      const expectedTitles = ['EXECUTIVE SUMMARY', 'WHY IT', 'BULL CASE', 'BEAR CASE', 'TECHNICAL', 'KEY FINANCIALS', 'CATALYST TIMELINE', 'RISK RATING', 'VERDICT'];
+      const parts = text.split(/^##\s+/m).filter(Boolean);
       parts.forEach(part => {
         const newlineIdx = part.indexOf('\n');
         if (newlineIdx > -1) {
           const title = part.slice(0, newlineIdx).trim();
           const content = part.slice(newlineIdx + 1).trim();
-          // Skip preamble — only include sections with expected headings
-          if (expectedTitles.some(t => title.toUpperCase().includes(t))) {
+          // Only include recognized section headings
+          if (expectedTitles.some(t => title.toUpperCase().startsWith(t))) {
             sections.push({ title, content });
           }
         }
@@ -6463,37 +6468,33 @@ ref={cardRef}
           <>
             <button 
               data-add-button="true"
-              onMouseEnter={() => setIsHoveringButton(true)}
-              onMouseLeave={() => setIsHoveringButton(false)}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!user) {
                   alert('Please sign in to add stocks to lists');
                   return;
                 }
-                if (isAlreadyAdded && isHoveringButton) {
+                if (isAlreadyAdded) {
                   const listWithStock = watchlists.find(list => 
                     list.stocks.some(s => s.symbol === stock.symbol)
                   );
                   if (listWithStock) {
                     removeFromWatchlist(listWithStock.id, stock.symbol);
                   }
-                } else if (!isAlreadyAdded) {
+                } else {
                   onAction(stock);
                 }
               }}
               className={`flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 rounded-lg border transition-all active:scale-95 ${
                 isAlreadyAdded 
-                  ? isHoveringButton
-                    ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                    : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]"
+                  ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
                   : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
               }`}
             >
               <span className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.2em] leading-none hidden sm:inline">
-                {isAlreadyAdded ? (isHoveringButton ? "Remove" : "Added") : "Add"}
+                {isAlreadyAdded ? "Remove" : "Add"}
               </span>
-              {isAlreadyAdded && isHoveringButton ? (
+              {isAlreadyAdded ? (
                 <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
               ) : (
                 <Plus size={12} className="md:w-3.5 md:h-3.5" />
@@ -7133,10 +7134,22 @@ className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounde
     </div>
 
     {/* FULL RESEARCH REPORT MODAL */}
+    <AnimatePresence>
     {showReport && (
-      <div className="fixed inset-0 z-[9999] flex items-stretch md:items-start md:justify-center" onClick={() => setShowReport(false)}>
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.3 }}
+        className="fixed inset-0 z-[9999] flex items-stretch md:items-start md:justify-center" 
+        onClick={() => setShowReport(false)}
+      >
         <div className="absolute inset-0 bg-black/70 backdrop-blur-xl" />
-        <div 
+        <motion.div 
+          initial={{ y: '100%', opacity: 0.5 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: '100%', opacity: 0 }}
+          transition={{ type: 'spring', damping: 30, stiffness: 300 }}
           className="relative w-full max-w-2xl mx-auto h-full md:h-auto md:my-8 md:max-h-[90vh] overflow-y-auto md:rounded-2xl"
           style={{
             background: 'linear-gradient(135deg, rgba(30,30,30,0.98) 0%, rgba(10,10,10,0.99) 100%)',
@@ -7230,9 +7243,10 @@ className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounde
               </div>
             ) : null}
           </div>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
     )}
+    </AnimatePresence>
     </>
   );
 }, (prevProps, nextProps) => {
