@@ -3521,11 +3521,11 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
 {/* Market Indices Bar */}
 <div className="mb-6 md:mb-8">
-  <div className={`bg-[#0a0a0a] rounded-xl p-3 md:p-4 overflow-hidden transition-all duration-500 ${
+<div className={`rounded-xl p-3 md:p-4 overflow-hidden transition-all duration-500 ${
     isMarketOpen 
-  ? 'border-2 border-[#00ff4e]/60 shadow-[0_0_30px_rgba(0,255,78,0.15)]' 
-  : 'border border-zinc-800'
-  }`}>
+  ? 'border-2 border-[#00ff4e]/60' 
+  : ''
+  }`} style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: isMarketOpen ? '0 0 30px rgba(0,255,78,0.15), inset 0 1px 0 rgba(255,255,255,0.05)' : '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: isMarketOpen ? undefined : '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
     
     {/* Header Row */}
     <div className="flex items-center justify-between mb-3">
@@ -3633,8 +3633,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 </div>
 
 {/* Mobile Bottom Tab Bar */}
-<div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-md border-t border-zinc-800 px-2 pb-[env(safe-area-inset-bottom)]">
-  <div className="flex">
+<div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.06] px-2 pb-[env(safe-area-inset-bottom)]" style={{background: 'rgba(10,10,10,0.5)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)'}}>  <div className="flex">
     {[
       { id: "DASHBOARD", icon: LayoutDashboard, label: "Home" },
       { id: "FEED", icon: Activity, label: "Feed" },
@@ -3673,8 +3672,8 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     {/* Desktop: Side by side | Mobile: Stacked */}
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
   
-  {/* MANUAL SEARCH SECTION */}
-  <div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md overflow-hidden transition-all duration-300">
+{/* MANUAL SEARCH SECTION */}
+  <div className="p-4 md:p-5 rounded-xl overflow-hidden transition-all duration-300" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
     <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
       Analyze Any Stock
     </h3>
@@ -3823,8 +3822,8 @@ searchTimeoutRef.current = setTimeout(async () => {
     </AnimatePresence>
   </div>
 
-  {/* AI SCANNER SECTION */}
-  <div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
+{/* AI SCANNER SECTION */}
+  <div className="p-4 md:p-5 rounded-xl" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
     <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
       Analyze Market
     </h3>
@@ -4023,8 +4022,7 @@ searchTimeoutRef.current = setTimeout(async () => {
 
 {/* SORT & FILTER BAR */}
       {activeTab === "DASHBOARD" && stocks.length > 0 && (
-        <div className="bg-[#111111] border border-zinc-900 rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4">
-          <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
+<div className="rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>          <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
             Filters:
           </span>
           
@@ -4287,7 +4285,7 @@ setFilterSignal("all");
   <>
     {/* Search Bar */}
     <div className="mb-6">
-      <div className="bg-[#050505] border border-zinc-900 p-4 rounded-xl">
+      <div className="p-4 rounded-xl" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
         <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
           Find Users
         </h3>
@@ -4355,7 +4353,10 @@ setFilterSignal("all");
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05, duration: 0.3 }}
-              className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
+              className="rounded-xl p-6 transition-all duration-300"
+              style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
             >
               <div className="flex justify-between items-start mb-4">
                 <div className="flex-1">
@@ -4409,7 +4410,7 @@ setFilterSignal("all");
 
     {/* Interval Filter */}
     <div className="mb-6">
-      <div className="bg-[#050505] border border-zinc-900 p-4 rounded-xl">
+      <div className="p-4 rounded-xl" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
         <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
           Time Period
         </h3>
@@ -4420,8 +4421,8 @@ setFilterSignal("all");
               onClick={() => setTrendingInterval(interval)}
               className={`flex-1 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-tight transition-all ${
                 trendingInterval === interval
-                  ? 'bg-[#00ff4e] text-black'
-                  : 'bg-zinc-900 text-zinc-500 hover:text-white'
+                 ? 'bg-[#00ff4e] text-black'
+                  : 'bg-black text-zinc-500 hover:text-white border border-zinc-800'
               }`}
             >
               {interval}
@@ -4448,7 +4449,10 @@ setFilterSignal("all");
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.05, duration: 0.3 }}
-            className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all cursor-pointer"
+            className="rounded-xl p-6 transition-all duration-300 cursor-pointer"
+            style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
             onClick={() => {
               setManualSearch(stock.symbol);
               setActiveTab("DASHBOARD");
@@ -4540,7 +4544,10 @@ setFilterSignal("all");
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05, duration: 0.3 }}
-              className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
+              className="rounded-xl p-6 transition-all duration-300"
+              style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
             >
               <div className="flex justify-between items-start mb-4">
   <div className="flex-1">
@@ -4661,8 +4668,11 @@ setFilterSignal("all");
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05, duration: 0.3 }}
-                className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all"
-              >
+                className="rounded-xl p-6 transition-all duration-300"
+              style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
+            >
 {/* Header Row */}
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
@@ -4856,7 +4866,8 @@ setFilterSignal("all");
           return (
             <div 
               key={activity.id}
-              className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 hover:border-zinc-700 transition-all"
+              className="rounded-xl p-4 transition-all duration-300"
+              style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
             >
               <div className="flex items-start gap-3">
                 {/* Avatar */}
@@ -4929,7 +4940,7 @@ setFilterSignal("all");
     ) : (
       <>
         {/* Brokerage Management Header */}
-        <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-6 mb-6">
+        <div className="rounded-xl p-4 md:p-6 mb-6" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
 <h3 
@@ -5126,7 +5137,7 @@ setFilterSignal("all");
   polygonKey={POLYGON_KEY} 
 />                
                   {/* Sort Bar */}
-                  <div className="bg-[#111111] border border-zinc-900 rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4">
+<div className="rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
                     <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
                       Sort:
                     </span>
@@ -6213,8 +6224,11 @@ const sendChatMessage = async (messageText) => {
 
 return (
     <div 
-      ref={cardRef}
-      className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-8 relative hover:border-zinc-600 transition-all overflow-hidden group"
+ref={cardRef}
+      className="rounded-xl p-4 md:p-8 relative transition-all duration-300 overflow-hidden group"
+     style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', borderTop: '1px solid rgba(0,255,78,0.2)'}}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 30px rgba(0,0,0,0.5), 0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.09)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.15)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.3)'; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.2)'; }}
     >
 
       {/* ACTION BUTTONS - Top Right */}
@@ -6387,7 +6401,7 @@ return (
       
 
       {/* QUICK STATS ROW */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 mb-6 md:mb-8 border-t-2 border-zinc-900 pt-4 md:pt-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 mb-6 md:mb-8 border-t border-zinc-700/50 pt-4 md:pt-6">
         {stock.volume && (
           <div>
             <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">Volume</p>
@@ -6487,7 +6501,7 @@ return (
       </div>
 
             {/* ASK AI HEADER */}
-      <div className="border-t-2 border-zinc-900 pt-4 md:pt-6 mb-3">
+      <div className="border-t border-zinc-700/50 pt-4 md:pt-6 mb-3">
         <div className="flex items-center gap-2 md:gap-3">
           <Lightbulb size={14} className="md:w-4 md:h-4 text-[#00ff4e]" />
           <span className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-white">
@@ -6507,7 +6521,7 @@ return (
                 exit={{ height: 0, opacity: 0 }}
                 className="overflow-hidden"
               >
-                <div className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-3 md:p-4 mb-4">
+                <div className="bg-black/70 border border-zinc-700 rounded-xl p-3 md:p-4 mb-4">
                   {/* Chat Header */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
@@ -6617,8 +6631,7 @@ return (
                 sendChatMessage(prompt);
               }}
               disabled={chatLoading}
-              className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-[#00ff4e] hover:border-[#00ff4e]/30 hover:bg-[#00ff4e]/5 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
-            >
+className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounded-lg bg-black border border-zinc-700 text-zinc-400 hover:text-[#00ff4e] hover:border-[#00ff4e]/30 hover:bg-[#00ff4e]/5 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"            >
               {prompt}
             </button>
           ))}
@@ -6662,7 +6675,7 @@ return (
       </div>
 
       {/* CHART TOGGLE */}
-      <div className="border-t-2 border-zinc-900 pt-4 md:pt-6 pb-4 md:pb-6">
+      <div className="border-t border-zinc-700/50 pt-4 md:pt-6 pb-4 md:pb-6">
         <button onClick={() => setShowChart(!showChart)} className="flex items-center gap-2 md:gap-3 transition-all">
           <TrendingUp size={14} className={`md:w-4 md:h-4 ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
           <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
@@ -6686,7 +6699,7 @@ return (
       </div>
 
       {/* COMPANY BIO TOGGLE */}
-      <div className="border-t-2 border-zinc-900 pt-4 md:pt-6 pb-4 md:pb-6">
+      <div className="border-t border-zinc-700/50 pt-4 md:pt-6 pb-4 md:pb-6">
         <button onClick={fetchBio} className="flex items-center gap-2 md:gap-3 transition-all">
           <Building2 size={14} className={`md:w-4 md:h-4 ${showBio ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
           <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showBio ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
@@ -6703,7 +6716,7 @@ return (
               exit={{ height: 0, opacity: 0 }}
               className="mt-4 overflow-hidden"
             >
-              <div className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-4">
+              <div className="bg-black/70 border border-zinc-700 rounded-xl p-4">
                 {bioLoading ? (
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
@@ -6719,7 +6732,7 @@ return (
       </div>
 
       {/* ANALYST RATINGS TOGGLE */}
-<div className="border-t-2 border-zinc-900 pt-4 md:pt-6">
+<div className="border-t border-zinc-700/50 pt-4 md:pt-6">
           <button onClick={fetchRatings} className="flex items-center gap-2 md:gap-3 transition-all">
           <Target size={14} className={`md:w-4 md:h-4 ${showRatings ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
           <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showRatings ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
@@ -6736,7 +6749,7 @@ return (
               exit={{ height: 0, opacity: 0 }}
               className="mt-4 overflow-hidden"
             >
-              <div className="bg-zinc-900/30 border border-zinc-800 rounded-xl p-4">
+              <div className="bg-black/70 border border-zinc-700 rounded-xl p-4">
                 {ratingsLoading ? (
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
@@ -6823,7 +6836,7 @@ return (
 
       {/* NEWS ARTICLES TOGGLE */}
       {stock.news && stock.news.length > 0 && (
-        <div className="border-t-2 border-zinc-900 mt-4 md:mt-6 pt-4 md:pt-6">
+        <div className="border-t border-zinc-700/50 mt-4 md:mt-6 pt-4 md:pt-6">
           <button onClick={() => setShowNews(!showNews)} className="flex items-center gap-2 md:gap-3 transition-all">
             <Newspaper size={14} className={`md:w-4 md:h-4 ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
             <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
@@ -7082,7 +7095,7 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
   const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
 
   return (
-    <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-6 mb-4">
+    <div className="rounded-xl p-4 md:p-6 mb-4" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
       {/* Header with brokerage name + refresh */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500">
@@ -7461,9 +7474,9 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         {/* Win Rate */}
-        <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-5 relative overflow-hidden group hover:border-zinc-700 transition-all">
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
           <div className="absolute top-0 left-0 h-1 transition-all duration-500" style={{ 
-            width: `${winRate}%`, 
+            width: `${winRate}%`,
             backgroundColor: winRate >= 50 ? '#00ff4e' : '#FF4B2B',
             boxShadow: `0 0 15px ${winRate >= 50 ? 'rgba(0,255,78,0.4)' : 'rgba(255,75,43,0.4)'}`
           }} />
@@ -7479,7 +7492,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
         </div>
 
         {/* Total Return */}
-        <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-5 relative overflow-hidden group hover:border-zinc-700 transition-all">
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
           <div className="absolute top-0 left-0 h-1 w-full" style={{ 
             backgroundColor: totalGainPercent >= 0 ? '#00ff4e' : '#FF4B2B',
             opacity: 0.3
@@ -7494,7 +7507,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
         </div>
 
         {/* Best */}
-        <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-5 relative overflow-hidden group hover:border-zinc-700 transition-all">
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
           <div className="absolute top-0 left-0 h-1 w-full bg-[#00ff4e] opacity-30" />
           <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-2">Best Position</p>
           {bestStock ? (
@@ -7510,7 +7523,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
         </div>
 
         {/* Worst */}
-        <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-5 relative overflow-hidden group hover:border-zinc-700 transition-all">
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
           <div className="absolute top-0 left-0 h-1 w-full bg-red-500 opacity-30" />
           <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-2">Worst Position</p>
           {worstStock ? (
@@ -7527,7 +7540,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
       </div>
 
       {/* Secondary Stats Bar */}
-      <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-5">
+      <div className="rounded-xl p-4 md:p-5" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-[#00ff4e]/10 flex items-center justify-center flex-shrink-0">
@@ -7571,7 +7584,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
       </div>
 
       {/* Charts Section */}
-      <div className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-6 overflow-hidden">
+      <div className="rounded-xl p-4 md:p-6 overflow-hidden" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
         {/* Chart Tabs */}
         <div className="flex gap-1.5 mb-6">
           {[
@@ -7925,7 +7938,10 @@ const flashClass = live?.direction === 'up' ? 'price-flash-up' : live?.direction
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05, duration: 0.3 }}
-      className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-6 hover:border-zinc-700 transition-all relative"
+      className="rounded-xl p-6 transition-all duration-300 relative"
+      style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
     >
       {/* Add to List Button */}
       <div className="absolute top-4 right-4 z-10">
@@ -8093,7 +8109,7 @@ const flashClass = live?.direction === 'up' ? 'price-flash-up' : live?.direction
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t-2 border-zinc-900">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-zinc-700/50">
           <div>
             <p className="text-xs text-zinc-600 mb-1">Shares</p>
             <p className="text-lg font-black text-white">{position.quantity ?? '0'}</p>
@@ -8163,7 +8179,7 @@ const flashClass = live?.direction === 'up' ? 'price-flash-up' : live?.direction
         </div>
 
       {/* Chart Toggle Section */}
-      <div className="mt-6 pt-4 border-t-2 border-zinc-900">
+      <div className="mt-6 pt-4 border-t border-zinc-700/50">
         <button 
           onClick={(e) => {
             e.stopPropagation();
@@ -8222,8 +8238,11 @@ function NewsCard({ article }) {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-[#050505] border-2 border-zinc-900 rounded-xl p-4 md:p-6 hover:border-zinc-700 transition-all cursor-pointer group"
+      className="rounded-xl p-4 md:p-6 transition-all duration-300 cursor-pointer group"
+      style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
       onClick={() => window.open(article.url, '_blank')}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
     >
       <div className="flex flex-col md:flex-row gap-4 md:gap-6">
         {/* Article Image */}
