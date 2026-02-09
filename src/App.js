@@ -13,7 +13,7 @@ import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
-import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History, Pencil } from 'lucide-react';import PlaidLink from './PlaidLink';
+import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History, Pencil, FileText, X } from 'lucide-react';import PlaidLink from './PlaidLink';
 import StockChatModal from './StockChatModal';
 import UserProfileModal from './UserProfileModal';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, Sector } from 'recharts';
@@ -5960,6 +5960,17 @@ const [bioLoading, setBioLoading] = useState(false);
 const [showRatings, setShowRatings] = useState(false);
 const [ratingsData, setRatingsData] = useState(null);
 const [ratingsLoading, setRatingsLoading] = useState(false);
+const [showReport, setShowReport] = useState(false);
+const [reportData, setReportData] = useState(null);
+const [reportLoading, setReportLoading] = useState(false);
+
+  // Lock body scroll when report modal is open
+  useEffect(() => {
+    if (showReport) {
+      document.body.style.overflow = 'hidden';
+      return () => { document.body.style.overflow = ''; };
+    }
+  }, [showReport]);
 
   // Load saved chat history on mount
   // Close all expanded sections when card scrolls out of view
@@ -6145,8 +6156,110 @@ const fetchRatings = async () => {
     }
   };
 
+  const generateResearchReport = async () => {
+    if (reportData) { setShowReport(true); return; }
+    if (!aiModel) return;
+    setReportLoading(true);
+    setShowReport(true);
+
+    try {
+      const dataPoints = [];
+      dataPoints.push(`Price: $${livePrice.toFixed(2)}`);
+      dataPoints.push(`Change Today: ${liveChange >= 0 ? '+' : ''}${liveChange.toFixed(2)}%`);
+      if (stock.catalyst) dataPoints.push(`Current Catalyst: ${stock.catalyst}`);
+      if (stock.catalystType) dataPoints.push(`Trigger Type: ${stock.catalystType}`);
+      if (stock.volume) dataPoints.push(`Volume: ${stock.volume.toLocaleString()}`);
+      if (stock.volumeRatio) dataPoints.push(`Volume vs Average: ${stock.volumeRatio}x`);
+      if (stock.industry) dataPoints.push(`Industry: ${stock.industry}`);
+      if (stock.headline) dataPoints.push(`Latest headline: "${stock.headline}"`);
+      if (bioText) dataPoints.push(`Company Bio: ${bioText}`);
+      if (ratingsData?.priceTarget) dataPoints.push(`Price Targets: Low $${ratingsData.priceTarget.targetLow}, Mean $${ratingsData.priceTarget.targetMean}, High $${ratingsData.priceTarget.targetHigh}`);
+      if (ratingsData?.marketCap) dataPoints.push(`Market Cap: $${(ratingsData.marketCap / 1e9).toFixed(2)}B`);
+      
+      let newsContext = '';
+      if (stock.news && stock.news.length > 0) {
+        newsContext = '\n\nRECENT NEWS:\n' + stock.news.map((n, i) => 
+          `${i + 1}. "${n.title}" (${n.publisher?.name || 'Unknown'}, ${n.published_utc ? new Date(n.published_utc).toLocaleDateString() : 'Recent'})`
+        ).join('\n');
+      }
+
+      const prompt = `You are a senior equity research analyst writing a comprehensive research report on ${stock.symbol} (${stock.name}). Use the data provided AND web search to fill in any gaps. Search for "${stock.symbol} financials", "${stock.symbol} analyst ratings", and "${stock.symbol} upcoming catalysts" to get the latest data.
+
+AVAILABLE DATA:
+${dataPoints.join('\n')}
+${newsContext}
+
+Write a research report with EXACTLY these sections. Use "##" before each heading. Be specific with numbers, dates, and data. Each section should be 2-4 sentences. No filler, no generic statements.
+
+## EXECUTIVE SUMMARY
+What the company does and why it's relevant right now. Include market cap and sector.
+
+## WHY IT'S MOVING
+The specific catalyst driving today's price action. Reference the news/volume data.
+
+## BULL CASE
+The 3 strongest arguments for buying. Be specific — reference revenue growth, partnerships, market opportunity, or technical setup.
+
+## BEAR CASE
+The 3 biggest risks. Be specific — reference competition, valuation, cash burn, dilution, or regulatory risk.
+
+## TECHNICAL SETUP
+Current support/resistance levels, trend direction, volume analysis. Reference specific price levels.
+
+## KEY FINANCIALS
+Revenue, earnings, margins, cash position. Use the most recent quarterly data you can find.
+
+## CATALYST TIMELINE
+Upcoming events: earnings date, FDA dates, product launches, conferences, lockup expirations. Include specific dates.
+
+## RISK RATING
+Rate the risk 1-5 (1 = low risk blue chip, 5 = extremely speculative). Explain why.
+
+## VERDICT
+One clear word: BULLISH, BEARISH, or NEUTRAL. Then 2-3 sentences explaining your reasoning.
+
+CRITICAL: Be honest and balanced. If this is a speculative stock, say so. This is NOT financial advice — it's research and analysis.`;
+
+      const response = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        tools: [{ googleSearch: {} }]
+      });
+      const text = await response.response.text();
+      
+      // Parse sections
+      const sections = [];
+      const expectedTitles = ['EXECUTIVE', 'MOVING', 'BULL', 'BEAR', 'TECHNICAL', 'FINANCIAL', 'CATALYST', 'RISK', 'VERDICT'];
+      const parts = text.split(/^## /m).filter(Boolean);
+      parts.forEach(part => {
+        const newlineIdx = part.indexOf('\n');
+        if (newlineIdx > -1) {
+          const title = part.slice(0, newlineIdx).trim();
+          const content = part.slice(newlineIdx + 1).trim();
+          // Skip preamble — only include sections with expected headings
+          if (expectedTitles.some(t => title.toUpperCase().includes(t))) {
+            sections.push({ title, content });
+          }
+        }
+      });
+
+      setReportData({
+        sections,
+        generatedAt: new Date(),
+        rawText: text
+      });
+    } catch (err) {
+      console.error('Research report error:', err);
+      setReportData({
+        sections: [{ title: 'ERROR', content: 'Unable to generate report. Please try again.' }],
+        generatedAt: new Date(),
+        error: true
+      });
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
 useEffect(() => {
-    if (!showAddToListMenu) return;
     const handleScroll = () => onCloseMenu();
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
@@ -6321,6 +6434,7 @@ const sendChatMessage = async (messageText) => {
   ];
 
 return (
+    <>
     <div 
 ref={cardRef}
       className="rounded-xl p-4 md:p-8 relative transition-all duration-300 overflow-hidden group"
@@ -6719,6 +6833,32 @@ ref={cardRef}
 
       {/* PROMPTS + INPUT */}
       <div className="pt-0 md:pt-0 mb-2 md:mb-3">
+        {/* Full Research Report Button */}
+        <button
+          onClick={(e) => { e.stopPropagation(); generateResearchReport(); }}
+          disabled={reportLoading || !aiModel}
+          className="w-full mb-3 py-3 px-4 rounded-lg font-black text-xs uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+          style={{
+            background: 'linear-gradient(135deg, rgba(139,92,246,0.15) 0%, rgba(88,28,235,0.15) 100%)',
+            border: '1px solid rgba(139,92,246,0.3)',
+            color: '#a78bfa',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.25) 0%, rgba(88,28,235,0.25) 100%)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.5)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.15) 0%, rgba(88,28,235,0.15) 100%)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)'; }}
+        >
+          {reportLoading ? (
+            <>
+              <div className="w-3.5 h-3.5 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" />
+              <span>Generating Report...</span>
+            </>
+          ) : (
+            <>
+              <FileText size={14} />
+              <span>✦ Full Research Report</span>
+            </>
+          )}
+        </button>
+
         {/* Quick Prompt Pills */}
         <div className="flex flex-wrap gap-1.5 md:gap-2 mb-3">
           {quickPrompts.map((prompt, i) => (
@@ -6991,6 +7131,109 @@ className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounde
       )}
       <div className="pb-2 md:pb-4" />
     </div>
+
+    {/* FULL RESEARCH REPORT MODAL */}
+    {showReport && (
+      <div className="fixed inset-0 z-[9999] flex items-stretch md:items-start md:justify-center" onClick={() => setShowReport(false)}>
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-xl" />
+        <div 
+          className="relative w-full max-w-2xl mx-auto h-full md:h-auto md:my-8 md:max-h-[90vh] overflow-y-auto md:rounded-2xl"
+          style={{
+            background: 'linear-gradient(135deg, rgba(30,30,30,0.98) 0%, rgba(10,10,10,0.99) 100%)',
+            border: '1px solid rgba(139,92,246,0.2)',
+            boxShadow: '0 0 60px rgba(139,92,246,0.1), 0 0 120px rgba(0,0,0,0.5)',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Modal Header */}
+          <div className="sticky top-0 z-10 px-5 md:px-8 pt-5 md:pt-6 pb-4 border-b border-zinc-800/50" style={{ background: 'linear-gradient(135deg, rgba(30,30,30,0.98) 0%, rgba(10,10,10,0.99) 100%)' }}>
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <FileText size={16} className="text-purple-400" />
+                  <span className="text-[9px] font-black text-purple-400 uppercase tracking-[0.3em]">AI Research Report</span>
+                </div>
+                <h2 className="text-2xl md:text-3xl font-black text-white leading-none">{stock.symbol}</h2>
+                <p className="text-xs text-zinc-500 mt-1">{stock.name}</p>
+                <div className="flex items-center gap-3 mt-2">
+                  <span className="text-lg font-black text-white tabular-nums">${livePrice.toFixed(2)}</span>
+                  <span className="text-sm font-black tabular-nums" style={{ color: liveChange >= 0 ? '#00ff4e' : '#FF4B2B' }}>
+                    {liveChange >= 0 ? '+' : ''}{liveChange.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowReport(false)}
+                className="text-zinc-500 hover:text-white transition-colors p-1"
+              >
+                <X size={20} />
+              </button>
+            </div>
+          </div>
+
+          {/* Modal Body */}
+          <div className="px-5 md:px-8 py-5 md:py-6">
+            {reportLoading ? (
+              <div className="flex flex-col items-center justify-center py-20 gap-4">
+                <div className="w-8 h-8 border-3 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" style={{ borderWidth: '3px' }} />
+                <div className="text-center">
+                  <p className="text-sm font-black text-white mb-1">Generating Research Report</p>
+                  <p className="text-xs text-zinc-500">Analyzing {stock.symbol} with AI + web search...</p>
+                </div>
+              </div>
+            ) : reportData?.sections ? (
+              <div className="space-y-6">
+                {reportData.sections.map((section, i) => {
+                  const isVerdict = section.title.toUpperCase().includes('VERDICT');
+                  const isRisk = section.title.toUpperCase().includes('RISK');
+                  const isBull = section.title.toUpperCase().includes('BULL');
+                  const isBear = section.title.toUpperCase().includes('BEAR');
+                  
+                  let accentColor = 'rgba(139,92,246,0.15)';
+                  let borderColor = 'rgba(139,92,246,0.2)';
+                  let iconColor = '#a78bfa';
+                  
+                  if (isBull) { accentColor = 'rgba(0,255,78,0.08)'; borderColor = 'rgba(0,255,78,0.2)'; iconColor = '#00ff4e'; }
+                  if (isBear) { accentColor = 'rgba(255,75,43,0.08)'; borderColor = 'rgba(255,75,43,0.2)'; iconColor = '#FF4B2B'; }
+                  if (isVerdict) { accentColor = 'rgba(245,158,11,0.08)'; borderColor = 'rgba(245,158,11,0.3)'; iconColor = '#f59e0b'; }
+                  if (isRisk) { accentColor = 'rgba(239,68,68,0.08)'; borderColor = 'rgba(239,68,68,0.2)'; iconColor = '#ef4444'; }
+
+                  return (
+                    <div key={i} className="rounded-xl p-4" style={{ background: accentColor, border: `1px solid ${borderColor}` }}>
+                      <h3 className="text-[9px] font-black uppercase tracking-[0.25em] mb-3" style={{ color: iconColor }}>
+                        {section.title}
+                      </h3>
+                      <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                        {section.content.split(/(\*\*[^*]+\*\*)/).map((part, j) => {
+                          if (part.startsWith('**') && part.endsWith('**')) {
+                            return <strong key={j} className="text-white font-black">{part.slice(2, -2)}</strong>;
+                          }
+                          return part;
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {/* Disclaimer */}
+                <div className="pt-4 border-t border-zinc-800/50">
+                  <p className="text-[9px] text-zinc-700 leading-relaxed">
+                    This report was generated by AI and is for informational purposes only. It is not financial advice. 
+                    Always do your own research before making investment decisions. Data may be delayed or inaccurate.
+                  </p>
+                  {reportData.generatedAt && (
+                    <p className="text-[9px] text-zinc-700 mt-1">
+                      Generated {reportData.generatedAt.toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }, (prevProps, nextProps) => {
   const sym = nextProps.stock.symbol;
