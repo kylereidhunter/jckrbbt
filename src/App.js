@@ -5600,7 +5600,7 @@ const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
   const pricePadding = (maxPrice - minPrice) * 0.1 || 1;
 
   return (
-<div className="bg-zinc-950/50 rounded-xl p-3 md:p-4">     
+<div className="bg-black/70 border border-zinc-700 rounded-xl p-3 md:p-4">     
  {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 md:mb-4">
         <div className="flex items-center gap-3">
@@ -6510,7 +6510,7 @@ ref={cardRef}
             href={stock.news?.[0]?.article_url || stock.news?.[0]?.url || '#'}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-3 mt-4 px-4 py-3 bg-black rounded-lg border border-[#00ff4e]/60 hover:border-[#00ff4e] hover:bg-[#00ff4e]/5 transition-all cursor-pointer group/headline"
+            className="flex items-center gap-3 mt-4 px-4 py-3 bg-black/70 rounded-lg border border-[#00ff4e]/60 hover:border-[#00ff4e] hover:bg-[#00ff4e]/5 transition-all cursor-pointer group/headline"
           >
             <Newspaper size={14} className="text-[#00ff4e] group-hover/headline:text-[#00ff4e] flex-shrink-0 transition-colors" />
             <div className="flex-1 min-w-0">
@@ -6590,7 +6590,7 @@ ref={cardRef}
                         <div className={`max-w-[90%] px-3 md:px-4 py-2.5 rounded-lg ${
                           msg.role === 'user' 
                             ? 'bg-[#00ff4e]/10 text-white border border-[#00ff4e]/20' 
-                            : 'bg-black text-zinc-300 border border-zinc-800'
+                            : 'bg-black/70 text-zinc-300 border border-zinc-700'
                         }`}>
                           <p className="text-xs md:text-sm whitespace-pre-wrap leading-relaxed">
                             {msg.text.split(/(\*\*[^*]+\*\*)/).map((part, j) => {
@@ -6606,7 +6606,7 @@ ref={cardRef}
                     
                     {chatLoading && (
                       <div className="flex justify-start">
-                        <div className="bg-black border border-zinc-800 px-4 py-2.5 rounded-lg">
+                        <div className="bg-black/70 border border-zinc-700 px-4 py-2.5 rounded-lg">
                           <div className="flex items-center gap-2">
                             <div className="flex gap-1">
                               <span className="w-1.5 h-1.5 bg-[#00ff4e] rounded-full animate-[pulse_1s_ease-in-out_infinite]" />
@@ -6655,7 +6655,7 @@ ref={cardRef}
                 sendChatMessage(prompt);
               }}
               disabled={chatLoading}
-className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounded-lg bg-black border border-zinc-700 text-zinc-400 hover:text-[#00ff4e] hover:border-[#00ff4e]/30 hover:bg-[#00ff4e]/5 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"            >
+className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounded-lg bg-black/70 border border-zinc-700 text-zinc-400 hover:text-[#00ff4e] hover:border-[#00ff4e]/30 hover:bg-[#00ff4e]/5 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"            >
               {prompt}
             </button>
           ))}
@@ -6678,7 +6678,7 @@ className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounde
               onFocus={() => { if (!chatOpen && chatMessages.length > 0) setChatOpen(true); }}
               placeholder={`Ask anything about ${stock.symbol}...`}
               disabled={chatLoading}
-              className="w-full bg-zinc-800 border-2 border-zinc-600 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-[#00ff4e]/50 transition-colors disabled:opacity-50 font-mono placeholder:text-zinc-400"
+              className="w-full bg-black/70 border border-zinc-700 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-[#00ff4e]/50 transition-colors disabled:opacity-50 font-mono placeholder:text-zinc-400"
               style={{ caretColor: '#00ff4e' }}
             />
             {!chatInput && chatMessages.length === 0 && (
@@ -6883,7 +6883,7 @@ className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounde
                     href={article.article_url || article.url || '#'}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block p-3 md:p-4 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 hover:bg-zinc-900 transition-all group/article"
+                    className="block p-3 md:p-4 bg-black/70 border border-zinc-700 rounded-lg hover:border-[#00ff4e]/30 hover:bg-zinc-900 transition-all group/article"
                   >
                     <div className="flex items-start gap-3">
                       {article.image_url && (
