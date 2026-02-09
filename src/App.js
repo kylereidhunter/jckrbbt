@@ -804,6 +804,54 @@ const [recentlyScanned, setRecentlyScanned] = useState(() => {
   return saved ? new Set(JSON.parse(saved)) : new Set();
 });
 const [showSearch, setShowSearch] = useState(false);
+const [showWelcome, setShowWelcome] = useState(() => {
+  return !localStorage.getItem('jckrbbt_onboarded');
+});
+const [tourStep, setTourStep] = useState(0); // 0 = no tour, 1-4 = active steps
+const [tourRect, setTourRect] = useState(null);
+const tourSteps = useRef([
+  { target: 'analyze-stock', title: 'Search Any Stock', desc: 'Type any ticker or company name to get instant AI-powered analysis, charts, and news.', position: 'bottom' },
+  { target: 'scan-market', title: 'Scan the Market', desc: 'Hit this to scan the entire market for stocks moving on real catalysts — earnings, FDA approvals, insider buys, and more.', position: 'top' },
+  { target: 'lists-tab', title: 'Save to Watchlists', desc: 'Save interesting stocks to watchlists to track them over time. Share lists publicly for others to follow.', position: 'top' },
+  { target: 'portfolio-tab', title: 'Your Portfolio', desc: 'Connect your brokerage to see all your positions, P&L, and cost basis in one place.', position: 'top' },
+]);
+
+useEffect(() => {
+  if (tourStep === 0) { setTourRect(null); return; }
+  const step = tourSteps.current[tourStep - 1];
+  if (!step) return;
+  
+  // Clear previous rect immediately to avoid stale positions
+  setTourRect(null);
+  
+  // Small delay to ensure DOM is ready
+  const timer = setTimeout(() => {
+    const els = document.querySelectorAll(`[data-tour="${step.target}"]`);
+    // Find the first visible element (skip display:none which has 0 dimensions)
+    const el = Array.from(els).find(e => {
+      const r = e.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    });
+    if (el) {
+      // Check if element is fixed/in viewport already
+      const r = el.getBoundingClientRect();
+      const isInViewport = r.top >= 0 && r.bottom <= window.innerHeight;
+      
+      if (!isInViewport) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      
+      // Wait for any scroll to finish then capture rect
+      setTimeout(() => {
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          setTourRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+        }
+      }, isInViewport ? 50 : 500);
+    }
+  }, 150);
+  return () => clearTimeout(timer);
+}, [tourStep]);
 const [stockSearchResults, setStockSearchResults] = useState([]);
 const [isManualResult, setIsManualResult] = useState(false);
 const [scanProgress, setScanProgress] = useState(0);
@@ -2124,6 +2172,9 @@ useEffect(() => {
     
     
     if (currentUser) {
+      // Dismiss welcome screen if still showing
+      setShowWelcome(false);
+      localStorage.setItem('jckrbbt_onboarded', 'true');
       // Load user's watchlist and profile from Firestore
       const docRef = doc(db, 'users', currentUser.uid);
       const docSnap = await getDoc(docRef);
@@ -3319,6 +3370,244 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
  return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8 pb-20 md:pb-8 font-mono">
+
+{/* WELCOME ONBOARDING SCREEN */}
+<AnimatePresence>
+{showWelcome && (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    transition={{ duration: 0.5 }}
+    className="fixed inset-0 z-[99999] flex items-center justify-center bg-black"
+  >
+    {/* Subtle animated background */}
+    <div className="absolute inset-0 overflow-hidden">
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full opacity-[0.03]" style={{ background: 'radial-gradient(circle, #00ff4e 0%, transparent 70%)' }} />
+    </div>
+
+    <motion.div
+      initial={{ y: 30, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ delay: 0.2, duration: 0.6 }}
+      className="relative z-10 max-w-lg mx-auto px-6 text-center"
+    >
+      {/* Logo */}
+      <motion.div
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ delay: 0.3, duration: 0.5 }}
+        className="mb-8"
+      >
+        <img src="/jckrbbt_logo.png" alt="JCKRBBT" className="h-16 md:h-20 mx-auto" />
+      </motion.div>
+
+      {/* Tagline */}
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5, duration: 0.5 }}
+        className="text-base md:text-lg text-zinc-400 font-bold mb-10 leading-relaxed"
+      >
+        Find stocks with <span className="text-[#00ff4e] font-black">real catalysts</span>
+        <br />before they move.
+      </motion.p>
+
+      {/* Features */}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.7, duration: 0.5 }}
+        className="space-y-4 mb-10"
+      >
+        {[
+          { Icon: Zap, title: 'AI-Powered Scanner', desc: 'Scans the market for stocks moving on real news and catalysts' },
+          { Icon: FileText, title: 'Deep Research Reports', desc: 'AI-generated bull/bear cases, technicals, and risk analysis' },
+          { Icon: MessageCircle, title: 'Ask AI Anything', desc: 'Chat with AI about any stock — earnings, targets, risks' },
+        ].map((feature, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.8 + i * 0.15, duration: 0.4 }}
+            className="flex items-start gap-4 text-left p-3 rounded-xl"
+            style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}
+          >
+            <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center mt-0.5" style={{ background: 'rgba(0,255,78,0.1)', border: '1px solid rgba(0,255,78,0.2)' }}>
+              <feature.Icon size={18} className="text-[#00ff4e]" />
+            </div>
+            <div>
+              <p className="text-sm font-black text-white uppercase tracking-wider">{feature.title}</p>
+              <p className="text-xs text-zinc-500 mt-0.5">{feature.desc}</p>
+            </div>
+          </motion.div>
+        ))}
+      </motion.div>
+
+      {/* CTA Buttons */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 1.2, duration: 0.4 }}
+        className="space-y-3"
+      >
+        <button
+          onClick={() => {
+            localStorage.setItem('jckrbbt_onboarded', 'true');
+            setShowWelcome(false);
+            setShowAuthModal(true);
+            setTimeout(() => setTourStep(1), 600);
+          }}
+          className="w-full py-4 rounded-xl text-sm font-black uppercase tracking-wider text-black transition-all active:scale-95 hover:opacity-90"
+          style={{ backgroundColor: '#00ff4e', boxShadow: '0 0 30px rgba(0,255,78,0.3)' }}
+        >
+          Get Started — It's Free
+        </button>
+        <button
+          onClick={() => {
+            localStorage.setItem('jckrbbt_onboarded', 'true');
+            setShowWelcome(false);
+            setTimeout(() => setTourStep(1), 600);
+          }}
+          className="w-full py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-zinc-600 hover:text-zinc-400 transition-colors"
+        >
+          Explore First
+        </button>
+      </motion.div>
+
+      {/* Disclaimer */}
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1.4, duration: 0.4 }}
+        className="text-[9px] text-zinc-800 mt-8 leading-relaxed"
+      >
+        Not financial advice. For informational purposes only.<br />
+        <a href="/terms" className="text-zinc-700 hover:text-zinc-500 underline">Terms of Service</a>
+        {' · '}
+        <a href="/privacy" className="text-zinc-700 hover:text-zinc-500 underline">Privacy Policy</a>
+      </motion.p>
+    </motion.div>
+  </motion.div>
+)}
+</AnimatePresence>
+
+{/* TOOLTIP TOUR */}
+<AnimatePresence>
+{tourStep > 0 && (() => {
+  const steps = tourSteps.current;
+  const step = steps[tourStep - 1];
+  if (!step) return null;
+  const rect = tourRect;
+
+  return (
+    <motion.div
+      key={`tour-${tourStep}`}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3 }}
+      className="fixed inset-0 z-[9998]"
+      style={{ pointerEvents: 'auto' }}
+      onClick={() => { 
+        if (tourStep < steps.length) setTourStep(tourStep + 1); 
+        else { setTourStep(0); localStorage.setItem('jckrbbt_tour_done', 'true'); }
+      }}
+    >
+      {/* Single dimming layer - only show when no spotlight rect */}
+      {!rect && <div className="absolute inset-0 bg-black/80" />}
+      
+      {/* Spotlight on target - this creates the dim + cutout in one layer */}
+      {rect && (
+        <div 
+          className="absolute rounded-xl"
+          style={{
+            top: rect.top - 6,
+            left: rect.left - 6,
+            width: rect.width + 12,
+            height: rect.height + 12,
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.80), 0 0 30px rgba(0,255,78,0.2)',
+            border: '2px solid rgba(0,255,78,0.4)',
+            zIndex: 9999,
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+
+      {/* Tooltip */}
+      <motion.div
+        initial={{ opacity: 0, y: step.position === 'top' ? 10 : -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15, duration: 0.3 }}
+        className="absolute z-[10000] w-72 md:w-80"
+        style={{
+          ...(rect ? (step.position === 'bottom' ? {
+            top: rect.top + rect.height + 22,
+            left: Math.max(16, Math.min(rect.left + rect.width / 2 - 160, window.innerWidth - 336)),
+          } : {
+            bottom: window.innerHeight - rect.top + 22,
+            left: Math.max(16, Math.min(rect.left + rect.width / 2 - 160, window.innerWidth - 336)),
+          }) : {
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+          }),
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div 
+          className="p-4 rounded-xl"
+          style={{
+            background: 'linear-gradient(135deg, rgba(40,40,40,0.98) 0%, rgba(15,15,15,0.99) 100%)',
+            border: '1px solid rgba(0,255,78,0.2)',
+            boxShadow: '0 0 40px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.1)',
+          }}
+        >
+          {/* Step indicator */}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[9px] font-black text-[#00ff4e] uppercase tracking-[0.3em]">
+              Step {tourStep} of {steps.length}
+            </span>
+            <div className="flex gap-1.5">
+              {steps.map((_, i) => (
+                <div 
+                  key={i} 
+                  className="w-1.5 h-1.5 rounded-full transition-colors"
+                  style={{ backgroundColor: i < tourStep ? '#00ff4e' : 'rgba(255,255,255,0.1)' }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <h4 className="text-sm font-black text-white mb-1">{step.title}</h4>
+          <p className="text-xs text-zinc-400 leading-relaxed mb-4">{step.desc}</p>
+
+          <div className="flex items-center justify-between">
+            <button
+              onClick={(e) => { e.stopPropagation(); setTourStep(0); localStorage.setItem('jckrbbt_tour_done', 'true'); }}
+              className="text-[10px] font-bold text-zinc-600 hover:text-zinc-400 uppercase tracking-wider transition-colors"
+            >
+              Skip Tour
+            </button>
+            <button
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                if (tourStep < steps.length) setTourStep(tourStep + 1); 
+                else { setTourStep(0); localStorage.setItem('jckrbbt_tour_done', 'true'); }
+              }}
+              className="px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider text-black transition-all active:scale-95"
+              style={{ backgroundColor: '#00ff4e' }}
+            >
+              {tourStep < steps.length ? 'Next' : 'Got It'}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+})()}
+</AnimatePresence>
+
 <style>{`
   select option {
     background-color: #000 !important;
@@ -3670,6 +3959,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     return (
       <button
         key={tab.id}
+        data-tour={tab.id === 'MY LISTS' ? 'lists-tab' : tab.id === 'MY POSITIONS' ? 'portfolio-tab' : undefined}
         onClick={() => setActiveTab(tab.id)}
         className={`flex-1 h-20 flex items-center justify-center rounded-xl transition-all ${
           isActive 
@@ -3698,6 +3988,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
       return (
         <button
           key={tab.id}
+          data-tour={tab.id === 'MY LISTS' ? 'lists-tab' : tab.id === 'MY POSITIONS' ? 'portfolio-tab' : undefined}
           onClick={() => setActiveTab(tab.id)}
           className={`flex-1 flex flex-col items-center justify-center py-6 transition-all ${
             isActive 
@@ -3725,7 +4016,7 @@ const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
   
 {/* MANUAL SEARCH SECTION */}
-  <div className="p-4 md:p-5 rounded-xl overflow-hidden transition-all duration-300" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+  <div data-tour="analyze-stock" className="p-4 md:p-5 rounded-xl overflow-hidden transition-all duration-300" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
     <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
       Analyze Any Stock
     </h3>
@@ -3931,6 +4222,7 @@ searchTimeoutRef.current = setTimeout(async () => {
       </div>
 
       <button 
+        data-tour="scan-market"
         onClick={() => { 
           setStocks([]);
           setManualSearch(""); 
@@ -5393,12 +5685,19 @@ onUnfollowList={async (listId) => {
 />
 
 {/* Footer */}
-<footer className="mt-16 pt-8 border-t-2 border-zinc-900 text-center">
+<footer className="mt-16 pt-8 border-t-2 border-zinc-900 text-center flex items-center justify-center gap-4 md:gap-6">
   <a 
     href="/privacy"
     className="text-zinc-600 hover:text-[#00ff4e] text-xs font-bold uppercase tracking-wider transition-colors"
   >
     Privacy Policy
+  </a>
+  <span className="text-zinc-800">•</span>
+  <a 
+    href="/terms"
+    className="text-zinc-600 hover:text-[#00ff4e] text-xs font-bold uppercase tracking-wider transition-colors"
+  >
+    Terms of Service
   </a>
 </footer>
 
