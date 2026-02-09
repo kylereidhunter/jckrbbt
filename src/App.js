@@ -2366,7 +2366,7 @@ useEffect(() => {
       );
       setWatchlists(updatedLists);
     }
-  }, 60000); // Every 60 seconds
+  }, 300000); // Every 5 minutes (WebSocket handles real-time price updates)
 
   return () => clearInterval(liveTimer);
 }, [updateList, stocks, watchlists]); // Removed isMarketOpen check
@@ -3276,11 +3276,35 @@ const getStableStock = useCallback((stock) => {
   return stock;
 }, []);
 
-// Then change your displayedStocks to use this:
-const displayedStocks = useMemo(() => 
-  getSortedAndFilteredStocks(stocks).map(getStableStock), 
-  [stocks, getSortedAndFilteredStocks, getStableStock]
-);
+// Lock sort order so live price updates don't reorder cards
+const sortOrderRef = useRef([]);
+const prevSortBy = useRef(sortBy);
+const prevFilterSignal = useRef(filterSignal);
+const prevStockCount = useRef(0);
+
+const displayedStocks = useMemo(() => {
+  const sorted = getSortedAndFilteredStocks(stocks);
+  
+  // Re-sort only when sort/filter changes or stock count changes (new scan)
+  const sortChanged = prevSortBy.current !== sortBy;
+  const filterChanged = prevFilterSignal.current !== filterSignal;
+  const countChanged = sorted.length !== prevStockCount.current;
+  
+  if (sortChanged || filterChanged || countChanged || sortOrderRef.current.length === 0) {
+    sortOrderRef.current = sorted.map(s => s.symbol);
+    prevSortBy.current = sortBy;
+    prevFilterSignal.current = filterSignal;
+    prevStockCount.current = sorted.length;
+    return sorted.map(getStableStock);
+  }
+  
+  // Price update only — preserve existing order, just update data
+  const stockMap = {};
+  sorted.forEach(s => { stockMap[s.symbol] = s; });
+  return sortOrderRef.current
+    .filter(sym => stockMap[sym])
+    .map(sym => getStableStock(stockMap[sym]));
+}, [stocks, getSortedAndFilteredStocks, getStableStock, sortBy, filterSignal]);
 
 const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
@@ -5888,7 +5912,7 @@ const MetricCard = React.memo(function MetricCard({
   stock, isMarketOpen, onAction, actionType, watchlist = [], 
   removeFromWatchlist, showAddToListMenu, onCloseMenu, 
   watchlists = [], onAddToList, user, onOpenChat, onScanSimilar,
-  aiModel, db, connectedBrokerages
+  aiModel, db, connectedBrokerages, livePrices
 }) {
   const [showChart, setShowChart] = useState(false);
   const [showNews, setShowNews] = useState(false);
@@ -5903,8 +5927,21 @@ const chatInputRef = useRef(null);
   const prevPrice = useRef(null);
   const prevChange = useRef(null);
   const hasAnimatedRef = useRef(false);
+
+  // Derive previous close from stock data (stable baseline)
+  const prevCloseRef = useRef(null);
+  if (prevCloseRef.current === null && stock.price && stock.change) {
+    const changePercent = parseFloat(stock.change);
+    prevCloseRef.current = parseFloat(stock.price) / (1 + changePercent / 100);
+  }
+
+  // Use WebSocket price when available, fall back to stock prop
+  const wsData = livePrices?.[stock.symbol];
+  const livePrice = wsData?.price ?? parseFloat(stock.price);
+  const prevClose = prevCloseRef.current || parseFloat(stock.price);
+  const liveChange = prevClose > 0 ? ((livePrice - prevClose) / prevClose) * 100 : parseFloat(stock.change);
   
-  const isPositive = parseFloat(stock.change) >= 0;
+  const isPositive = liveChange >= 0;
   const accent = isPositive ? '#00ff4e' : '#FF4B2B';
   const trendColor = isPositive ? '#00ff4e' : '#FF4B2B';
   const Triangle = isPositive ? '▲' : '▼';
@@ -5912,8 +5949,8 @@ const chatInputRef = useRef(null);
   const isAlreadyAdded = watchlist.some(s => s.symbol === stock.symbol);
   
   const shouldAnimate = !hasAnimatedRef.current || 
-    (prevPrice.current !== null && prevPrice.current !== stock.price) ||
-    (prevChange.current !== null && prevChange.current !== stock.change);
+    (prevPrice.current !== null && prevPrice.current !== livePrice) ||
+    (prevChange.current !== null && prevChange.current !== liveChange);
 
     const [chatLoaded, setChatLoaded] = useState(false);
   const [hasSavedChat, setHasSavedChat] = useState(false);
@@ -5925,6 +5962,43 @@ const [ratingsData, setRatingsData] = useState(null);
 const [ratingsLoading, setRatingsLoading] = useState(false);
 
   // Load saved chat history on mount
+  // Close all expanded sections when card scrolls out of view
+  useEffect(() => {
+    if (!cardRef.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) {
+          const hasOpenSection = showChart || showBio || showRatings || showNews || chatOpen;
+          if (!hasOpenSection) return;
+          
+          // Only adjust scroll if card is above viewport (scrolled past going down)
+          const isAbove = entry.boundingClientRect.top < 0;
+          const prevHeight = cardRef.current?.offsetHeight || 0;
+          
+          setShowChart(false);
+          setShowBio(false);
+          setShowRatings(false);
+          setShowNews(false);
+          setChatOpen(false);
+          
+          if (isAbove) {
+            // Wait for collapse animations to finish, then adjust scroll
+            setTimeout(() => {
+              const newHeight = cardRef.current?.offsetHeight || 0;
+              const diff = prevHeight - newHeight;
+              if (diff > 0) {
+                window.scrollBy(0, -diff);
+              }
+            }, 450);
+          }
+        }
+      },
+      { threshold: 0 }
+    );
+    observer.observe(cardRef.current);
+    return () => observer.disconnect();
+  }, [showChart, showBio, showRatings, showNews, chatOpen]);
+
   useEffect(() => {
     if (!user?.uid || !db || !stock.symbol || chatLoaded) return;
     
@@ -5966,10 +6040,10 @@ const [ratingsLoading, setRatingsLoading] = useState(false);
   };
 
   useEffect(() => {
-    prevPrice.current = stock.price;
-    prevChange.current = stock.change;
+    prevPrice.current = livePrice;
+    prevChange.current = liveChange;
     hasAnimatedRef.current = true;
-  }, [stock.price, stock.change]);
+  }, [livePrice, liveChange]);
 
 const fetchBio = async () => {
     if (bioText) { setShowBio(!showBio); return; }
@@ -6159,8 +6233,8 @@ useEffect(() => {
   // --- AI CHAT LOGIC (inline) ---
   const buildContext = (userQuestion) => {
     const dataPoints = [];
-    dataPoints.push(`Price: $${stock.price}`);
-    dataPoints.push(`Change: ${parseFloat(stock.change) >= 0 ? '+' : ''}${stock.change}%`);
+    dataPoints.push(`Price: $${livePrice.toFixed(2)}`);
+    dataPoints.push(`Change: ${liveChange >= 0 ? '+' : ''}${liveChange.toFixed(2)}%`);
     if (stock.catalyst) dataPoints.push(`Catalyst: ${stock.catalyst}`);
     if (stock.catalystType) dataPoints.push(`Trigger Type: ${stock.catalystType}`);
     if (stock.volume) dataPoints.push(`Volume: ${stock.volume.toLocaleString()}`);
@@ -6403,16 +6477,16 @@ ref={cardRef}
           <div className="flex items-baseline gap-2 md:gap-3">
             <span className="text-3xl md:text-5xl font-black text-white tabular-nums leading-none">
               ${shouldAnimate ? (
-                <CountUp end={parseFloat(stock.price)} decimals={2} duration={1200} />
+                <CountUp end={livePrice} decimals={2} duration={1200} />
               ) : (
-                parseFloat(stock.price).toFixed(2)
+                livePrice.toFixed(2)
               )}
             </span>
             <span className="text-xl md:text-3xl font-black tabular-nums leading-none" style={{ color: trendColor }}>
               {prefix}{shouldAnimate ? (
-                <CountUp end={Math.abs(parseFloat(stock.change))} decimals={2} duration={1200} />
+                <CountUp end={Math.abs(liveChange)} decimals={2} duration={1200} />
               ) : (
-                Math.abs(parseFloat(stock.change)).toFixed(2)
+                Math.abs(liveChange).toFixed(2)
               )}% <span className="text-lg md:text-2xl ml-1 md:ml-2 align-middle">{Triangle}</span>
             </span>
             
@@ -6919,15 +6993,17 @@ className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounde
     </div>
   );
 }, (prevProps, nextProps) => {
+  const sym = nextProps.stock.symbol;
   return (
+    prevProps.stock.symbol === nextProps.stock.symbol &&
     prevProps.stock.price === nextProps.stock.price &&
     prevProps.stock.change === nextProps.stock.change &&
-    prevProps.stock.symbol === nextProps.stock.symbol &&
     prevProps.isMarketOpen === nextProps.isMarketOpen &&
     prevProps.showAddToListMenu?.symbol === nextProps.showAddToListMenu?.symbol &&
     prevProps.watchlist.length === nextProps.watchlist.length &&
     prevProps.aiModel === nextProps.aiModel &&
-    prevProps.db === nextProps.db
+    prevProps.db === nextProps.db &&
+    prevProps.livePrices?.[sym]?.price === nextProps.livePrices?.[sym]?.price
   );
 });
 
