@@ -3372,11 +3372,21 @@ const generateShareImage = useCallback(async () => {
   const stocksToShare = displayedStocks.slice(0, 6);
   if (stocksToShare.length === 0) return;
 
+  // Load logo image
+  const logo = new Image();
+  logo.crossOrigin = 'anonymous';
+  logo.src = '/jckrbbt_logo.png';
+  
+  await new Promise((resolve, reject) => {
+    logo.onload = resolve;
+    logo.onerror = reject;
+  }).catch(() => null); // Continue even if logo fails to load
+
   const scale = 2; // retina
   const W = 600;
   const rowH = 80;
   const headerH = 120;
-  const footerH = 60;
+  const footerH = 70;
   const padding = 30;
   const H = headerH + (stocksToShare.length * rowH) + footerH + 20;
 
@@ -3402,20 +3412,27 @@ const generateShareImage = useCallback(async () => {
   ctx.fillStyle = '#00ff4e';
   ctx.fillRect(0, 0, W, 2);
 
-  // Header - Logo text
-  ctx.font = '700 22px "JetBrains Mono", ui-monospace, monospace';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText('jckrbbt_', padding, 42);
+  // Header - Logo image
+  let logoEndX = padding;
+  if (logo.complete && logo.naturalWidth > 0) {
+    const logoH = 30;
+    const logoAspect = logo.naturalWidth / logo.naturalHeight;
+    const logoDrawW = logoH * logoAspect;
+    ctx.drawImage(logo, padding, 18, logoDrawW, logoH);
+    logoEndX = padding + logoDrawW + 12;
+  } else {
+    // Fallback to text if logo fails
+    ctx.font = '700 22px "JetBrains Mono", ui-monospace, monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('jckrbbt_', padding, 42);
+    logoEndX = padding + ctx.measureText('jckrbbt_').width + 12;
+  }
 
   // Header - "MARKET SCAN" badge
   const badgeText = 'MARKET SCAN';
   ctx.font = '800 9px "JetBrains Mono", ui-monospace, monospace';
   const badgeW = ctx.measureText(badgeText).width + 14;
-  // Measure jckrbbt_ with correct font
-  ctx.font = '700 22px "JetBrains Mono", ui-monospace, monospace';
-  const logoW = ctx.measureText('jckrbbt_').width;
-  ctx.font = '800 9px "JetBrains Mono", ui-monospace, monospace';
-  const bx = padding + logoW + 12;
+  const bx = logoEndX;
   ctx.fillStyle = 'rgba(0, 255, 78, 0.12)';
   ctx.beginPath();
   ctx.roundRect(bx, 28, badgeW, 20, 4);
@@ -3504,20 +3521,29 @@ const generateShareImage = useCallback(async () => {
   ctx.fillStyle = 'rgba(0, 255, 78, 0.15)';
   ctx.fillRect(padding, footerY, W - padding * 2, 1);
 
-  // Footer
+  // Footer - logo icon + text
+  let footerTextX = padding;
+  if (logo.complete && logo.naturalWidth > 0) {
+    const fLogoH = 18;
+    const fLogoAspect = logo.naturalWidth / logo.naturalHeight;
+    const fLogoW = fLogoH * fLogoAspect;
+    ctx.drawImage(logo, padding, footerY + 14, fLogoW, fLogoH);
+    footerTextX = padding + fLogoW + 8;
+  }
+  
   ctx.font = '700 13px "JetBrains Mono", ui-monospace, monospace';
   ctx.fillStyle = '#00ff4e';
-  ctx.fillText('jckrbbt.io', padding, footerY + 28);
+  ctx.fillText('jckrbbt.io', footerTextX, footerY + 28);
+  const jckrbbtW = ctx.measureText('jckrbbt.io').width;
 
   ctx.font = '400 10px "JetBrains Mono", ui-monospace, monospace';
   ctx.fillStyle = '#3f3f46';
-  const jckrbbtW = ctx.measureText('jckrbbt.io ').width;
-  ctx.fillText('AI-Powered Stock Scanner', padding + jckrbbtW + 8, footerY + 28);
+  ctx.fillText('AI-Powered Stock Scanner', footerTextX + jckrbbtW + 10, footerY + 28);
 
   // "Not financial advice" tiny text
   ctx.font = '400 8px "JetBrains Mono", ui-monospace, monospace';
   ctx.fillStyle = '#27272a';
-  ctx.fillText('Not financial advice. For informational purposes only.', padding, footerY + 46);
+  ctx.fillText('Not financial advice. For informational purposes only.', padding, footerY + 50);
 
   // Convert to blob and download
   canvas.toBlob((blob) => {
