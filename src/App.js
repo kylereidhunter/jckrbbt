@@ -13,7 +13,7 @@ import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
-import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History, Pencil, FileText, X } from 'lucide-react';import PlaidLink from './PlaidLink';
+import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History, Pencil, FileText, X, Share2, Download, Copy, Check } from 'lucide-react';import PlaidLink from './PlaidLink';
 import StockChatModal from './StockChatModal';
 import UserProfileModal from './UserProfileModal';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, Sector } from 'recharts';
@@ -805,9 +805,12 @@ const [recentlyScanned, setRecentlyScanned] = useState(() => {
 });
 const [showSearch, setShowSearch] = useState(false);
 const [showWelcome, setShowWelcome] = useState(() => {
+
   return !localStorage.getItem('jckrbbt_onboarded');
 });
 const [tourStep, setTourStep] = useState(0); // 0 = no tour, 1-4 = active steps
+const [copiedReddit, setCopiedReddit] = useState(false);
+const [copiedTwitter, setCopiedTwitter] = useState(false);
 const [tourRect, setTourRect] = useState(null);
 const tourSteps = useRef([
   { target: 'analyze-stock', title: 'Search Any Stock', desc: 'Type any ticker or company name to get instant AI-powered analysis, charts, and news.', position: 'bottom' },
@@ -3364,6 +3367,230 @@ const displayedStocks = useMemo(() => {
 
 const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
 
+// Share Scan as Image
+const generateShareImage = useCallback(async () => {
+  const stocksToShare = displayedStocks.slice(0, 6);
+  if (stocksToShare.length === 0) return;
+
+  const scale = 2; // retina
+  const W = 600;
+  const rowH = 80;
+  const headerH = 120;
+  const footerH = 60;
+  const padding = 30;
+  const H = headerH + (stocksToShare.length * rowH) + footerH + 20;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W * scale;
+  canvas.height = H * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+
+  // Background
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#0a0a0a');
+  grad.addColorStop(1, '#111111');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle border
+  ctx.strokeStyle = 'rgba(0, 255, 78, 0.15)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+
+  // Top accent line
+  ctx.fillStyle = '#00ff4e';
+  ctx.fillRect(0, 0, W, 2);
+
+  // Header - Logo text
+  ctx.font = '700 22px "JetBrains Mono", ui-monospace, monospace';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('jckrbbt_', padding, 42);
+
+  // Header - "MARKET SCAN" badge
+  const badgeText = 'MARKET SCAN';
+  ctx.font = '800 9px "JetBrains Mono", ui-monospace, monospace';
+  const badgeW = ctx.measureText(badgeText).width + 14;
+  // Measure jckrbbt_ with correct font
+  ctx.font = '700 22px "JetBrains Mono", ui-monospace, monospace';
+  const logoW = ctx.measureText('jckrbbt_').width;
+  ctx.font = '800 9px "JetBrains Mono", ui-monospace, monospace';
+  const bx = padding + logoW + 12;
+  ctx.fillStyle = 'rgba(0, 255, 78, 0.12)';
+  ctx.beginPath();
+  ctx.roundRect(bx, 28, badgeW, 20, 4);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0, 255, 78, 0.3)';
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+  ctx.fillStyle = '#00ff4e';
+  ctx.fillText(badgeText, bx + 7, 42);
+
+  // Header - Date and count
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  ctx.font = '400 11px "JetBrains Mono", ui-monospace, monospace';
+  ctx.fillStyle = '#52525b';
+  ctx.fillText(`${dateStr} • ${timeStr} • ${stocksToShare.length} stocks`, padding, 68);
+
+  // Divider
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.fillRect(padding, 85, W - padding * 2, 1);
+
+  // Stock rows
+  stocksToShare.forEach((stock, i) => {
+    const y = headerH + (i * rowH);
+    
+    // Row hover effect - subtle alternating
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.015)';
+      ctx.fillRect(padding - 10, y, W - padding * 2 + 20, rowH);
+    }
+
+    // Symbol
+    ctx.font = '800 18px "JetBrains Mono", ui-monospace, monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(stock.symbol, padding, y + 28);
+
+    // Company name (truncated)
+    ctx.font = '400 10px "JetBrains Mono", ui-monospace, monospace';
+    ctx.fillStyle = '#71717a';
+    let name = stock.name || '';
+    if (name.length > 28) name = name.slice(0, 25) + '...';
+    ctx.fillText(name, padding, y + 44);
+
+    // Price - right aligned
+    const priceStr = stock.price ? `$${parseFloat(stock.price).toFixed(2)}` : '';
+    ctx.font = '600 14px "JetBrains Mono", ui-monospace, monospace';
+    ctx.fillStyle = '#a1a1aa';
+    const priceW = ctx.measureText(priceStr).width;
+    ctx.fillText(priceStr, W - padding - priceW, y + 24);
+
+    // Change % - right aligned, colored
+    const change = parseFloat(stock.change) || 0;
+    const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+    ctx.font = '800 12px "JetBrains Mono", ui-monospace, monospace';
+    ctx.fillStyle = change >= 0 ? '#00ff4e' : '#ef4444';
+    const changeW = ctx.measureText(changeStr).width;
+    // Change pill background
+    const pillW = changeW + 12;
+    const pillX = W - padding - pillW;
+    ctx.fillStyle = change >= 0 ? 'rgba(0,255,78,0.1)' : 'rgba(239,68,68,0.1)';
+    ctx.beginPath();
+    ctx.roundRect(pillX, y + 32, pillW, 18, 4);
+    ctx.fill();
+    ctx.fillStyle = change >= 0 ? '#00ff4e' : '#ef4444';
+    ctx.fillText(changeStr, pillX + 6, y + 45);
+
+    // Catalyst - below symbol
+    const catalyst = stock.catalyst || stock.trigger || '';
+    if (catalyst) {
+      ctx.font = '400 10px "JetBrains Mono", ui-monospace, monospace';
+      ctx.fillStyle = '#a1a1aa';
+      let catText = catalyst.length > 55 ? catalyst.slice(0, 52) + '...' : catalyst;
+      ctx.fillText(`▸ ${catText}`, padding, y + 62);
+    }
+
+    // Row divider
+    if (i < stocksToShare.length - 1) {
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      ctx.fillRect(padding, y + rowH - 1, W - padding * 2, 0.5);
+    }
+  });
+
+  // Footer divider
+  const footerY = headerH + (stocksToShare.length * rowH) + 5;
+  ctx.fillStyle = 'rgba(0, 255, 78, 0.15)';
+  ctx.fillRect(padding, footerY, W - padding * 2, 1);
+
+  // Footer
+  ctx.font = '700 13px "JetBrains Mono", ui-monospace, monospace';
+  ctx.fillStyle = '#00ff4e';
+  ctx.fillText('jckrbbt.io', padding, footerY + 28);
+
+  ctx.font = '400 10px "JetBrains Mono", ui-monospace, monospace';
+  ctx.fillStyle = '#3f3f46';
+  const jckrbbtW = ctx.measureText('jckrbbt.io ').width;
+  ctx.fillText('AI-Powered Stock Scanner', padding + jckrbbtW + 8, footerY + 28);
+
+  // "Not financial advice" tiny text
+  ctx.font = '400 8px "JetBrains Mono", ui-monospace, monospace';
+  ctx.fillStyle = '#27272a';
+  ctx.fillText('Not financial advice. For informational purposes only.', padding, footerY + 46);
+
+  // Convert to blob and download
+  canvas.toBlob((blob) => {
+    // Try native share first (mobile), fall back to download
+    if (navigator.share && navigator.canShare) {
+      const file = new File([blob], `jckrbbt-scan-${now.toISOString().split('T')[0]}.png`, { type: 'image/png' });
+      if (navigator.canShare({ files: [file] })) {
+        navigator.share({
+          files: [file],
+          title: 'JCKRBBT Market Scan',
+          text: `Today's scan on jckrbbt.io — ${stocksToShare.length} stocks with catalysts`
+        }).catch(() => {
+          // User cancelled share, do nothing
+        });
+        return;
+      }
+    }
+    // Fallback: download
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `jckrbbt-scan-${now.toISOString().split('T')[0]}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}, [displayedStocks]);
+
+// Copy scan as Reddit markdown
+const copyForReddit = useCallback(() => {
+  const stocksToShare = displayedStocks.slice(0, 8);
+  if (stocksToShare.length === 0) return;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  
+  let md = `**Stocks I'm watching today** — ${dateStr}\n\n`;
+  md += `|Ticker|Price|Change|Catalyst|\n`;
+  md += `|:-|:-|:-|:-|\n`;
+  stocksToShare.forEach(stock => {
+    const price = stock.price ? `$${parseFloat(stock.price).toFixed(2)}` : '-';
+    const change = parseFloat(stock.change) || 0;
+    const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+    const catalyst = (stock.catalyst || stock.trigger || '').slice(0, 80);
+    md += `|**${stock.symbol}**|${price}|${changeStr}|${catalyst}|\n`;
+  });
+  md += `\nScanned with [jckrbbt.io](https://jckrbbt.io) — free AI stock scanner\n`;
+  md += `\n*Not financial advice. For informational purposes only.*`;
+  
+  navigator.clipboard.writeText(md).then(() => {
+    setCopiedReddit(true);
+    setTimeout(() => setCopiedReddit(false), 2000);
+  });
+}, [displayedStocks]);
+
+// Copy scan for Twitter/X
+const copyForTwitter = useCallback(() => {
+  const stocksToShare = displayedStocks.slice(0, 5);
+  if (stocksToShare.length === 0) return;
+  
+  let text = `Stocks moving on catalysts today:\n\n`;
+  stocksToShare.forEach(stock => {
+    const change = parseFloat(stock.change) || 0;
+    const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
+    const catalyst = (stock.catalyst || stock.trigger || '').slice(0, 60);
+    text += `$${stock.symbol} ${changeStr} — ${catalyst}\n`;
+  });
+  text += `\nFound with jckrbbt.io`;
+  
+  navigator.clipboard.writeText(text).then(() => {
+    setCopiedTwitter(true);
+    setTimeout(() => setCopiedTwitter(false), 2000);
+  });
+}, [displayedStocks]);
+
 
 
 
@@ -4413,6 +4640,32 @@ setFilterSignal("all");
               Reset
             </button>
           )}
+          <div className="sm:ml-auto flex items-center gap-1.5">
+            <button
+              onClick={generateShareImage}
+              title="Download as image"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00ff4e]/10 border border-[#00ff4e]/30 hover:bg-[#00ff4e]/20 rounded-md text-[#00ff4e] text-[10px] md:text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap"
+            >
+              <Share2 size={12} />
+              <span className="hidden sm:inline">Image</span>
+            </button>
+            <button
+              onClick={copyForReddit}
+              title="Copy for Reddit"
+              className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-[10px] md:text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap ${copiedReddit ? 'bg-[#00ff4e]/20 border-[#00ff4e]/50 text-[#00ff4e]' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white'}`}
+            >
+              {copiedReddit ? <Check size={12} /> : <Copy size={12} />}
+              <span className="hidden sm:inline">{copiedReddit ? 'Copied!' : 'Reddit'}</span>
+            </button>
+            <button
+              onClick={copyForTwitter}
+              title="Copy for X/Twitter"
+              className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-[10px] md:text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap ${copiedTwitter ? 'bg-[#00ff4e]/20 border-[#00ff4e]/50 text-[#00ff4e]' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white'}`}
+            >
+              {copiedTwitter ? <Check size={12} /> : <Copy size={12} />}
+              <span className="hidden sm:inline">{copiedTwitter ? 'Copied!' : '𝕏'}</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -4554,6 +4807,32 @@ setFilterSignal("all");
       <p className="text-xs text-zinc-600 mt-3 px-4">
         Run another scan or adjust<br />filters to discover more
       </p>
+      <div className="mt-4 flex items-center justify-center gap-2">
+        <button
+          onClick={generateShareImage}
+          title="Download as image"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-[#00ff4e]/10 border border-[#00ff4e]/30 hover:bg-[#00ff4e]/20 rounded-lg text-[#00ff4e] text-xs font-bold uppercase tracking-wider transition-all"
+        >
+          <Share2 size={13} />
+          Image
+        </button>
+        <button
+          onClick={copyForReddit}
+          title="Copy for Reddit"
+          className={`inline-flex items-center gap-2 px-4 py-2 border rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${copiedReddit ? 'bg-[#00ff4e]/20 border-[#00ff4e]/50 text-[#00ff4e]' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white'}`}
+        >
+          {copiedReddit ? <Check size={13} /> : <Copy size={13} />}
+          {copiedReddit ? 'Copied!' : 'Reddit'}
+        </button>
+        <button
+          onClick={copyForTwitter}
+          title="Copy for X/Twitter"
+          className={`inline-flex items-center gap-2 px-4 py-2 border rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${copiedTwitter ? 'bg-[#00ff4e]/20 border-[#00ff4e]/50 text-[#00ff4e]' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white'}`}
+        >
+          {copiedTwitter ? <Check size={13} /> : <Copy size={13} />}
+          {copiedTwitter ? 'Copied!' : '𝕏'}
+        </button>
+      </div>
     </div>
   )}
     {/* MARKET NEWS - Bottom Section */}
