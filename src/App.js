@@ -2559,6 +2559,9 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
     'HIGH', 'SBAR', 'SPOG', 'EPI', 'VXF', 'IYM', 'BBMC', 'EXI', 'INTL', 'OILK',
     'TDEC', 'VEM', 'JANB', 'IFLR', 'RSBT', 'MFSB', 'XC', 'SLDR', 'SJB', 'IEUR',
     'VUSV', 'PRSD', 'KCSH', 'FITBM',
+    'DTH', 'NFRA', 'METV', 'ZALT', 'RFLR', 'BINC', 'IBHI', 'IGEB', 'MTBA', 'RSPT',
+    'DBL', 'CGBL', 'IWMI', 'ZROZ', 'CURB', 'FBL', 'ECON', 'VRTL', 'AEXA',
+    'IWC', 'ULST', 'WTV', 'ACEI', 'VNQI', 'MHD',
     // Preferred shares / depositary shares
     'NCZpA', 'ALBpA'
   ]);
@@ -2630,6 +2633,21 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
   let sectorPerf = {};
   let spyChange = 0;
   
+  // Normalize volume for time of day — today's volume is partial during market hours
+  const now = new Date();
+  const etHour = now.getUTCHours() - 5; // rough ET offset
+  const etMinute = now.getUTCMinutes();
+  const marketOpenMin = 9 * 60 + 30; // 9:30 AM ET
+  const marketCloseMin = 16 * 60; // 4:00 PM ET
+  const currentMin = etHour * 60 + etMinute;
+  const totalMarketMinutes = marketCloseMin - marketOpenMin; // 390 min
+  const elapsedMinutes = Math.max(1, Math.min(totalMarketMinutes, currentMin - marketOpenMin));
+  const dayFraction = elapsedMinutes / totalMarketMinutes; // 0.0 to 1.0
+  const isMarketHours = currentMin >= marketOpenMin && currentMin <= marketCloseMin;
+  const volFloor = isMarketHours ? Math.max(25000, Math.round(100000 * dayFraction)) : 100000;
+  
+  console.log(`⏰ Market time: ${etHour}:${String(etMinute).padStart(2, '0')} ET, ${isMarketHours ? `${(dayFraction * 100).toFixed(0)}% of day elapsed, volFloor: ${volFloor}` : 'after hours (no normalization)'}`);
+
   try {
     const [snapshotRes, sectorRes] = await Promise.all([
       fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`),
@@ -2653,12 +2671,15 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
       const change = t.todaysChangePerc || ((t.day?.c - t.prevDay?.c) / t.prevDay?.c * 100);
       const volume = t.day?.v || 0;
       const prevVolume = t.prevDay?.v || 1;
-      const volumeRatio = volume / prevVolume;
+      // During market hours, project today's volume to full day pace
+      // e.g., at 11 AM (23% of day), 500K volume → projected 2.17M full-day pace
+      const projectedVolume = isMarketHours ? volume / dayFraction : volume;
+      const volumeRatio = projectedVolume / prevVolume;
       const high52 = t.max52Week?.high;
       const absChange = Math.abs(change || 0);
       
       if (!price || price < priceMin || price > priceMax) return;
-      if (volume < 100000) return;
+      if (volume < volFloor) return;
       // Require meaningful baseline volume — filters out micro-caps that normally trade 200 shares
       if (prevVolume < 20000) return;
       
@@ -2672,7 +2693,8 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
       }
       
       // 2. QUIET ACCUMULATION: Tight range + elevated volume
-      if (absChange < 1.5 && volumeRatio >= 2.5 && volume >= 200000) {
+      const accumVolFloor = isMarketHours ? Math.max(50000, Math.round(200000 * dayFraction)) : 200000;
+      if (absChange < 1.5 && volumeRatio >= 2.5 && volume >= accumVolFloor) {
         patterns.push('QUIET_ACCUMULATION');
         triggers.push(`[ACCUMULATION] Tight range (${change >= 0 ? '+' : ''}${change.toFixed(1)}%) on ${volumeRatio.toFixed(1)}x volume`);
       }
@@ -2913,9 +2935,10 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
       const change = t.todaysChangePerc || ((t.prevDay?.c - t.prevDay?.o) / t.prevDay?.o * 100);
       const volume = t.day?.v || 0;
       const prevVolume = t.prevDay?.v || 1;
-      const volumeRatio = volume / prevVolume;
+      const projectedVol = isMarketHours ? volume / dayFraction : volume;
+      const volumeRatio = projectedVol / prevVolume;
       
-      if (price >= priceMin && price <= priceMax && !isJunk(t.ticker) && volume >= 100000 && prevVolume >= 20000) {
+      if (price >= priceMin && price <= priceMax && !isJunk(t.ticker) && volume >= volFloor && prevVolume >= 20000) {
         if (!movers.get(t.ticker)) {
           const patterns = ['MOMENTUM'];
           const triggers = [`[GAINER] +${change?.toFixed(1)}% on ${volumeRatio.toFixed(1)}x vol`];
@@ -2992,14 +3015,15 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
   
   // ========== STEP 4b: VERIFY EARLY SIGNALS VIA FINNHUB ==========
   // Polygon's ticker tagging misses a lot of news — cross-check with Finnhub
+  // Only check top 20 by score to stay within Finnhub rate limits (60/min)
   if (earlySignals.length > 0) {
     setScanStatus('VERIFYING EARLY SIGNALS...');
-    const toVerify = earlySignals.slice(0, 40);
+    const toVerify = earlySignals.slice(0, 20);
     const twoDaysMs = 48 * 60 * 60 * 1000;
     const promoted = []; // stocks that actually have news → move to Tier 2
     
-    for (let i = 0; i < toVerify.length; i += 10) {
-      const batch = toVerify.slice(i, i + 10);
+    for (let i = 0; i < toVerify.length; i += 5) {
+      const batch = toVerify.slice(i, i + 5);
       const results = await Promise.all(
         batch.map(async (stock) => {
           try {
@@ -3030,7 +3054,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
           }
         }
       }
-      if (i + 10 < toVerify.length) await new Promise(r => setTimeout(r, 100));
+      if (i + 5 < toVerify.length) await new Promise(r => setTimeout(r, 600));
     }
     
     if (promoted.length > 0) {
@@ -4839,6 +4863,17 @@ searchTimeoutRef.current = setTimeout(async () => {
           'SCAN MARKET'
         )}
       </button>
+      {recentlyScanned.size > 0 && !loading && (
+        <button
+          onClick={() => {
+            setRecentlyScanned(new Set());
+            localStorage.removeItem('recentlyScanned');
+          }}
+          className="w-full text-zinc-600 hover:text-zinc-400 text-[10px] font-bold tracking-wider uppercase transition-colors py-1"
+        >
+          CLEAR SCAN HISTORY ({recentlyScanned.size} tickers)
+        </button>
+      )}
     </div>
   </div>
   
