@@ -2660,6 +2660,39 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
     return score;
   };
 
+  // ========== SENTIMENT SCORING ==========
+  const scoreSentiment = (change, patterns, optionsData = null) => {
+    let score = 0; // positive = bullish, negative = bearish
+    const c = parseFloat(change) || 0;
+    
+    // Price direction is the primary signal
+    if (c > 2) score += 3;
+    else if (c > 0.5) score += 2;
+    else if (c > -0.3) score += 1; // flat-to-slightly-green
+    else if (c > -2) score -= 1;
+    else score -= 3; // big red day
+    
+    // Accumulation patterns are inherently bullish
+    if (patterns.includes('QUIET_ACCUMULATION') && c >= -0.5) score += 2;
+    if (patterns.includes('INSTITUTIONAL_FOOTPRINT') && c >= -0.3) score += 2;
+    if (patterns.includes('BREAKOUT_52W')) score += 3;
+    
+    // Momentum follows direction
+    if (patterns.includes('MOMENTUM')) score += (c >= 0 ? 2 : -2);
+    
+    // Volume spike on red = bearish, on green = bullish
+    if (patterns.includes('VOLUME_SPIKE')) score += (c >= 0 ? 1 : -1);
+    
+    // Options call activity = bullish lean
+    if (patterns.includes('OPTIONS_UNUSUAL')) score += 2;
+    if (patterns.includes('OPTIONS_OTM_CALLS')) score += 2;
+    if (optionsData?.callVolume > 0) score += 1;
+    
+    if (score >= 3) return 'BULLISH';
+    if (score <= -2) return 'BEARISH';
+    return 'NEUTRAL';
+  };
+
   // ========== STEP 1: MARKET SNAPSHOT + SECTOR ETFs ==========
   setScanStatus('SCANNING MARKET DATA...');
   
@@ -2762,6 +2795,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
         patterns: [...patterns],
         trigger: triggers.join(' • '),
         triggerType: patterns[0].toLowerCase(),
+        sentiment: scoreSentiment(change, patterns),
         sic: null,
         source: 'anomaly'
       });
@@ -2951,6 +2985,8 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
         avgIV: result.avgIV,
         topContracts: result.highVolContracts
       };
+      // Rescore sentiment with options data
+      stock.sentiment = scoreSentiment(stock.change, stock.patterns, stock.optionsData);
       optionsHits++;
     });
     
@@ -2979,7 +3015,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
           movers.set(t.ticker, {
             price, change: change?.toFixed(2), volume, volumeRatio: volumeRatio.toFixed(1),
             anomalyScore: scoreAnomaly(patterns), near52High: false, patterns, trigger: triggers.join(' • '),
-            triggerType: 'gainer', source: 'anomaly'
+            triggerType: 'gainer', sentiment: scoreSentiment(change, patterns), source: 'anomaly'
           });
         }
       }
@@ -3547,6 +3583,7 @@ for (const stock of candidates) {
       volume: stock.volume,
       volumeRatio: stock.volumeRatio,
       trigger: stock.trigger,
+      sentiment: stock.sentiment || 'NEUTRAL',
       source: stock.source,
       industry: profileData.results?.sic_description || '',
       earnings: earnings,
@@ -3613,6 +3650,7 @@ if (verified.length === 0) {
         volume: stock.volume,
         volumeRatio: stock.volumeRatio,
         trigger: stock.trigger,
+        sentiment: stock.sentiment || 'NEUTRAL',
         source: stock.source,
         industry: profileData.results?.sic_description || '',
         earnings: earnings,
@@ -3674,11 +3712,17 @@ const handleScanSimilar = useCallback((ticker) => {
 const getSortedAndFilteredStocks = useCallback((stockList) => {
   let filtered = [...stockList];
   
-  // Filter by catalyst type (replaces old signal filter)
+  // Filter by catalyst type or sentiment
   if (filterSignal !== "all") {
-    filtered = filtered.filter(stock => 
-      stock.catalystType === filterSignal
-    );
+    if (filterSignal === 'bullish') {
+      filtered = filtered.filter(stock => stock.sentiment === 'BULLISH');
+    } else if (filterSignal === 'bearish') {
+      filtered = filtered.filter(stock => stock.sentiment === 'BEARISH');
+    } else {
+      filtered = filtered.filter(stock => 
+        stock.catalystType === filterSignal
+      );
+    }
   }
   
   // Sort options updated for new data model
@@ -5065,6 +5109,8 @@ searchTimeoutRef.current = setTimeout(async () => {
                 { value: 'all', label: 'All Types' },
                 { value: 'early_signal', label: 'Early Signal' },
                 { value: 'news', label: 'News' },
+                { value: 'bullish', label: '▲ Bullish' },
+                { value: 'bearish', label: '▼ Bearish' },
                 { value: 'volume', label: 'Volume' },
                 { value: 'breakout', label: 'Breakout' },
                 { value: 'momentum', label: 'Momentum' },
@@ -7612,7 +7658,20 @@ ref={cardRef}
         </p>
         
         <div className="flex flex-col sm:flex-row sm:items-end gap-3 md:gap-8">
-          <h2 className="text-4xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">{stock.symbol}</h2>
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-4xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">{stock.symbol}</h2>
+            {stock.sentiment && stock.sentiment !== 'NEUTRAL' && (
+              <span 
+                className="text-[10px] md:text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded self-center"
+                style={{ 
+                  color: stock.sentiment === 'BULLISH' ? '#00ff4e' : '#FF4B2B',
+                  backgroundColor: stock.sentiment === 'BULLISH' ? '#00ff4e12' : '#FF4B2B12',
+                }}
+              >
+                {stock.sentiment === 'BULLISH' ? '▲ BULL' : '▼ BEAR'}
+              </span>
+            )}
+          </div>
           
           <div className="flex items-baseline gap-2 md:gap-3">
             <span className="text-3xl md:text-5xl font-black text-white tabular-nums leading-none">
@@ -7674,6 +7733,20 @@ ref={cardRef}
             <CatalystIcon size={14} className="md:w-4 md:h-4" />
             <span>{catalystStyle.label}</span>
           </div>
+          {/* Sentiment Badge */}
+          {stock.sentiment && stock.sentiment !== 'NEUTRAL' && (
+            <div 
+              className="inline-flex items-center gap-1 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
+              style={{ 
+                color: stock.sentiment === 'BULLISH' ? '#00ff4e' : '#FF4B2B',
+                backgroundColor: stock.sentiment === 'BULLISH' ? '#00ff4e15' : '#FF4B2B15',
+                borderColor: stock.sentiment === 'BULLISH' ? '#00ff4e40' : '#FF4B2B40'
+              }}
+            >
+              <span>{stock.sentiment === 'BULLISH' ? '▲' : '▼'}</span>
+              <span>{stock.sentiment}</span>
+            </div>
+          )}
           {/* Earnings Badge */}
           {getEarningsLabel(stock.earnings) && (
             <div 
