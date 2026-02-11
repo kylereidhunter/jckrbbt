@@ -768,7 +768,6 @@ const [scanPriceMax, setScanPriceMax] = useState(500);
   const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
-  const [scanSector, setScanSector] = useState('all');
   const [showProfileSettings, setShowProfileSettings] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
   const [watchlists, setWatchlists] = useState([]);
@@ -2555,7 +2554,13 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
     'VGT', 'VHT', 'VFH', 'VDE', 'VIS', 'VCR', 'VDC', 'VNQ', 'VPU',
     'GLD', 'SLV', 'IAU', 'USO', 'UNG',
     'TLT', 'IEF', 'SHY', 'BND', 'AGG', 'LQD', 'HYG', 'JNK',
-    'SCHD', 'VYM', 'JEPI', 'JEPQ', 'QYLD', 'XYLD'
+    'SCHD', 'VYM', 'JEPI', 'JEPQ', 'QYLD', 'XYLD',
+    // ETFs/funds that slip through pattern detection
+    'HIGH', 'SBAR', 'SPOG', 'EPI', 'VXF', 'IYM', 'BBMC', 'EXI', 'INTL', 'OILK',
+    'TDEC', 'VEM', 'JANB', 'IFLR', 'RSBT', 'MFSB', 'XC', 'SLDR', 'SJB', 'IEUR',
+    'VUSV', 'PRSD', 'KCSH', 'FITBM',
+    // Preferred shares / depositary shares
+    'NCZpA', 'ALBpA'
   ]);
 
   const isJunk = (ticker) => {
@@ -2563,6 +2568,8 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
     if (isLikelyETF(ticker)) return true;
     if (ticker.length < 2 || ticker.length > 5) return true;
     if (/\d/.test(ticker)) return true;
+    // Preferred/depositary shares have lowercase letters (e.g., NCZpA, ALBpA, FITBpM)
+    if (/[a-z]/.test(ticker)) return true;
     if (ticker.length === 5) {
       const lastChar = ticker.slice(-1);
       const lastTwo = ticker.slice(-2);
@@ -2661,31 +2668,31 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
       // 1. INSTITUTIONAL FOOTPRINT: 3x+ volume on flat day (<2% move)
       if (volumeRatio >= 3 && absChange < 2) {
         patterns.push('INSTITUTIONAL_FOOTPRINT');
-        triggers.push(`🏦 ${volumeRatio.toFixed(1)}x volume, only ${change >= 0 ? '+' : ''}${change.toFixed(1)}% move`);
+        triggers.push(`[FOOTPRINT] ${volumeRatio.toFixed(1)}x volume, only ${change >= 0 ? '+' : ''}${change.toFixed(1)}% move`);
       }
       
       // 2. QUIET ACCUMULATION: Tight range + elevated volume
       if (absChange < 1.5 && volumeRatio >= 2.5 && volume >= 200000) {
         patterns.push('QUIET_ACCUMULATION');
-        triggers.push(`🧊 Tight range (${change >= 0 ? '+' : ''}${change.toFixed(1)}%) on ${volumeRatio.toFixed(1)}x volume`);
+        triggers.push(`[ACCUMULATION] Tight range (${change >= 0 ? '+' : ''}${change.toFixed(1)}%) on ${volumeRatio.toFixed(1)}x volume`);
       }
       
       // 3. VOLUME SPIKE: 5x+ volume
       if (volumeRatio >= 5) {
         patterns.push('VOLUME_SPIKE');
-        triggers.push(`📊 ${volumeRatio.toFixed(1)}x average volume`);
+        triggers.push(`[VOLUME] ${volumeRatio.toFixed(1)}x average volume`);
       }
       
       // 4. BREAKOUT: Near 52-week high on volume
       if (high52 && price && ((high52 - price) / high52 * 100) <= 3 && volumeRatio >= 1.5) {
         patterns.push('BREAKOUT_52W');
-        triggers.push(`🚀 Within 3% of 52-week high on volume`);
+        triggers.push(`[BREAKOUT] Within 3% of 52-week high on volume`);
       }
       
       // 5. MOMENTUM: Large price move + volume
       if (absChange >= 4 && volumeRatio >= 2) {
         patterns.push('MOMENTUM');
-        triggers.push(`${change >= 0 ? '📈' : '📉'} ${change >= 0 ? '+' : ''}${change.toFixed(1)}% on ${volumeRatio.toFixed(1)}x vol`);
+        triggers.push(`[MOMENTUM] ${change >= 0 ? '+' : ''}${change.toFixed(1)}% on ${volumeRatio.toFixed(1)}x vol`);
       }
       
       if (patterns.length === 0) return;
@@ -2744,7 +2751,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
         
         if (isDiverging && divergenceStrength >= 2) {
           stock.patterns.push('SECTOR_DIVERGENCE');
-          stock.trigger += ` • 🔀 ${stockChange >= 0 ? 'Up' : 'Down'} while ${SECTOR_ETFS[sectorETF]} (${sectorETF}) ${sectorChange >= 0 ? '+' : ''}${sectorChange.toFixed(1)}%`;
+          stock.trigger += ` • [DIVERGENCE] ${stockChange >= 0 ? 'Up' : 'Down'} while ${SECTOR_ETFS[sectorETF]} (${sectorETF}) ${sectorChange >= 0 ? '+' : ''}${sectorChange.toFixed(1)}%`;
           stock.sectorETF = sectorETF;
           stock.sectorChange = sectorChange;
           stock.anomalyScore = scoreAnomaly(stock.patterns);
@@ -2841,25 +2848,25 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
           // A. Call volume >> open interest — aggressive new bullish bets
           if (totalOpenInterest > 0 && totalCallVolume >= totalOpenInterest * 2 && totalCallVolume >= 1000) {
             optionsPatterns.push('OPTIONS_UNUSUAL');
-            optionsTriggers.push(`📞 Call vol ${(totalCallVolume/totalOpenInterest).toFixed(1)}x open interest`);
+            optionsTriggers.push(`[OPTIONS] Call vol ${(totalCallVolume/totalOpenInterest).toFixed(1)}x open interest`);
           }
           
           // B. Heavy OTM call buying — someone betting on a big move
           if (otmCallVolume >= 500 && totalCallVolume > 0 && (otmCallVolume / totalCallVolume) >= 0.6) {
             optionsPatterns.push('OPTIONS_OTM_CALLS');
-            optionsTriggers.push(`🎯 ${((otmCallVolume / totalCallVolume) * 100).toFixed(0)}% of call volume is OTM`);
+            optionsTriggers.push(`[OTM CALLS] ${((otmCallVolume / totalCallVolume) * 100).toFixed(0)}% of call volume is OTM`);
           }
           
           // C. IV spike — market pricing in unannounced catalyst
           if (avgIV > 0.8) {
             optionsPatterns.push('OPTIONS_IV_SPIKE');
-            optionsTriggers.push(`🌡️ Implied volatility ${(avgIV * 100).toFixed(0)}%`);
+            optionsTriggers.push(`[IV SPIKE] Implied volatility ${(avgIV * 100).toFixed(0)}%`);
           }
           
           // D. Specific hot contracts
           if (highVolContracts.length >= 2) {
             const top = highVolContracts.sort((a, b) => b.volume - a.volume)[0];
-            optionsTriggers.push(`🔥 $${top.strike} calls: ${top.volume.toLocaleString()} vol vs ${top.oi.toLocaleString()} OI (${top.daysToExpiry}d exp)`);
+            optionsTriggers.push(`[HOT] $${top.strike} calls: ${top.volume.toLocaleString()} vol vs ${top.oi.toLocaleString()} OI (${top.daysToExpiry}d exp)`);
           }
           
           return {
@@ -2911,8 +2918,8 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
       if (price >= priceMin && price <= priceMax && !isJunk(t.ticker) && volume >= 100000 && prevVolume >= 20000) {
         if (!movers.get(t.ticker)) {
           const patterns = ['MOMENTUM'];
-          const triggers = [`📈 Top Gainer: +${change?.toFixed(1)}% on ${volumeRatio.toFixed(1)}x vol`];
-          if (volumeRatio >= 5) { patterns.push('VOLUME_SPIKE'); triggers.push(`📊 ${volumeRatio.toFixed(1)}x avg volume`); }
+          const triggers = [`[GAINER] +${change?.toFixed(1)}% on ${volumeRatio.toFixed(1)}x vol`];
+          if (volumeRatio >= 5) { patterns.push('VOLUME_SPIKE'); triggers.push(`[VOLUME] ${volumeRatio.toFixed(1)}x avg volume`); }
           movers.set(t.ticker, {
             price, change: change?.toFixed(2), volume, volumeRatio: volumeRatio.toFixed(1),
             anomalyScore: scoreAnomaly(patterns), near52High: false, patterns, trigger: triggers.join(' • '),
@@ -3326,7 +3333,7 @@ const news = dedupeArticles([...articles, ...finnhubNews])
 const priceMin = scanPriceMin || 2;
 const priceMax = scanPriceMax || 500;
 
-const result = await discoverStocks(scanSector, null, priceMin, priceMax);
+const result = await discoverStocks('all', null, priceMin, priceMax);
 const discoveredStocks = result.stocks || [];
 
 if (discoveredStocks.length === 0) {
@@ -3350,7 +3357,7 @@ const prioritized = [
 ];
 
 // Take more candidates when filtering by sector
-const candidateCount = scanSector !== 'all' ? 60 : 25;
+const candidateCount = 25;
 const candidates = prioritized.slice(0, candidateCount);
 
 setScanStatus('VERIFYING STOCKS...');
@@ -3407,15 +3414,6 @@ for (const stock of candidates) {
     ) {
       console.log(`❌ Filtered: ${stock.ticker} (${name})`);
       continue;
-    }
-
-        // Sector filter
-    if (scanSector !== 'all') {
-      const sicDesc = profileData.results?.sic_description || '';
-      if (!matchesSector(sicDesc, scanSector)) {
-        console.log(`❌ Wrong sector: ${stock.ticker} (${sicDesc})`);
-        continue;
-      }
     }
 
   const earnings = await fetchEarningsDate(stock.ticker);
@@ -3486,15 +3484,6 @@ if (verified.length === 0) {
         nameLower.includes('2x ') || nameLower.includes('3x ')
       ) continue;
 
-      // Skip sector filter in fallback
-
-if (scanSector !== 'all') {
-  const sic = profileData.results?.sic_description || '';
-  if (!matchesSector(sic, scanSector)) {
-    continue;
-  }
-}
-
       const earnings = await fetchEarningsDate(stock.ticker);
       
       verified.push({
@@ -3559,7 +3548,7 @@ setScanComplete(true);
   } finally {
     setLoading(false);
   }
-}, [discoverStocks, scanPriceMin, scanPriceMax, scanSector, recentlyScanned]);
+}, [discoverStocks, scanPriceMin, scanPriceMax, recentlyScanned]);
 
 
 // Handle clicking a similar stock ticker
@@ -4773,24 +4762,6 @@ searchTimeoutRef.current = setTimeout(async () => {
   />
 </div>
         </div>
-        
-        <CustomDropdown
-          value={scanSector}
-          onChange={setScanSector}
-          label="Sector"
-          options={[
-            { value: 'all', label: 'All Sectors' },
-            { value: 'technology', label: 'Technology' },
-            { value: 'healthcare', label: 'Healthcare' },
-            { value: 'finance', label: 'Finance' },
-            { value: 'energy', label: 'Energy' },
-            { value: 'consumer', label: 'Consumer' },
-            { value: 'industrial', label: 'Industrial' },
-            { value: 'materials', label: 'Materials' },
-            { value: 'realestate', label: 'Real Estate' },
-            { value: 'utilities', label: 'Utilities' }
-          ]}
-        />
       </div>
 
       <button 
