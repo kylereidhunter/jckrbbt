@@ -814,7 +814,7 @@ const [copiedTwitter, setCopiedTwitter] = useState(false);
 const [tourRect, setTourRect] = useState(null);
 const tourSteps = useRef([
   { target: 'analyze-stock', title: 'Search Any Stock', desc: 'Type any ticker or company name to get instant AI-powered analysis, charts, and news.', position: 'bottom' },
-  { target: 'scan-market', title: 'Scan the Market', desc: 'Hit this to scan the entire market for stocks moving on real catalysts — earnings, FDA approvals, insider buys, and more.', position: 'top' },
+  { target: 'scan-market', title: 'Scan the Market', desc: 'Hit this to scan the entire market for unusual stock activity — data anomalies, volume spikes, and moves the news hasn\'t caught yet.', position: 'top' },
   { target: 'lists-tab', title: 'Save to Watchlists', desc: 'Save interesting stocks to watchlists to track them over time. Share lists publicly for others to follow.', position: 'top' },
   { target: 'portfolio-tab', title: 'Your Portfolio', desc: 'Connect your brokerage to see all your positions, P&L, and cost basis in one place.', position: 'top' },
 ]);
@@ -2519,9 +2519,9 @@ const isLikelyETF = (ticker) => {
   return false;
 };
 
-// ========== STREAMLINED STOCK DISCOVERY ==========
+// ========== ENHANCED ANOMALY + OPTIONS STOCK DISCOVERY ==========
 const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax) => {
-  console.log(`🔍 STREAMLINED DISCOVERY`);
+  console.log(`🔍 ANOMALY + OPTIONS DISCOVERY`);
   console.log(`💰 Price range: $${priceMin} - $${priceMax}`);
   
   const movers = new Map();
@@ -2563,286 +2563,558 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
     if (isLikelyETF(ticker)) return true;
     if (ticker.length < 2 || ticker.length > 5) return true;
     if (/\d/.test(ticker)) return true;
-    
     if (ticker.length === 5) {
       const lastChar = ticker.slice(-1);
       const lastTwo = ticker.slice(-2);
       if (['P', 'W', 'U', 'R', 'Z', 'Y', 'F', 'Q'].includes(lastChar)) return true;
       if (['WS', 'WT', 'UN', 'PR', 'PF', 'CL'].includes(lastTwo)) return true;
     }
-    
     if (ticker.length === 4 && ['W', 'Y', 'F', 'Q'].includes(ticker.slice(-1))) return true;
-    
     return false;
   };
+
+  // ========== SECTOR ETF MAP (for correlation analysis) ==========
+  const SECTOR_ETFS = {
+    'XLK': 'Technology', 'XLF': 'Financials', 'XLE': 'Energy',
+    'XLV': 'Healthcare', 'XLI': 'Industrials', 'XLY': 'Consumer Discretionary',
+    'XLP': 'Consumer Staples', 'XLU': 'Utilities', 'XLB': 'Materials',
+    'XLRE': 'Real Estate', 'XLC': 'Communication'
+  };
+
+  const sicToSector = (sic) => {
+    if (!sic) return null;
+    const s = sic.toLowerCase();
+    if (s.includes('software') || s.includes('computer') || s.includes('semiconductor') || s.includes('electronic')) return 'XLK';
+    if (s.includes('bank') || s.includes('financ') || s.includes('insurance') || s.includes('invest')) return 'XLF';
+    if (s.includes('oil') || s.includes('gas') || s.includes('petrol') || s.includes('energy') || s.includes('mining')) return 'XLE';
+    if (s.includes('pharma') || s.includes('biotech') || s.includes('medical') || s.includes('health') || s.includes('surgical')) return 'XLV';
+    if (s.includes('aerospace') || s.includes('defense') || s.includes('manufactur') || s.includes('machinery') || s.includes('industrial')) return 'XLI';
+    if (s.includes('retail') || s.includes('restaurant') || s.includes('hotel') || s.includes('auto') || s.includes('apparel')) return 'XLY';
+    if (s.includes('food') || s.includes('beverage') || s.includes('tobacco') || s.includes('household')) return 'XLP';
+    if (s.includes('electric') || s.includes('utilit') || s.includes('water supply')) return 'XLU';
+    if (s.includes('chemical') || s.includes('steel') || s.includes('paper') || s.includes('lumber')) return 'XLB';
+    if (s.includes('real estate') || s.includes('reit')) return 'XLRE';
+    if (s.includes('telecom') || s.includes('broadcast') || s.includes('media') || s.includes('entertain')) return 'XLC';
+    return null;
+  };
+
+  // ========== PATTERN-BASED ANOMALY SCORING ==========
+  const scoreAnomaly = (patterns) => {
+    let score = 0;
+    if (patterns.includes('INSTITUTIONAL_FOOTPRINT')) score += 45;
+    if (patterns.includes('QUIET_ACCUMULATION')) score += 40;
+    if (patterns.includes('VOLUME_SPIKE')) score += 35;
+    if (patterns.includes('SECTOR_DIVERGENCE')) score += 35;
+    if (patterns.includes('OPTIONS_UNUSUAL')) score += 50;
+    if (patterns.includes('OPTIONS_IV_SPIKE')) score += 40;
+    if (patterns.includes('OPTIONS_OTM_CALLS')) score += 45;
+    if (patterns.includes('BREAKOUT_52W')) score += 25;
+    if (patterns.includes('MOMENTUM')) score += 15;
+    // Combo bonus
+    const count = patterns.length;
+    if (count >= 3) score += 25;
+    else if (count >= 2) score += 10;
+    return score;
+  };
+
+  // ========== STEP 1: MARKET SNAPSHOT + SECTOR ETFs ==========
+  setScanStatus('SCANNING MARKET DATA...');
   
-  // ========== STEP 1: Get gainers ==========
-  setScanStatus('SCANNING GAINERS...');
-  try {
-    const res = await fetch(
-      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers?apiKey=${POLYGON_KEY}`
-    );
-    const data = await res.json();
-    data.tickers?.forEach(t => {
-      const price = t.day?.c || t.prevDay?.c;
-      const change = t.todaysChangePerc || ((t.prevDay?.c - t.prevDay?.o) / t.prevDay?.o * 100);
-      
-      if (price >= priceMin && price <= priceMax && !isJunk(t.ticker)) {
-        movers.set(t.ticker, {
-          price,
-          change: change?.toFixed(2),
-          volume: t.day?.v || t.prevDay?.v,
-          trigger: `🚀 Top Gainer: +${change?.toFixed(1)}%`,
-          triggerType: 'gainer',
-          source: 'gainer'
-        });
-      }
-    });
-    console.log(`✓ Gainers: ${movers.size} in price range`);
-  } catch (e) {
-    console.log('Gainers fetch failed:', e.message);
-  }
+  let sectorPerf = {};
+  let spyChange = 0;
   
-  // ========== STEP 2: Get volume spikes + breakouts ==========
-  setScanStatus('SCANNING VOLUME & BREAKOUTS...');
   try {
-    const res = await fetch(
-      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`
-    );
-    const data = await res.json();
+    const [snapshotRes, sectorRes] = await Promise.all([
+      fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`),
+      fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${['SPY', ...Object.keys(SECTOR_ETFS)].join(',')}&apiKey=${POLYGON_KEY}`)
+    ]);
     
-    data.tickers?.forEach(t => {
-      if (movers.has(t.ticker) || isJunk(t.ticker)) return;
+    const [snapshotData, sectorData] = await Promise.all([snapshotRes.json(), sectorRes.json()]);
+    
+    sectorData.tickers?.forEach(t => {
+      const change = t.todaysChangePerc || 0;
+      if (t.ticker === 'SPY') spyChange = change;
+      else sectorPerf[t.ticker] = change;
+    });
+    console.log(`📊 SPY: ${spyChange >= 0 ? '+' : ''}${spyChange.toFixed(2)}%`);
+    
+    // ========== Pattern detection on each stock ==========
+    snapshotData.tickers?.forEach(t => {
+      if (isJunk(t.ticker)) return;
       
       const price = t.day?.c || t.prevDay?.c;
-      const change = t.todaysChangePerc || ((t.prevDay?.c - t.prevDay?.o) / t.prevDay?.o * 100);
-      const volume = t.day?.v || t.prevDay?.v || 0;
+      const change = t.todaysChangePerc || ((t.day?.c - t.prevDay?.c) / t.prevDay?.c * 100);
+      const volume = t.day?.v || 0;
       const prevVolume = t.prevDay?.v || 1;
       const volumeRatio = volume / prevVolume;
       const high52 = t.max52Week?.high;
+      const absChange = Math.abs(change || 0);
       
       if (!price || price < priceMin || price > priceMax) return;
-      if (!change || change <= 0) return;
+      if (volume < 100000) return;
+      // Require meaningful baseline volume — filters out micro-caps that normally trade 200 shares
+      if (prevVolume < 20000) return;
       
-      // Volume spike (2x normal)
-      if (volumeRatio > 2) {
-        movers.set(t.ticker, {
-          price,
-          change: change?.toFixed(2),
-          volume,
-          volumeRatio: volumeRatio.toFixed(1),
-          trigger: `Volume Spike: ${volumeRatio.toFixed(1)}x normal`,
-          triggerType: 'volume',
-          source: 'volume'
-        });
-        return;
+      const patterns = [];
+      const triggers = [];
+      
+      // 1. INSTITUTIONAL FOOTPRINT: 3x+ volume on flat day (<2% move)
+      if (volumeRatio >= 3 && absChange < 2) {
+        patterns.push('INSTITUTIONAL_FOOTPRINT');
+        triggers.push(`🏦 ${volumeRatio.toFixed(1)}x volume, only ${change >= 0 ? '+' : ''}${change.toFixed(1)}% move`);
       }
       
-      // Near 52-week high (within 5%)
-      if (high52 && price) {
-        const distanceFromHigh = ((high52 - price) / high52) * 100;
-        if (distanceFromHigh <= 5) {
-          movers.set(t.ticker, {
-            price,
-            change: change?.toFixed(2),
-            volume,
-            trigger: `Breakout: ${distanceFromHigh < 1 ? 'At' : 'Near'} 52-week high`,
-            triggerType: 'breakout',
-            source: 'breakout'
-          });
-          return;
-        }
+      // 2. QUIET ACCUMULATION: Tight range + elevated volume
+      if (absChange < 1.5 && volumeRatio >= 2.5 && volume >= 200000) {
+        patterns.push('QUIET_ACCUMULATION');
+        triggers.push(`🧊 Tight range (${change >= 0 ? '+' : ''}${change.toFixed(1)}%) on ${volumeRatio.toFixed(1)}x volume`);
       }
       
-      // Just a solid gainer with decent volume
-      if (change > 5 && volume > 100000) {
-        movers.set(t.ticker, {
-          price,
-          change: change?.toFixed(2),
-          volume,
-          trigger: `Strong Move: +${change?.toFixed(1)}% on ${(volume/1000000).toFixed(1)}M vol`,
-          triggerType: 'momentum',
-          source: 'momentum'
-        });
+      // 3. VOLUME SPIKE: 5x+ volume
+      if (volumeRatio >= 5) {
+        patterns.push('VOLUME_SPIKE');
+        triggers.push(`📊 ${volumeRatio.toFixed(1)}x average volume`);
       }
+      
+      // 4. BREAKOUT: Near 52-week high on volume
+      if (high52 && price && ((high52 - price) / high52 * 100) <= 3 && volumeRatio >= 1.5) {
+        patterns.push('BREAKOUT_52W');
+        triggers.push(`🚀 Within 3% of 52-week high on volume`);
+      }
+      
+      // 5. MOMENTUM: Large price move + volume
+      if (absChange >= 4 && volumeRatio >= 2) {
+        patterns.push('MOMENTUM');
+        triggers.push(`${change >= 0 ? '📈' : '📉'} ${change >= 0 ? '+' : ''}${change.toFixed(1)}% on ${volumeRatio.toFixed(1)}x vol`);
+      }
+      
+      if (patterns.length === 0) return;
+      
+      movers.set(t.ticker, {
+        price,
+        change: change?.toFixed(2),
+        volume,
+        volumeRatio: volumeRatio.toFixed(1),
+        anomalyScore: scoreAnomaly(patterns),
+        near52High: patterns.includes('BREAKOUT_52W'),
+        patterns: [...patterns],
+        trigger: triggers.join(' • '),
+        triggerType: patterns[0].toLowerCase(),
+        sic: null,
+        source: 'anomaly'
+      });
     });
+    
+    console.log(`✓ Snapshot: ${movers.size} stocks with anomaly patterns`);
   } catch (e) {
     console.log('Snapshot scan failed:', e.message);
   }
+
+  // ========== STEP 1.5: CORRELATION BREAKDOWN DETECTION ==========
+  setScanStatus('ANALYZING SECTOR CORRELATIONS...');
   
-  console.log(`✓ Total movers: ${movers.size}`);
-
-  if (movers.size === 0) {
-    return { stocks: [], total: 0 };
-  }
+  const topForCorrelation = [...movers.entries()]
+    .sort((a, b) => b[1].anomalyScore - a[1].anomalyScore)
+    .slice(0, 80);
   
-// ========== STEP 3: Fetch news and summarize ==========
-setScanStatus('FETCHING NEWS...');
-
-const sortedMovers = [...movers.entries()]
-  .sort(() => Math.random() - 0.5)
-  .slice(0, 80);
-
-console.log(`📰 Checking news for top ${sortedMovers.length} movers...`);
-
-// First, fetch all news
-const withData = [];
-for (let i = 0; i < sortedMovers.length; i += 10) {
-  const batch = sortedMovers.slice(i, i + 10);
-  
-  const batchResults = await Promise.all(
-    batch.map(async ([ticker, data]) => {
-      try {
-const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-const polygonRes = await fetch(
-  `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=5&published_utc.gte=${thirtyDaysAgo}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`
-).then(r => r.json());
-const articles = polygonRes.results || [];
-        
-        return {
-          ticker,
-          ...data,
-          news: articles.slice(0, 3),
-          newsCount: articles.length,
-          headline: articles[0]?.title || null,
-          newsSource: articles[0]?.publisher?.name || null,
-          newsDate: articles[0]?.published_utc 
-            ? new Date(articles[0].published_utc).toLocaleDateString() 
-            : null
-        };
-      } catch (e) {
-        return { ticker, ...data, news: [], newsCount: 0 };
-      }
-    })
-  );
-  
-  withData.push(...batchResults);
-  
-  if (i + 10 < sortedMovers.length) {
-    await new Promise(r => setTimeout(r, 100));
-  }
-}
-
-// ========== STEP 4: AI analyzes catalysts ==========
-setScanStatus('ANALYZING CATALYSTS...');
-
-const stocksWithNews = withData.filter(s => s.headline);
-const stocksWithoutNews = withData.filter(s => !s.headline);
-
-// AI analyzes stocks with news - tell us WHY it matters
-if (stocksWithNews.length > 0) {
-  try {
-    const stocksToAnalyze = stocksWithNews.slice(0, 25);
-    
-    const analysisInput = stocksToAnalyze
-      .map((s, i) => {
-        const newsText = s.news
-          ?.slice(0, 2)
-          .map(n => n.title)
-          .join(' | ') || s.headline;
-        return `${i + 1}. ${s.ticker} (+${s.change}%): "${newsText}"`;
+  for (let i = 0; i < topForCorrelation.length; i += 10) {
+    const batch = topForCorrelation.slice(i, i + 10);
+    const results = await Promise.all(
+      batch.map(async ([ticker]) => {
+        try {
+          const res = await fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`);
+          const data = await res.json();
+          return { ticker, sic: data.results?.sic_description || null };
+        } catch { return { ticker, sic: null }; }
       })
-      .join('\n');
-    
-    const analysisResult = await aiModel.generateContent(
-      `You are a stock analyst. For each stock, explain WHY the stock is moving in 6-10 words. Focus on the actionable catalyst - what happened that matters to traders.
-
-Be specific: Include numbers, percentages, drug names, deal values, earnings beats/misses.
-Bad: "Positive news drives shares higher"
-Good: "FDA approves cancer drug, $2B market opportunity"
-Good: "Q4 earnings beat 15%, raised 2024 guidance"
-Good: "Acquired by Microsoft for $50/share"
-Good: "$200M contract with US Army announced"
-
-Stocks:
-${analysisInput}
-
-Return ONLY a numbered list:
-1. [catalyst summary]
-2. [catalyst summary]
-...`
     );
     
-    const analysisText = await analysisResult.response.text();
-    const analyses = analysisText.split('\n')
-      .filter(line => /^\d+\./.test(line.trim()))
-      .map(line => line.replace(/^\d+\.\s*/, '').trim());
-    
-    // Apply analyses back to stocks
-    stocksToAnalyze.forEach((stock, i) => {
-      if (analyses[i] && analyses[i].length > 5) {
-        stock.catalyst = analyses[i].replace(/^["']|["']$/g, '');
-      } else {
-        // Fallback
-        stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger;
-      }
-      stock.catalystType = 'news';
-    });
-    
-// Any remaining stocks with news that weren't analyzed
-    stocksWithNews.slice(25).forEach(stock => {
-      stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger;
-      stock.catalystType = 'news';
-    });
-    
-    // Clean up bad AI responses - if AI couldn't identify a catalyst, use the headline or trigger instead
-    stocksWithNews.forEach(stock => {
-      if (stock.catalyst && (
-        stock.catalyst.toLowerCase().includes('no clear catalyst') ||
-        stock.catalyst.toLowerCase().includes('not identified') ||
-        stock.catalyst.toLowerCase().includes('no specific') ||
-        stock.catalyst.toLowerCase().includes('unclear') ||
-        stock.catalyst.toLowerCase().includes('no catalyst') ||
-        stock.catalyst.toLowerCase().includes('cannot determine') ||
-        stock.catalyst.toLowerCase().includes('no news') ||
-        stock.catalyst.toLowerCase().includes('provided summaries')
-      )) {
-        // Fall back to headline, then trigger
-        stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger;
+    results.forEach(({ ticker, sic }) => {
+      const stock = movers.get(ticker);
+      if (!stock) return;
+      stock.sic = sic;
+      
+      const sectorETF = sicToSector(sic);
+      if (sectorETF && sectorPerf[sectorETF] !== undefined) {
+        const sectorChange = sectorPerf[sectorETF];
+        const stockChange = parseFloat(stock.change) || 0;
+        
+        const isDiverging = (stockChange > 0.5 && sectorChange < -0.5) || (stockChange < -0.5 && sectorChange > 0.5);
+        const divergenceStrength = Math.abs(stockChange - sectorChange);
+        
+        if (isDiverging && divergenceStrength >= 2) {
+          stock.patterns.push('SECTOR_DIVERGENCE');
+          stock.trigger += ` • 🔀 ${stockChange >= 0 ? 'Up' : 'Down'} while ${SECTOR_ETFS[sectorETF]} (${sectorETF}) ${sectorChange >= 0 ? '+' : ''}${sectorChange.toFixed(1)}%`;
+          stock.sectorETF = sectorETF;
+          stock.sectorChange = sectorChange;
+          stock.anomalyScore = scoreAnomaly(stock.patterns);
+        }
       }
     });
     
-    console.log(`🤖 AI analyzed ${stocksToAnalyze.length} stocks`);
-    
-  } catch (e) {
-    console.log('AI analysis failed:', e.message);
-    stocksWithNews.forEach(stock => {
-      stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger;
-      stock.catalystType = 'news';
-    });
+    if (i + 10 < topForCorrelation.length) await new Promise(r => setTimeout(r, 50));
   }
-}
-
-// Stocks without news use technical trigger
-stocksWithoutNews.forEach(stock => {
-  stock.catalyst = stock.trigger;
-  stock.catalystType = stock.triggerType;
-});
-
-// ========== STEP 5: Combine and sort ==========
-const allStocks = [...stocksWithNews, ...stocksWithoutNews];
-
-const sorted = allStocks.sort((a, b) => {
-  // News always wins
-  if (a.catalystType === 'news' && b.catalystType !== 'news') return -1;
-  if (b.catalystType === 'news' && a.catalystType !== 'news') return 1;
-  // Then volume spikes
-  if (a.catalystType === 'volume' && b.catalystType !== 'volume') return -1;
-  if (b.catalystType === 'volume' && a.catalystType !== 'volume') return 1;
-  // Then by % change
-  return parseFloat(b.change || 0) - parseFloat(a.change || 0);
-});
-
-const withNews = sorted.filter(s => s.catalystType === 'news').length;
-const withTechnical = sorted.filter(s => s.catalystType !== 'news').length;
-console.log(`✅ Found ${withNews} with news, ${withTechnical} with technical triggers`);
-
-return {
-  stocks: sorted,
-  total: movers.size
-};
   
-}, [setScanStatus, isLikelyETF]);
+  console.log(`🔀 Sector divergences: ${[...movers.values()].filter(s => s.patterns.includes('SECTOR_DIVERGENCE')).length}`);
+
+  // ========== STEP 2: UNUSUAL OPTIONS ACTIVITY SCAN ==========
+  setScanStatus('SCANNING OPTIONS FLOW...');
+  
+  const topForOptions = [...movers.entries()]
+    .sort((a, b) => b[1].anomalyScore - a[1].anomalyScore)
+    .slice(0, 40)
+    .map(([ticker]) => ticker);
+  
+  let optionsHits = 0;
+  
+  for (let i = 0; i < topForOptions.length; i += 5) {
+    const batch = topForOptions.slice(i, i + 5);
+    
+    const batchResults = await Promise.all(
+      batch.map(async (ticker) => {
+        try {
+          const today = new Date();
+          const thirtyDaysOut = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+          const expDate = thirtyDaysOut.toISOString().split('T')[0];
+          
+          const res = await fetch(
+            `https://api.polygon.io/v3/snapshot/options/${ticker}?contract_type=call&expiration_date.lte=${expDate}&limit=50&apiKey=${POLYGON_KEY}`
+          );
+          const data = await res.json();
+          const contracts = data.results || [];
+          
+          // Debug first ticker to verify API is working
+          if (i === 0 && batch.indexOf(ticker) === 0) {
+            console.log(`🔎 Options API check for ${ticker}: ${contracts.length} contracts returned, status: ${data.status || 'unknown'}`);
+          }
+          
+          if (contracts.length === 0) return { ticker, hasUnusual: false };
+          
+          const stock = movers.get(ticker);
+          const stockPrice = stock?.price || 0;
+          
+          let totalCallVolume = 0;
+          let totalOpenInterest = 0;
+          let otmCallVolume = 0;
+          let maxIV = 0;
+          let avgIV = 0;
+          let ivCount = 0;
+          let highVolContracts = [];
+          
+          contracts.forEach(c => {
+            const vol = c.day?.volume || 0;
+            const oi = c.open_interest || 0;
+            const strike = c.details?.strike_price || 0;
+            const iv = c.implied_volatility || 0;
+            const daysToExpiry = c.details?.expiration_date 
+              ? Math.ceil((new Date(c.details.expiration_date) - today) / (1000 * 60 * 60 * 24))
+              : 30;
+            
+            totalCallVolume += vol;
+            totalOpenInterest += oi;
+            
+            if (iv > 0) {
+              if (iv > maxIV) maxIV = iv;
+              avgIV += iv;
+              ivCount++;
+            }
+            
+            if (strike > stockPrice * 1.02) {
+              otmCallVolume += vol;
+            }
+            
+            // Contracts where volume >> open interest = NEW positions
+            if (vol > 0 && oi > 0 && vol >= oi * 3 && vol >= 100) {
+              highVolContracts.push({ strike, daysToExpiry, volume: vol, oi, ratio: (vol / oi).toFixed(1), iv: (iv * 100).toFixed(0) });
+            }
+            // Brand new positions (zero OI)
+            if (vol >= 500 && oi === 0) {
+              highVolContracts.push({ strike, daysToExpiry, volume: vol, oi: 0, ratio: 'NEW', iv: (iv * 100).toFixed(0) });
+            }
+          });
+          
+          if (ivCount > 0) avgIV = avgIV / ivCount;
+          
+          const optionsPatterns = [];
+          const optionsTriggers = [];
+          
+          // A. Call volume >> open interest — aggressive new bullish bets
+          if (totalOpenInterest > 0 && totalCallVolume >= totalOpenInterest * 2 && totalCallVolume >= 1000) {
+            optionsPatterns.push('OPTIONS_UNUSUAL');
+            optionsTriggers.push(`📞 Call vol ${(totalCallVolume/totalOpenInterest).toFixed(1)}x open interest`);
+          }
+          
+          // B. Heavy OTM call buying — someone betting on a big move
+          if (otmCallVolume >= 500 && totalCallVolume > 0 && (otmCallVolume / totalCallVolume) >= 0.6) {
+            optionsPatterns.push('OPTIONS_OTM_CALLS');
+            optionsTriggers.push(`🎯 ${((otmCallVolume / totalCallVolume) * 100).toFixed(0)}% of call volume is OTM`);
+          }
+          
+          // C. IV spike — market pricing in unannounced catalyst
+          if (avgIV > 0.8) {
+            optionsPatterns.push('OPTIONS_IV_SPIKE');
+            optionsTriggers.push(`🌡️ Implied volatility ${(avgIV * 100).toFixed(0)}%`);
+          }
+          
+          // D. Specific hot contracts
+          if (highVolContracts.length >= 2) {
+            const top = highVolContracts.sort((a, b) => b.volume - a.volume)[0];
+            optionsTriggers.push(`🔥 $${top.strike} calls: ${top.volume.toLocaleString()} vol vs ${top.oi.toLocaleString()} OI (${top.daysToExpiry}d exp)`);
+          }
+          
+          return {
+            ticker, hasUnusual: optionsPatterns.length > 0,
+            optionsPatterns, optionsTriggers,
+            totalCallVolume, totalOpenInterest, otmCallVolume, avgIV,
+            highVolContracts: highVolContracts.slice(0, 3)
+          };
+        } catch (e) {
+          return { ticker, hasUnusual: false };
+        }
+      })
+    );
+    
+    batchResults.forEach(result => {
+      if (!result.hasUnusual) return;
+      const stock = movers.get(result.ticker);
+      if (!stock) return;
+      
+      stock.patterns.push(...result.optionsPatterns);
+      stock.trigger += ' • ' + result.optionsTriggers.join(' • ');
+      stock.anomalyScore = scoreAnomaly(stock.patterns);
+      stock.optionsData = {
+        callVolume: result.totalCallVolume,
+        openInterest: result.totalOpenInterest,
+        otmCallVolume: result.otmCallVolume,
+        avgIV: result.avgIV,
+        topContracts: result.highVolContracts
+      };
+      optionsHits++;
+    });
+    
+    if (i + 5 < topForOptions.length) await new Promise(r => setTimeout(r, 100));
+  }
+  
+  console.log(`📞 Options anomalies: ${optionsHits} of ${topForOptions.length} checked`);
+
+  // ========== Grab top gainers to catch big movers ==========
+  try {
+    const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers?apiKey=${POLYGON_KEY}`);
+    const data = await res.json();
+    data.tickers?.forEach(t => {
+      const price = t.day?.c || t.prevDay?.c;
+      const change = t.todaysChangePerc || ((t.prevDay?.c - t.prevDay?.o) / t.prevDay?.o * 100);
+      const volume = t.day?.v || 0;
+      const prevVolume = t.prevDay?.v || 1;
+      const volumeRatio = volume / prevVolume;
+      
+      if (price >= priceMin && price <= priceMax && !isJunk(t.ticker) && volume >= 100000 && prevVolume >= 20000) {
+        if (!movers.get(t.ticker)) {
+          const patterns = ['MOMENTUM'];
+          const triggers = [`📈 Top Gainer: +${change?.toFixed(1)}% on ${volumeRatio.toFixed(1)}x vol`];
+          if (volumeRatio >= 5) { patterns.push('VOLUME_SPIKE'); triggers.push(`📊 ${volumeRatio.toFixed(1)}x avg volume`); }
+          movers.set(t.ticker, {
+            price, change: change?.toFixed(2), volume, volumeRatio: volumeRatio.toFixed(1),
+            anomalyScore: scoreAnomaly(patterns), near52High: false, patterns, trigger: triggers.join(' • '),
+            triggerType: 'gainer', source: 'anomaly'
+          });
+        }
+      }
+    });
+    console.log(`✓ Gainers merged, total: ${movers.size}`);
+  } catch (e) { console.log('Gainers failed:', e.message); }
+  
+  if (movers.size === 0) return { stocks: [], total: 0 };
+
+  // ========== STEP 3: CHECK NEWS COVERAGE ==========
+  setScanStatus('CHECKING NEWS COVERAGE...');
+  
+  const sortedByAnomaly = [...movers.entries()]
+    .sort((a, b) => b[1].anomalyScore - a[1].anomalyScore)
+    .slice(0, 100);
+  
+  console.log(`📊 Top anomalies: ${sortedByAnomaly.slice(0, 8).map(([t, d]) => `${t}(${d.anomalyScore}:${d.patterns.join('+')})`).join(', ')}`);
+
+  const withData = [];
+  for (let i = 0; i < sortedByAnomaly.length; i += 10) {
+    const batch = sortedByAnomaly.slice(i, i + 10);
+    const batchResults = await Promise.all(
+      batch.map(async ([ticker, data]) => {
+        try {
+          const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().split('T')[0];
+          const polygonRes = await fetch(
+            `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=5&published_utc.gte=${twoDaysAgo}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`
+          ).then(r => r.json());
+          const recentArticles = polygonRes.results || [];
+          
+          const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          const olderRes = await fetch(
+            `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=3&published_utc.gte=${thirtyDaysAgo}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`
+          ).then(r => r.json());
+          const olderArticles = olderRes.results || [];
+          
+          return {
+            ticker, ...data,
+            recentNews: recentArticles, olderNews: olderArticles,
+            hasRecentNews: recentArticles.length > 0,
+            headline: recentArticles[0]?.title || null,
+            newsSource: recentArticles[0]?.publisher?.name || null,
+            newsDate: recentArticles[0]?.published_utc ? new Date(recentArticles[0].published_utc).toLocaleDateString() : null,
+            newsCount: recentArticles.length,
+            news: (recentArticles.length > 0 ? recentArticles : olderArticles).slice(0, 3),
+          };
+        } catch (e) {
+          return { ticker, ...data, recentNews: [], olderNews: [], hasRecentNews: false, news: [], newsCount: 0 };
+        }
+      })
+    );
+    withData.push(...batchResults);
+    if (i + 10 < sortedByAnomaly.length) await new Promise(r => setTimeout(r, 100));
+  }
+
+  // ========== STEP 4: SPLIT INTO TIERS ==========
+  // TIER 1: Activity BEFORE news — the money signal
+  const earlySignals = withData
+    .filter(s => !s.hasRecentNews && s.anomalyScore >= 20)
+    .sort((a, b) => b.anomalyScore - a.anomalyScore);
+  
+  // TIER 2: Activity WITH news — catalyst confirmed (fallback)
+  const catalystStocks = withData
+    .filter(s => s.hasRecentNews)
+    .sort((a, b) => b.anomalyScore - a.anomalyScore);
+  
+  console.log(`🔍 Tier 1 (Early Signals): ${earlySignals.length} — activity before news`);
+  console.log(`📰 Tier 2 (Catalysts): ${catalystStocks.length} — activity with news`);
+
+  // ========== STEP 5: AI ANALYSIS ==========
+  setScanStatus('ANALYZING ANOMALIES...');
+  
+  // AI for EARLY SIGNALS — what's the pattern, what might it mean
+  if (earlySignals.length > 0) {
+    try {
+      const toAnalyze = earlySignals.slice(0, 20);
+      const input = toAnalyze.map((s, i) => {
+        const parts = [`${s.ticker}: ${s.change >= 0 ? '+' : ''}${s.change}%`, `volume ${s.volumeRatio}x normal`, `patterns: ${s.patterns.join(', ')}`];
+        if (s.optionsData) {
+          parts.push(`options: ${s.optionsData.callVolume.toLocaleString()} call vol vs ${s.optionsData.openInterest.toLocaleString()} OI`);
+          if (s.optionsData.avgIV > 0) parts.push(`IV: ${(s.optionsData.avgIV * 100).toFixed(0)}%`);
+          if (s.optionsData.topContracts?.[0]) {
+            const tc = s.optionsData.topContracts[0];
+            parts.push(`hot: $${tc.strike} calls, ${tc.volume} vol, ${tc.daysToExpiry}d exp`);
+          }
+        }
+        if (s.sectorETF) parts.push(`sector ${s.sectorETF} is ${s.sectorChange >= 0 ? '+' : ''}${s.sectorChange.toFixed(1)}%`);
+        if (s.near52High) parts.push('near 52-week high');
+        if (s.olderNews?.[0]) parts.push(`context: "${s.olderNews[0].title}"`);
+        return `${i + 1}. ${parts.join(', ')}`;
+      }).join('\n');
+      
+      const result = await aiModel.generateContent(
+        `You are a stock analyst detecting unusual activity BEFORE news breaks. These stocks show data anomalies with NO recent news.
+
+Pattern meanings:
+- INSTITUTIONAL_FOOTPRINT: High volume on flat price — large buyer accumulating quietly
+- QUIET_ACCUMULATION: Tight price range with elevated volume — iceberg orders
+- VOLUME_SPIKE: Massive volume surge — something is happening
+- SECTOR_DIVERGENCE: Stock moving opposite to its sector — idiosyncratic catalyst
+- OPTIONS_UNUSUAL: Call volume far exceeds open interest — aggressive new bullish bets
+- OPTIONS_OTM_CALLS: Heavy out-of-the-money call buying — someone expects a big move
+- OPTIONS_IV_SPIKE: Implied volatility elevated without scheduled event
+- BREAKOUT_52W: Approaching all-time high on volume
+
+For each, describe what's unusual and what it might signal in 10-15 words. Be specific.
+
+Examples:
+"4x volume, no price move — institutional accumulation ahead of possible announcement"
+"Heavy OTM call buying ($50 strike, 14d exp) — someone betting on imminent catalyst"
+"Diverging from tech sector by 3% — company-specific positive development likely"
+
+Stocks:
+${input}
+
+Return ONLY a numbered list:
+1. [analysis]
+...`
+      );
+      
+      const text = await result.response.text();
+      const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
+      
+      toAnalyze.forEach((stock, i) => {
+        stock.catalyst = (analyses[i] && analyses[i].length > 5) ? analyses[i].replace(/^["']|["']$/g, '') : `Unusual activity: ${stock.trigger}`;
+        stock.catalystType = 'early_signal';
+        stock.signalTier = 1;
+      });
+      earlySignals.slice(20).forEach(stock => { stock.catalyst = `Unusual activity: ${stock.trigger}`; stock.catalystType = 'early_signal'; stock.signalTier = 1; });
+      console.log(`🤖 AI analyzed ${toAnalyze.length} early signals`);
+    } catch (e) {
+      console.log('AI early signal failed:', e.message);
+      earlySignals.forEach(stock => { stock.catalyst = `Unusual activity: ${stock.trigger}`; stock.catalystType = 'early_signal'; stock.signalTier = 1; });
+    }
+  }
+  
+  // AI for CATALYST STOCKS — explain the news
+  if (catalystStocks.length > 0) {
+    try {
+      const toAnalyze = catalystStocks.slice(0, 25);
+      const input = toAnalyze.map((s, i) => {
+        const newsText = s.recentNews?.slice(0, 2).map(n => n.title).join(' | ') || s.headline;
+        let extra = '';
+        if (s.optionsData) extra += ` | Options: ${s.optionsData.callVolume.toLocaleString()} call vol`;
+        if (s.patterns.includes('SECTOR_DIVERGENCE')) extra += ` | Diverging from sector`;
+        return `${i + 1}. ${s.ticker} (+${s.change}%): "${newsText}"${extra}`;
+      }).join('\n');
+      
+      const result = await aiModel.generateContent(
+        `You are a stock analyst. For each stock, explain WHY it's moving in 6-10 words. Be specific with numbers.
+Bad: "Positive news drives shares higher"
+Good: "FDA approves cancer drug, $2B market opportunity"
+Good: "Q4 earnings beat 15%, raised guidance"
+
+Stocks:
+${input}
+
+Return ONLY a numbered list:
+1. [catalyst]
+...`
+      );
+      
+      const text = await result.response.text();
+      const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
+      
+      toAnalyze.forEach((stock, i) => {
+        stock.catalyst = (analyses[i] && analyses[i].length > 5) ? analyses[i].replace(/^["']|["']$/g, '') : (stock.headline?.slice(0, 60) || stock.trigger);
+        stock.catalystType = 'news';
+        stock.signalTier = 2;
+      });
+      catalystStocks.slice(25).forEach(stock => { stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger; stock.catalystType = 'news'; stock.signalTier = 2; });
+
+      // Clean bad AI responses
+      catalystStocks.forEach(stock => {
+        if (stock.catalyst && (
+          stock.catalyst.toLowerCase().includes('no clear catalyst') || stock.catalyst.toLowerCase().includes('not identified') ||
+          stock.catalyst.toLowerCase().includes('no specific') || stock.catalyst.toLowerCase().includes('unclear') ||
+          stock.catalyst.toLowerCase().includes('no catalyst') || stock.catalyst.toLowerCase().includes('cannot determine') ||
+          stock.catalyst.toLowerCase().includes('no news') || stock.catalyst.toLowerCase().includes('provided summaries')
+        )) { stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger; }
+      });
+      console.log(`🤖 AI analyzed ${toAnalyze.length} catalyst stocks`);
+    } catch (e) {
+      console.log('AI catalyst failed:', e.message);
+      catalystStocks.forEach(stock => { stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger; stock.catalystType = 'news'; stock.signalTier = 2; });
+    }
+  }
+
+  // ========== STEP 6: COMBINE — EARLY SIGNALS FIRST ==========
+  const allStocks = [...earlySignals, ...catalystStocks];
+  const withEarly = allStocks.filter(s => s.signalTier === 1).length;
+  const withCatalyst = allStocks.filter(s => s.signalTier === 2).length;
+  const withOptions = allStocks.filter(s => s.optionsData).length;
+  console.log(`✅ Final: ${withEarly} early signals (${withOptions} w/ options), ${withCatalyst} catalyst stocks`);
+
+  return { stocks: allStocks, total: movers.size };
+  
+}, [setScanStatus, isLikelyETF, aiModel]);
 
 
 
@@ -3064,16 +3336,16 @@ if (discoveredStocks.length === 0) {
   return;
 }
 
-// Shuffle for variety, but keep news/volume stocks weighted higher
-const newsStocks = discoveredStocks.filter(s => s.catalystType === 'news');
-const volumeStocks = discoveredStocks.filter(s => s.catalystType === 'volume');
-const otherStocks = discoveredStocks.filter(s => !['news', 'volume'].includes(s.catalystType));
+// Shuffle for variety, but keep early signals weighted highest
+const earlyStocks = discoveredStocks.filter(s => s.signalTier === 1);
+const newsStocks = discoveredStocks.filter(s => s.signalTier === 2 || s.catalystType === 'news');
+const otherStocks = discoveredStocks.filter(s => !s.signalTier && s.catalystType !== 'news');
 
 // Shuffle each group
 const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
 const prioritized = [
+  ...shuffle(earlyStocks),    // Early signals FIRST
   ...shuffle(newsStocks),
-  ...shuffle(volumeStocks),
   ...shuffle(otherStocks)
 ];
 
@@ -3158,6 +3430,10 @@ for (const stock of candidates) {
       isPositive: parseFloat(stock.change || 0) >= 0,
       catalyst: stock.catalyst,
       catalystType: stock.catalystType,
+      signalTier: stock.signalTier || 2,
+      anomalyScore: stock.anomalyScore || 0,
+      patterns: stock.patterns || [],
+      optionsData: stock.optionsData || null,
       headline: stock.headline,
       newsSource: stock.newsSource,
       newsDate: stock.newsDate,
@@ -3171,7 +3447,7 @@ for (const stock of candidates) {
       earnings: earnings,
     });
     
-    console.log(`✅ Added: ${stock.ticker} - ${stock.catalystType}: ${stock.catalyst?.slice(0, 50)}`);
+    console.log(`✅ Added: ${stock.ticker} - ${stock.catalystType} [${(stock.patterns || []).join('+')}]: ${stock.catalyst?.slice(0, 50)}`);
     
   } catch (e) {
     console.log(`⚠️ Failed: ${stock.ticker}`, e.message);
@@ -3229,6 +3505,10 @@ if (scanSector !== 'all') {
         isPositive: parseFloat(stock.change || 0) >= 0,
         catalyst: stock.catalyst,
         catalystType: stock.catalystType,
+        signalTier: stock.signalTier || 2,
+        anomalyScore: stock.anomalyScore || 0,
+        patterns: stock.patterns || [],
+        optionsData: stock.optionsData || null,
         headline: stock.headline,
         newsSource: stock.newsSource,
         newsDate: stock.newsDate,
@@ -3266,7 +3546,11 @@ verified.forEach(s => {
 setStocks(verified);
 logScanHistory(verified);
 setScanProgress(100);
-setScanStatus(`FOUND ${verified.length} STOCKS`);
+const earlyCount = verified.filter(s => s.signalTier === 1).length;
+const statusMsg = earlyCount > 0 
+  ? `FOUND ${verified.length} STOCKS (${earlyCount} EARLY SIGNAL${earlyCount > 1 ? 'S' : ''})`
+  : `FOUND ${verified.length} STOCKS`;
+setScanStatus(statusMsg);
 setScanComplete(true);
     
   } catch (err) {
@@ -3309,7 +3593,9 @@ const getSortedAndFilteredStocks = useCallback((stockList) => {
     if (sortBy === "price-low") return parseFloat(a.price) - parseFloat(b.price);
     if (sortBy === "volume") return (b.volume || 0) - (a.volume || 0);
     if (sortBy === "news") return (b.newsCount || 0) - (a.newsCount || 0);
-    // Default: news catalysts first, then by change
+    // Default: early signals first, then news catalysts, then by change
+    if (a.catalystType === 'early_signal' && b.catalystType !== 'early_signal') return -1;
+    if (b.catalystType === 'early_signal' && a.catalystType !== 'early_signal') return 1;
     if (a.catalystType === 'news' && b.catalystType !== 'news') return -1;
     if (b.catalystType === 'news' && a.catalystType !== 'news') return 1;
     return parseFloat(b.change) - parseFloat(a.change);
@@ -3443,6 +3729,15 @@ const generateShareImage = useCallback(async () => {
   ctx.fillStyle = '#00ff4e';
   ctx.fillText(badgeText, bx + 7, 42);
 
+  // Header - Username (right-aligned)
+  const handle = user?.username ? `@${user.username}` : '';
+  if (handle) {
+    ctx.font = '700 12px "JetBrains Mono", ui-monospace, monospace';
+    ctx.fillStyle = '#a1a1aa';
+    const handleW = ctx.measureText(handle).width;
+    ctx.fillText(handle, W - padding - handleW, 42);
+  }
+
   // Header - Date and count
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
@@ -3503,10 +3798,30 @@ const generateShareImage = useCallback(async () => {
     // Catalyst - below symbol
     const catalyst = stock.catalyst || stock.trigger || '';
     if (catalyst) {
+      let catX = padding;
+      
+      // Early Signal badge
+      if (stock.catalystType === 'early_signal' || stock.signalTier === 1) {
+        const badgeLabel = 'EARLY SIGNAL';
+        ctx.font = '800 7px "JetBrains Mono", ui-monospace, monospace';
+        const bw = ctx.measureText(badgeLabel).width + 10;
+        ctx.fillStyle = 'rgba(249, 115, 22, 0.15)';
+        ctx.beginPath();
+        ctx.roundRect(padding, y + 50, bw, 16, 3);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(249, 115, 22, 0.4)';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+        ctx.fillStyle = '#f97316';
+        ctx.fillText(badgeLabel, padding + 5, y + 61);
+        catX = padding + bw + 6;
+      }
+      
       ctx.font = '400 10px "JetBrains Mono", ui-monospace, monospace';
       ctx.fillStyle = '#a1a1aa';
-      let catText = catalyst.length > 55 ? catalyst.slice(0, 52) + '...' : catalyst;
-      ctx.fillText(`▸ ${catText}`, padding, y + 62);
+      const maxLen = stock.signalTier === 1 ? 42 : 55;
+      let catText = catalyst.length > maxLen ? catalyst.slice(0, maxLen - 3) + '...' : catalyst;
+      ctx.fillText(`▸ ${catText}`, catX, y + 62);
     }
 
     // Row divider
@@ -3524,26 +3839,26 @@ const generateShareImage = useCallback(async () => {
   // Footer - logo icon + text
   let footerTextX = padding;
   if (logo.complete && logo.naturalWidth > 0) {
-    const fLogoH = 18;
+    const fLogoH = 20;
     const fLogoAspect = logo.naturalWidth / logo.naturalHeight;
     const fLogoW = fLogoH * fLogoAspect;
     ctx.drawImage(logo, padding, footerY + 14, fLogoW, fLogoH);
     footerTextX = padding + fLogoW + 8;
   }
   
-  ctx.font = '700 13px "JetBrains Mono", ui-monospace, monospace';
+  ctx.font = '800 15px "JetBrains Mono", ui-monospace, monospace';
   ctx.fillStyle = '#00ff4e';
-  ctx.fillText('jckrbbt.io', footerTextX, footerY + 28);
+  ctx.fillText('jckrbbt.io', footerTextX, footerY + 30);
   const jckrbbtW = ctx.measureText('jckrbbt.io').width;
 
   ctx.font = '400 10px "JetBrains Mono", ui-monospace, monospace';
-  ctx.fillStyle = '#3f3f46';
-  ctx.fillText('AI-Powered Stock Scanner', footerTextX + jckrbbtW + 10, footerY + 28);
+  ctx.fillStyle = '#52525b';
+  ctx.fillText('Free AI Stock Scanner', footerTextX + jckrbbtW + 10, footerY + 30);
 
   // "Not financial advice" tiny text
   ctx.font = '400 8px "JetBrains Mono", ui-monospace, monospace';
   ctx.fillStyle = '#27272a';
-  ctx.fillText('Not financial advice. For informational purposes only.', padding, footerY + 50);
+  ctx.fillText('Not financial advice. For informational purposes only.', padding, footerY + 52);
 
   // Convert to blob and download
   canvas.toBlob((blob) => {
@@ -3569,7 +3884,7 @@ const generateShareImage = useCallback(async () => {
     a.click();
     URL.revokeObjectURL(url);
   }, 'image/png');
-}, [displayedStocks]);
+}, [displayedStocks, user]);
 
 // Copy scan as Reddit markdown
 const copyForReddit = useCallback(() => {
@@ -3577,6 +3892,7 @@ const copyForReddit = useCallback(() => {
   if (stocksToShare.length === 0) return;
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const handle = user?.username ? ` | @${user.username}` : '';
   
   let md = `**Stocks I'm watching today** — ${dateStr}\n\n`;
   md += `|Ticker|Price|Change|Catalyst|\n`;
@@ -3586,21 +3902,23 @@ const copyForReddit = useCallback(() => {
     const change = parseFloat(stock.change) || 0;
     const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
     const catalyst = (stock.catalyst || stock.trigger || '').slice(0, 80);
-    md += `|**${stock.symbol}**|${price}|${changeStr}|${catalyst}|\n`;
+    const earlyTag = stock.signalTier === 1 ? '🔍 ' : '';
+    md += `|**${stock.symbol}**|${price}|${changeStr}|${earlyTag}${catalyst}|\n`;
   });
-  md += `\nScanned with [jckrbbt.io](https://jckrbbt.io) — free AI stock scanner\n`;
+  md += `\nScanned with [jckrbbt.io](https://jckrbbt.io)${handle} — free AI stock scanner\n`;
   md += `\n*Not financial advice. For informational purposes only.*`;
   
   navigator.clipboard.writeText(md).then(() => {
     setCopiedReddit(true);
     setTimeout(() => setCopiedReddit(false), 2000);
   });
-}, [displayedStocks]);
+}, [displayedStocks, user]);
 
 // Copy scan for Twitter/X
 const copyForTwitter = useCallback(() => {
   const stocksToShare = displayedStocks.slice(0, 5);
   if (stocksToShare.length === 0) return;
+  const handle = user?.username ? `\n\n@${user.username} on jckrbbt.io` : '';
   
   let text = `Stocks moving on catalysts today:\n\n`;
   stocksToShare.forEach(stock => {
@@ -3610,12 +3928,13 @@ const copyForTwitter = useCallback(() => {
     text += `$${stock.symbol} ${changeStr} — ${catalyst}\n`;
   });
   text += `\nFound with jckrbbt.io`;
+  text += handle;
   
   navigator.clipboard.writeText(text).then(() => {
     setCopiedTwitter(true);
     setTimeout(() => setCopiedTwitter(false), 2000);
   });
-}, [displayedStocks]);
+}, [displayedStocks, user]);
 
 
 
@@ -3674,7 +3993,7 @@ const copyForTwitter = useCallback(() => {
         className="space-y-4 mb-10"
       >
         {[
-          { Icon: Zap, title: 'AI-Powered Scanner', desc: 'Scans the market for stocks moving on real news and catalysts' },
+          { Icon: Zap, title: 'AI-Powered Scanner', desc: 'Spots unusual stock activity before the news breaks — volume spikes, price anomalies, and hidden moves' },
           { Icon: FileText, title: 'Deep Research Reports', desc: 'AI-generated bull/bear cases, technicals, and risk analysis' },
           { Icon: MessageCircle, title: 'Ask AI Anything', desc: 'Chat with AI about any stock — earnings, targets, risks' },
         ].map((feature, i) => (
@@ -4645,6 +4964,7 @@ searchTimeoutRef.current = setTimeout(async () => {
               label="Trigger"
               options={[
                 { value: 'all', label: 'All Types' },
+                { value: 'early_signal', label: 'Early Signal' },
                 { value: 'news', label: 'News' },
                 { value: 'volume', label: 'Volume' },
                 { value: 'breakout', label: 'Breakout' },
@@ -6912,6 +7232,8 @@ useEffect(() => {
   // Catalyst type badge styling
   const getCatalystStyle = (type) => {
     switch (type) {
+      case 'early_signal':
+        return { icon: Search, color: '#f97316', label: 'EARLY SIGNAL' };
       case 'news':
         return { icon: Newspaper, color: '#00ff4e', label: 'NEWS CATALYST' };
       case 'volume':
@@ -7281,7 +7603,7 @@ ref={cardRef}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">
-              Why It's Moving
+              {stock.catalystType === 'early_signal' ? 'Unusual Activity Detected' : 'Why It\'s Moving'}
             </p>
             <p className="text-lg md:text-2xl font-black text-white leading-tight">
               {(() => {
