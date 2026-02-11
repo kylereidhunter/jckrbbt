@@ -654,6 +654,9 @@ const usePolygonWebSocket = (apiKey, tickers, enabled = true) => {
       setWsStatus('disconnected');
       wsRef.current = null;
       
+      // Don't reconnect if no tickers are needed
+      if (tickersRef.current.length === 0) return;
+      
       const now = new Date();
       const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
       const day = et.getDay();
@@ -696,9 +699,35 @@ const usePolygonWebSocket = (apiKey, tickers, enabled = true) => {
     };
   }, [enabled]); // ONLY depends on enabled, not tickers
 
-  // Handle ticker changes by subscribing/unsubscribing (no reconnect)
+  // Handle ticker changes by subscribing/unsubscribing
   useEffect(() => {
+    // If WS is not open but we have tickers, reconnect
+    if ((!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) && tickers.length > 0) {
+      connectRef.current?.();
+      return;
+    }
+    
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    
+    // If no tickers needed, unsubscribe all and close
+    if (tickers.length === 0) {
+      const toUnsub = [...subscribedTickers.current];
+      if (toUnsub.length > 0) {
+        wsRef.current.send(JSON.stringify({ 
+          action: 'unsubscribe', 
+          params: toUnsub.map(t => `A.${t}`).join(',') 
+        }));
+        console.log(`[WS] Unsubscribed all ${toUnsub.length} tickers (tab inactive)`);
+      }
+      subscribedTickers.current = new Set();
+      // Close WS cleanly when no tickers needed
+      const ws = wsRef.current;
+      wsRef.current = null;
+      ws.onclose = null;
+      ws.close();
+      setWsStatus('disconnected');
+      return;
+    }
     
     const currentSubs = subscribedTickers.current;
     const newTickers = new Set(tickers);
@@ -709,6 +738,7 @@ const usePolygonWebSocket = (apiKey, tickers, enabled = true) => {
         action: 'unsubscribe', 
         params: toUnsub.map(t => `A.${t}`).join(',') 
       }));
+      console.log(`[WS] Removed ${toUnsub.length} tickers`);
     }
     
     const toSub = [...newTickers].filter(t => !currentSubs.has(t));
@@ -717,7 +747,7 @@ const usePolygonWebSocket = (apiKey, tickers, enabled = true) => {
         action: 'subscribe', 
         params: toSub.map(t => `A.${t}`).join(',') 
       }));
-      console.log(`[WS] Added ${toSub.length} tickers (total: ${newTickers.size})`);
+      console.log(`[WS] Subscribed to ${toSub.length} tickers (total: ${newTickers.size})`);
     }
     
     subscribedTickers.current = newTickers;
@@ -1303,14 +1333,32 @@ const flattenedWatchlist = useMemo(() => {
   return watchlists.flatMap(l => l.stocks);
 }, [watchlists]);
 
-// Collect all unique tickers for websocket
+// Collect unique tickers for websocket based on active tab
 const wsTickers = useMemo(() => {
   const tickerSet = new Set();
-  positions.forEach(p => { if (p.symbol && p.symbol !== 'N/A' && !p.symbol.includes(':')) tickerSet.add(p.symbol); });
-  if (flattenedWatchlist) flattenedWatchlist.forEach(w => { if (w.symbol) tickerSet.add(w.symbol); });
-  if (stocks) stocks.forEach(s => { if (s.symbol) tickerSet.add(s.symbol); });
+  
+  // Always add the stock being analyzed (if any)
+  if (manualSearch) tickerSet.add(manualSearch);
+  
+  if (activeTab === 'DASHBOARD') {
+    // Scan results
+    if (stocks) stocks.forEach(s => { if (s.symbol) tickerSet.add(s.symbol); });
+  } else if (activeTab === 'MY LISTS') {
+    // Only the expanded watchlist's stocks
+    if (selectedWatchlist) {
+      const ownList = watchlists.find(l => l.id === selectedWatchlist.id);
+      if (ownList) ownList.stocks.forEach(s => { if (s.symbol) tickerSet.add(s.symbol); });
+      const followedList = followedListsData.find(l => l.id === selectedWatchlist.id);
+      if (followedList) followedList.stocks?.forEach(s => { if (s.symbol) tickerSet.add(s.symbol); });
+    }
+  } else if (activeTab === 'MY POSITIONS') {
+    // Portfolio positions
+    positions.forEach(p => { if (p.symbol && p.symbol !== 'N/A' && !p.symbol.includes(':')) tickerSet.add(p.symbol); });
+  }
+  // DISCOVER, TRENDING, FEED etc. don't need live WS prices
+  
   return [...tickerSet];
-}, [positions, flattenedWatchlist, stocks]);
+}, [activeTab, stocks, selectedWatchlist, watchlists, followedListsData, positions, manualSearch]);
 
 // Polygon websocket for real-time prices
 const { livePrices, wsStatus } = usePolygonWebSocket(POLYGON_KEY, wsTickers, !!auth.currentUser);
@@ -2542,6 +2590,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
   console.log(`💰 Price range: $${priceMin} - $${priceMax}`);
   
   const movers = new Map();
+  let allSnapshotTickers = []; // Save for options-first discovery
   
   // ========== DYNAMIC ETF/FUND FILTER (cached daily from Polygon) ==========
   let dynamicETFs = new Set();
@@ -2662,6 +2711,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
   // ========== PATTERN-BASED ANOMALY SCORING ==========
   const scoreAnomaly = (patterns) => {
     let score = 0;
+    if (patterns.includes('PRE_MOVE')) score += 50;  // Highest value — options activity before price move
     if (patterns.includes('INSTITUTIONAL_FOOTPRINT')) score += 45;
     if (patterns.includes('QUIET_ACCUMULATION')) score += 40;
     if (patterns.includes('VOLUME_SPIKE')) score += 35;
@@ -2706,6 +2756,9 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
     if (patterns.includes('OPTIONS_OTM_CALLS')) score += 2;
     if (optionsData?.callVolume > 0) score += 1;
     
+    // Pre-move options positioning on flat stock = bullish (someone is betting on upside)
+    if (patterns.includes('PRE_MOVE')) score += 2;
+    
     if (score >= 3) return 'BULLISH';
     if (score <= -2) return 'BEARISH';
     return 'NEUTRAL';
@@ -2746,6 +2799,9 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
       else sectorPerf[t.ticker] = change;
     });
     console.log(`📊 SPY: ${spyChange >= 0 ? '+' : ''}${spyChange.toFixed(2)}%`);
+    
+    // Save all snapshot tickers for options-first discovery later
+    allSnapshotTickers = snapshotData.tickers || [];
     
     // ========== Pattern detection on each stock ==========
     snapshotData.tickers?.forEach(t => {
@@ -3014,6 +3070,141 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
   
   console.log(`📞 Options anomalies: ${optionsHits} of ${topForOptions.length} checked`);
 
+  // ========== STEP 2b: OPTIONS-FIRST DISCOVERY (pre-move detection) ==========
+  // Scan FLAT stocks for unusual options activity — catches smart money positioning before price moves
+  setScanStatus('SCANNING QUIET OPTIONS FLOW...');
+  
+  const flatCandidates = allSnapshotTickers
+    .filter(t => {
+      if (isJunk(t.ticker)) return false;
+      if (movers.has(t.ticker)) return false; // Already caught by anomaly scanner
+      const price = t.day?.c || t.prevDay?.c;
+      const volume = t.day?.v || 0;
+      const prevVolume = t.prevDay?.v || 1;
+      const change = Math.abs(t.todaysChangePerc || 0);
+      // Flat price, decent liquidity but NOT mega-caps (they always have high options activity)
+      // prevVolume cap at 5M excludes the top ~50 most-traded stocks (NVDA, AAPL, TSLA, etc.)
+      return price >= priceMin && price <= priceMax && volume >= 100000 && prevVolume >= 50000 && prevVolume < 5000000 && change < 2;
+    })
+    .sort(() => Math.random() - 0.5) // Randomize to get variety across scans
+    .slice(0, 30);
+  
+  let optionsFirstHits = 0;
+  
+  for (let i = 0; i < flatCandidates.length; i += 5) {
+    const batch = flatCandidates.slice(i, i + 5);
+    
+    const batchResults = await Promise.all(
+      batch.map(async (t) => {
+        try {
+          const today = new Date();
+          const thirtyDaysOut = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+          const expDate = thirtyDaysOut.toISOString().split('T')[0];
+          
+          const res = await fetch(
+            `https://api.polygon.io/v3/snapshot/options/${t.ticker}?contract_type=call&expiration_date.lte=${expDate}&limit=50&apiKey=${POLYGON_KEY}`
+          );
+          const data = await res.json();
+          const contracts = data.results || [];
+          
+          if (contracts.length === 0) return null;
+          
+          const stockPrice = t.day?.c || t.prevDay?.c || 0;
+          let totalCallVolume = 0, totalOpenInterest = 0, otmCallVolume = 0;
+          let maxIV = 0, avgIV = 0, ivCount = 0;
+          let highVolContracts = [];
+          
+          contracts.forEach(c => {
+            const vol = c.day?.volume || 0;
+            const oi = c.open_interest || 0;
+            const strike = c.details?.strike_price || 0;
+            const iv = c.implied_volatility || 0;
+            const daysToExpiry = c.details?.expiration_date 
+              ? Math.ceil((new Date(c.details.expiration_date) - today) / (1000 * 60 * 60 * 24)) : 30;
+            
+            totalCallVolume += vol;
+            totalOpenInterest += oi;
+            if (iv > 0) { if (iv > maxIV) maxIV = iv; avgIV += iv; ivCount++; }
+            if (strike > stockPrice * 1.05) otmCallVolume += vol; // 5%+ OTM (tighter than 2%)
+            
+            // Contracts where volume >> open interest = NEW positions (tighter: 5x instead of 3x)
+            if (vol > 0 && oi > 0 && vol >= oi * 5 && vol >= 200) {
+              highVolContracts.push({ strike, daysToExpiry, volume: vol, oi, ratio: (vol / oi).toFixed(1), iv: (iv * 100).toFixed(0) });
+            }
+            if (vol >= 500 && oi === 0) {
+              highVolContracts.push({ strike, daysToExpiry, volume: vol, oi: 0, ratio: 'NEW', iv: (iv * 100).toFixed(0) });
+            }
+          });
+          
+          if (ivCount > 0) avgIV = avgIV / ivCount;
+          
+          // Tighter thresholds for pre-move — must be genuinely unusual
+          const patterns = [];
+          const triggers = [];
+          
+          // Call volume 3x+ OI (tighter than normal 2x) — aggressive new positioning
+          if (totalOpenInterest > 0 && totalCallVolume >= totalOpenInterest * 3 && totalCallVolume >= 1000) {
+            patterns.push('OPTIONS_UNUSUAL');
+            triggers.push(`[OPTIONS] Call vol ${(totalCallVolume/totalOpenInterest).toFixed(1)}x open interest`);
+          }
+          // Heavy OTM call buying — 5%+ out of the money
+          if (otmCallVolume >= 500 && totalCallVolume > 0 && (otmCallVolume / totalCallVolume) >= 0.6) {
+            patterns.push('OPTIONS_OTM_CALLS');
+            triggers.push(`[OTM CALLS] ${((otmCallVolume / totalCallVolume) * 100).toFixed(0)}% of call volume is OTM`);
+          }
+          // IV spike — higher threshold (1.0 vs 0.8) since we want truly elevated IV
+          if (avgIV > 1.0) {
+            patterns.push('OPTIONS_IV_SPIKE');
+            triggers.push(`[IV SPIKE] Implied volatility ${(avgIV * 100).toFixed(0)}%`);
+          }
+          if (highVolContracts.length >= 2) {
+            const top = highVolContracts.sort((a, b) => b.volume - a.volume)[0];
+            triggers.push(`[HOT] $${top.strike} calls: ${top.volume.toLocaleString()} vol vs ${top.oi.toLocaleString()} OI (${top.daysToExpiry}d exp)`);
+          }
+          
+          if (patterns.length === 0) return null;
+          
+          const price = t.day?.c || t.prevDay?.c;
+          const change = t.todaysChangePerc || 0;
+          const volume = t.day?.v || 0;
+          const prevVolume = t.prevDay?.v || 1;
+          const projectedVol = isMarketHours ? volume / dayFraction : volume;
+          const volumeRatio = projectedVol / prevVolume;
+          
+          return {
+            ticker: t.ticker, price, prevClose: t.prevDay?.c || null,
+            change: change?.toFixed(2), volume, volumeRatio: volumeRatio.toFixed(1),
+            patterns, triggers,
+            optionsData: { callVolume: totalCallVolume, openInterest: totalOpenInterest, otmCallVolume, avgIV, topContracts: highVolContracts.slice(0, 3) }
+          };
+        } catch { return null; }
+      })
+    );
+    
+    batchResults.filter(Boolean).forEach(result => {
+      // Add PRE_MOVE tag — this is the key signal: options activity with NO price move
+      result.patterns.unshift('PRE_MOVE');
+      result.triggers.unshift(`[PRE-MOVE] Flat price (${result.change}%) but unusual options positioning`);
+      
+      movers.set(result.ticker, {
+        price: result.price, prevClose: result.prevClose,
+        change: result.change, volume: result.volume, volumeRatio: result.volumeRatio,
+        anomalyScore: scoreAnomaly(result.patterns) + 20, // Bonus for being pre-move
+        near52High: false, patterns: result.patterns,
+        trigger: result.triggers.join(' • '),
+        triggerType: 'options_first',
+        sentiment: scoreSentiment(result.change, result.patterns, result.optionsData),
+        optionsData: result.optionsData,
+        source: 'options_discovery'
+      });
+      optionsFirstHits++;
+    });
+    
+    if (i + 5 < flatCandidates.length) await new Promise(r => setTimeout(r, 100));
+  }
+  
+  console.log(`🎯 Options-first discovery: ${optionsFirstHits} pre-move signals from ${flatCandidates.length} quiet stocks checked (pool excluded mega-caps)`);
+
   // ========== Grab top gainers to catch big movers ==========
   try {
     const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers?apiKey=${POLYGON_KEY}`);
@@ -3091,32 +3282,37 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
   }
 
   // ========== STEP 4: SPLIT INTO TIERS ==========
-  // TIER 1: Activity BEFORE news — the money signal
-  let earlySignals = withData
-    .filter(s => !s.hasRecentNews && s.anomalyScore >= 20)
+  // Pre-move stocks WITHOUT news = true pre-move signal (highest value)
+  // Pre-move stocks WITH news = options just reacting to news (demote to Tier 2)
+  let preMoveSignals = withData
+    .filter(s => s.source === 'options_discovery' && !s.hasRecentNews)
     .sort((a, b) => b.anomalyScore - a.anomalyScore);
   
-  // TIER 2: Activity WITH news — catalyst confirmed (fallback)
+  // TIER 1: Activity BEFORE news — the money signal (non-pre-move)
+  let earlySignals = withData
+    .filter(s => s.source !== 'options_discovery' && !s.hasRecentNews && s.anomalyScore >= 20)
+    .sort((a, b) => b.anomalyScore - a.anomalyScore);
+  
+  // TIER 2: Activity WITH news — catalyst confirmed (includes demoted pre-move stocks)
   let catalystStocks = withData
     .filter(s => s.hasRecentNews)
     .sort((a, b) => b.anomalyScore - a.anomalyScore);
   
   // ========== STEP 4b: VERIFY EARLY SIGNALS VIA FINNHUB ==========
   // Polygon's ticker tagging misses a lot of news — cross-check with Finnhub
-  // Only check top 20 by score to stay within Finnhub rate limits (60/min)
-  if (earlySignals.length > 0) {
+  // Verify both early signals and pre-move signals
+  const signalsToVerify = [...earlySignals.slice(0, 15), ...preMoveSignals.slice(0, 10)];
+  if (signalsToVerify.length > 0) {
     setScanStatus('VERIFYING EARLY SIGNALS...');
-    const toVerify = earlySignals.slice(0, 20);
     const twoDaysMs = 48 * 60 * 60 * 1000;
     const promoted = []; // stocks that actually have news → move to Tier 2
     
-    for (let i = 0; i < toVerify.length; i += 5) {
-      const batch = toVerify.slice(i, i + 5);
+    for (let i = 0; i < signalsToVerify.length; i += 5) {
+      const batch = signalsToVerify.slice(i, i + 5);
       const results = await Promise.all(
         batch.map(async (stock) => {
           try {
             const finnhubArticles = await fetchFinnhubNews(stock.ticker, 5);
-            // Check if any Finnhub articles are from the last 48 hours
             const recentFinnhub = finnhubArticles.filter(a => {
               const pubDate = new Date(a.published_utc);
               return (Date.now() - pubDate.getTime()) < twoDaysMs;
@@ -3130,8 +3326,9 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
       
       for (const r of results) {
         if (r.recentFinnhub.length > 0) {
-          // This stock has news Polygon missed — move to Tier 2
-          const stock = earlySignals.find(s => s.ticker === r.ticker);
+          // Check if it's an early signal or pre-move signal
+          let stock = earlySignals.find(s => s.ticker === r.ticker);
+          if (!stock) stock = preMoveSignals.find(s => s.ticker === r.ticker);
           if (stock) {
             stock.hasRecentNews = true;
             stock.headline = r.recentFinnhub[0].title;
@@ -3142,16 +3339,18 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
           }
         }
       }
-      if (i + 5 < toVerify.length) await new Promise(r => setTimeout(r, 600));
+      if (i + 5 < signalsToVerify.length) await new Promise(r => setTimeout(r, 600));
     }
     
     if (promoted.length > 0) {
       console.log(`🔄 Finnhub cross-check: ${promoted.length} stocks had news Polygon missed → moved to Tier 2 (${promoted.map(s => s.ticker).join(', ')})`);
       earlySignals = earlySignals.filter(s => !s.hasRecentNews);
+      preMoveSignals = preMoveSignals.filter(s => !s.hasRecentNews);
       catalystStocks = [...catalystStocks, ...promoted].sort((a, b) => b.anomalyScore - a.anomalyScore);
     }
   }
   
+  console.log(`🎯 Pre-Move (no news): ${preMoveSignals.length} — options activity before any news`);
   console.log(`🔍 Tier 1 (Early Signals): ${earlySignals.length} — activity before news`);
   console.log(`📰 Tier 2 (Catalysts): ${catalystStocks.length} — activity with news`);
 
@@ -3182,6 +3381,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
         `You are a stock analyst detecting unusual activity BEFORE news breaks. These stocks show data anomalies with NO recent news.
 
 Pattern meanings:
+- PRE_MOVE: Unusual options activity on a flat stock — smart money positioning before price action
 - INSTITUTIONAL_FOOTPRINT: High volume on flat price — large buyer accumulating quietly
 - QUIET_ACCUMULATION: Tight price range with elevated volume — iceberg orders
 - VOLUME_SPIKE: Massive volume surge — something is happening
@@ -3274,12 +3474,68 @@ Return ONLY a numbered list:
     }
   }
 
-  // ========== STEP 6: COMBINE — EARLY SIGNALS FIRST ==========
-  const allStocks = [...earlySignals, ...catalystStocks];
-  const withEarly = allStocks.filter(s => s.signalTier === 1).length;
+  // ========== STEP 5b: AI ANALYSIS FOR PRE-MOVE OPTIONS ==========
+  setScanStatus('ANALYZING PRE-MOVE OPTIONS...');
+  const preMoveStocksForAI = preMoveSignals; // Already filtered: no news
+  
+  if (preMoveStocksForAI.length > 0) {
+    try {
+      const toAnalyze = preMoveStocksForAI.slice(0, 15);
+      const input = toAnalyze.map((s, i) => {
+        const parts = [`${s.ticker}: price flat (${s.change}%)`, `patterns: ${s.patterns.join(', ')}`];
+        if (s.optionsData) {
+          parts.push(`call vol: ${s.optionsData.callVolume.toLocaleString()} vs ${s.optionsData.openInterest.toLocaleString()} OI`);
+          if (s.optionsData.avgIV > 0) parts.push(`IV: ${(s.optionsData.avgIV * 100).toFixed(0)}%`);
+          if (s.optionsData.topContracts?.[0]) {
+            const tc = s.optionsData.topContracts[0];
+            parts.push(`hot contract: $${tc.strike} calls, ${tc.volume} vol, ${tc.daysToExpiry}d exp`);
+          }
+        }
+        return `${i + 1}. ${parts.join(', ')}`;
+      }).join('\n');
+      
+      const result = await aiModel.generateContent(
+        `You are a stock analyst specializing in options flow. These stocks have FLAT prices but UNUSUAL options activity — potential smart money positioning before a move.
+
+For each, explain what the options activity suggests in 10-15 words. Focus on the OPTIONS signal, not any news.
+
+Examples:
+"Heavy OTM call buying 14 days out — someone expecting catalyst or earnings beat"
+"IV spiking with new call positions opening — market pricing in unannounced event"
+"3x call volume vs OI, concentrated in near-term expiry — aggressive bullish bet"
+
+Stocks:
+${input}
+
+Return ONLY a numbered list:
+1. [analysis]
+...`
+      );
+      
+      const text = await result.response.text();
+      const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
+      
+      toAnalyze.forEach((stock, i) => {
+        stock.catalyst = (analyses[i] && analyses[i].length > 5) ? analyses[i].replace(/^["']|["']$/g, '') : `Pre-move: ${stock.trigger}`;
+        stock.catalystType = 'options_first';
+        stock.signalTier = 1;
+      });
+      preMoveStocksForAI.slice(15).forEach(stock => { stock.catalyst = `Pre-move: ${stock.trigger}`; stock.catalystType = 'options_first'; stock.signalTier = 1; });
+      console.log(`🎯 AI analyzed ${toAnalyze.length} pre-move options signals`);
+    } catch (e) {
+      console.log('AI pre-move failed:', e.message);
+      preMoveStocksForAI.forEach(stock => { stock.catalyst = `Pre-move: ${stock.trigger}`; stock.catalystType = 'options_first'; stock.signalTier = 1; });
+    }
+  }
+
+  // ========== STEP 6: COMBINE — PRE-MOVE + EARLY SIGNALS + CATALYSTS ==========
+  const allStocks = [...preMoveStocksForAI, ...earlySignals, ...catalystStocks];
+  
+  const withEarly = allStocks.filter(s => s.signalTier === 1 && s.source !== 'options_discovery').length;
   const withCatalyst = allStocks.filter(s => s.signalTier === 2).length;
   const withOptions = allStocks.filter(s => s.optionsData).length;
-  console.log(`✅ Final: ${withEarly} early signals (${withOptions} w/ options), ${withCatalyst} catalyst stocks`);
+  const withPreMove = preMoveStocksForAI.length;
+  console.log(`✅ Final: ${withPreMove} pre-move, ${withEarly} early signals (${withOptions} w/ options), ${withCatalyst} catalyst stocks`);
 
   return { stocks: allStocks, total: movers.size };
   
@@ -3508,15 +3764,17 @@ if (discoveredStocks.length === 0) {
   return;
 }
 
-// Shuffle for variety, but keep early signals weighted highest
-const earlyStocks = discoveredStocks.filter(s => s.signalTier === 1);
-const newsStocks = discoveredStocks.filter(s => s.signalTier === 2 || s.catalystType === 'news');
-const otherStocks = discoveredStocks.filter(s => !s.signalTier && s.catalystType !== 'news');
+// Shuffle for variety, but keep pre-move and early signals weighted highest
+const preMoveStocks = discoveredStocks.filter(s => s.catalystType === 'options_first');
+const earlyStocks = discoveredStocks.filter(s => s.catalystType === 'early_signal');
+const newsStocks = discoveredStocks.filter(s => s.catalystType === 'news');
+const otherStocks = discoveredStocks.filter(s => !['options_first', 'early_signal', 'news'].includes(s.catalystType));
 
 // Shuffle each group
 const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
 const prioritized = [
-  ...shuffle(earlyStocks),    // Early signals FIRST
+  ...shuffle(preMoveStocks),  // Pre-move options FIRST (highest alpha)
+  ...shuffle(earlyStocks),    // Early signals next
   ...shuffle(newsStocks),
   ...shuffle(otherStocks)
 ];
@@ -3742,6 +4000,8 @@ const getSortedAndFilteredStocks = useCallback((stockList) => {
       filtered = filtered.filter(stock => stock.sentiment === 'BULLISH');
     } else if (filterSignal === 'bearish') {
       filtered = filtered.filter(stock => stock.sentiment === 'BEARISH');
+    } else if (filterSignal === 'pre_move') {
+      filtered = filtered.filter(stock => stock.source === 'options_discovery' || stock.patterns?.includes('PRE_MOVE'));
     } else {
       filtered = filtered.filter(stock => 
         stock.catalystType === filterSignal
@@ -3757,7 +4017,9 @@ const getSortedAndFilteredStocks = useCallback((stockList) => {
     if (sortBy === "price-low") return parseFloat(a.price) - parseFloat(b.price);
     if (sortBy === "volume") return (b.volume || 0) - (a.volume || 0);
     if (sortBy === "news") return (b.newsCount || 0) - (a.newsCount || 0);
-    // Default: early signals first, then news catalysts, then by change
+    // Default: pre-move first, then early signals, then news catalysts, then by change
+    if (a.catalystType === 'options_first' && b.catalystType !== 'options_first') return -1;
+    if (b.catalystType === 'options_first' && a.catalystType !== 'options_first') return 1;
     if (a.catalystType === 'early_signal' && b.catalystType !== 'early_signal') return -1;
     if (b.catalystType === 'early_signal' && a.catalystType !== 'early_signal') return 1;
     if (a.catalystType === 'news' && b.catalystType !== 'news') return -1;
@@ -5132,6 +5394,7 @@ searchTimeoutRef.current = setTimeout(async () => {
               options={[
                 { value: 'all', label: 'All Types' },
                 { value: 'early_signal', label: 'Early Signal' },
+                { value: 'pre_move', label: '🎯 Pre-Move' },
                 { value: 'news', label: 'News' },
                 { value: 'bullish', label: '▲ Bullish' },
                 { value: 'bearish', label: '▼ Bearish' },
@@ -7589,6 +7852,8 @@ useEffect(() => {
     switch (type) {
       case 'early_signal':
         return { icon: Search, color: '#f97316', label: 'EARLY SIGNAL' };
+      case 'options_first':
+        return { icon: Target, color: '#ec4899', label: 'PRE-MOVE OPTIONS' };
       case 'news':
         return { icon: Newspaper, color: '#00ff4e', label: 'NEWS CATALYST' };
       case 'volume':
