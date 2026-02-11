@@ -2525,6 +2525,38 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
   
   const movers = new Map();
   
+  // ========== DYNAMIC ETF/FUND FILTER (cached daily from Polygon) ==========
+  let dynamicETFs = new Set();
+  const cacheKey = 'polygon_etf_tickers';
+  const today = new Date().toISOString().split('T')[0];
+  
+  try {
+    const cached = JSON.parse(localStorage.getItem(cacheKey) || '{}');
+    if (cached.date === today && cached.tickers?.length > 0) {
+      dynamicETFs = new Set(cached.tickers);
+      console.log(`📋 ETF filter: ${dynamicETFs.size} tickers (cached)`);
+    } else {
+      // Fetch all ETF, ETN, and FUND tickers from Polygon reference API
+      const allNonStock = [];
+      for (const type of ['ETF', 'ETN', 'FUND']) {
+        let url = `https://api.polygon.io/v3/reference/tickers?type=${type}&market=stocks&active=true&limit=1000&apiKey=${POLYGON_KEY}`;
+        while (url) {
+          const res = await fetch(url);
+          const data = await res.json();
+          if (data.results) {
+            allNonStock.push(...data.results.map(r => r.ticker));
+          }
+          url = data.next_url ? `${data.next_url}&apiKey=${POLYGON_KEY}` : null;
+        }
+      }
+      dynamicETFs = new Set(allNonStock);
+      localStorage.setItem(cacheKey, JSON.stringify({ date: today, tickers: allNonStock }));
+      console.log(`📋 ETF filter: ${dynamicETFs.size} tickers (fetched fresh)`);
+    }
+  } catch (e) {
+    console.log('ETF filter fetch failed, using static list:', e.message);
+  }
+
   // ========== MASSIVE ETF/JUNK BLACKLIST ==========
   const JUNK_TICKERS = new Set([
     'BAGY', 'MEMY', 'SOLC', 'OKTG', 'HIBL', 'HIBS', 'WEBL', 'WEBS',
@@ -2568,6 +2600,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
 
   const isJunk = (ticker) => {
     if (JUNK_TICKERS.has(ticker)) return true;
+    if (dynamicETFs.has(ticker)) return true;
     if (isLikelyETF(ticker)) return true;
     if (ticker.length < 2 || ticker.length > 5) return true;
     if (/\d/.test(ticker)) return true;
@@ -4863,15 +4896,25 @@ searchTimeoutRef.current = setTimeout(async () => {
           'SCAN MARKET'
         )}
       </button>
-      {recentlyScanned.size > 0 && !loading && (
+      {(recentlyScanned.size > 0 || scanHistory.length > 0) && !loading && (
         <button
-          onClick={() => {
+          onClick={async () => {
             setRecentlyScanned(new Set());
             localStorage.removeItem('recentlyScanned');
+            setScanHistory([]);
+            if (user?.uid && db) {
+              try {
+                const { doc, setDoc } = await import('firebase/firestore');
+                const histRef = doc(db, 'users', user.uid, 'scanHistory', 'recent');
+                await setDoc(histRef, { scans: [] });
+              } catch (e) {
+                console.error('Failed to clear Firebase scan history:', e);
+              }
+            }
           }}
           className="w-full text-zinc-600 hover:text-zinc-400 text-[10px] font-bold tracking-wider uppercase transition-colors py-1"
         >
-          CLEAR SCAN HISTORY ({recentlyScanned.size} tickers)
+          CLEAR SCAN HISTORY ({recentlyScanned.size + scanHistory.filter(s => new Date(s.timestamp) > new Date(Date.now() - 24*60*60*1000)).length} tickers)
         </button>
       )}
     </div>
