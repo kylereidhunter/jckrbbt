@@ -773,6 +773,7 @@ const [scanPriceMax, setScanPriceMax] = useState(500);
   const [watchlists, setWatchlists] = useState([]);
   const [publicWatchlists, setPublicWatchlists] = useState([]);
   const [selectedWatchlist, setSelectedWatchlist] = useState(null);
+  const [expandedListCharts, setExpandedListCharts] = useState(new Set());
   const [showWatchlistModal, setShowWatchlistModal] = useState(false);
   const [editingWatchlist, setEditingWatchlist] = useState(null);
   const [showAddToListMenu, setShowAddToListMenu] = useState(null); // stockSymbol when menu is open
@@ -1331,6 +1332,7 @@ const addStockToList = async (stock, listId) => {
       symbol: stock.symbol || '',
       name: stock.name || '',
       price: stock.price || null,
+      addedPrice: stock.price || null,
       change: stock.change || null,
       addedAt: new Date().toISOString(),
     };
@@ -1394,27 +1396,43 @@ if (targetList?.isPublic) {
 };
 
 const updateList = useCallback(async (list) => {
-  if (!list || !Array.isArray(list)) {
+  if (!list || !Array.isArray(list) || list.length === 0) {
     return [];
   }
   
-  return Promise.all(list.map(async (stock) => {
-    try {
-      const res = await fetch(`https://api.polygon.io/v2/aggs/ticker/${stock.symbol}/prev?adjusted=true&apiKey=${POLYGON_KEY}`);
-      const data = await res.json();
-      if (!data.results || !data.results[0]) return stock;
-      
-      const quote = data.results[0];
-      const change = ((quote.c - quote.o) / quote.o) * 100;
-      
+  // Batch fetch using snapshot endpoint - 1 API call for all tickers
+  try {
+    const tickers = list.map(s => s.symbol).join(',');
+    const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apiKey=${POLYGON_KEY}`);
+    const data = await res.json();
+    
+    const priceMap = {};
+    data.tickers?.forEach(t => {
+      const currentPrice = t.day?.c || t.prevDay?.c;
+      const prevClose = t.prevDay?.c;
+      const change = t.todaysChangePerc || (prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : 0);
+      priceMap[t.ticker] = { price: currentPrice, prevClose, change };
+    });
+    
+    return list.map(stock => {
+      const live = priceMap[stock.symbol];
+      if (!live) return stock;
+      // Capture old price BEFORE overwriting for fallback
+      const oldPrice = stock.price;
       return {
         ...stock,
-        price: quote.c.toFixed(2),
-        change: change.toFixed(2),
-        isPositive: change >= 0
+        price: live.price?.toFixed(2) || stock.price,
+        prevClose: live.prevClose || null,
+        change: live.change?.toFixed(2) || stock.change,
+        isPositive: (live.change || 0) >= 0,
+        // Preserve original add data for "since added" tracking
+        addedPrice: stock.addedPrice || stock.price,
+        addedAt: stock.addedAt || null,
       };
-    } catch (e) { return stock; }
-  }));
+    });
+  } catch (e) {
+    return list;
+  }
 }, []);
 
 // User-specific seeded shuffle for legal compliance
@@ -2787,6 +2805,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
       
       movers.set(t.ticker, {
         price,
+        prevClose: t.prevDay?.c || null,
         change: change?.toFixed(2),
         volume,
         volumeRatio: volumeRatio.toFixed(1),
@@ -3013,7 +3032,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
           const triggers = [`[GAINER] +${change?.toFixed(1)}% on ${volumeRatio.toFixed(1)}x vol`];
           if (volumeRatio >= 5) { patterns.push('VOLUME_SPIKE'); triggers.push(`[VOLUME] ${volumeRatio.toFixed(1)}x avg volume`); }
           movers.set(t.ticker, {
-            price, change: change?.toFixed(2), volume, volumeRatio: volumeRatio.toFixed(1),
+            price, prevClose: t.prevDay?.c || null, change: change?.toFixed(2), volume, volumeRatio: volumeRatio.toFixed(1),
             anomalyScore: scoreAnomaly(patterns), near52High: false, patterns, trigger: triggers.join(' • '),
             triggerType: 'gainer', sentiment: scoreSentiment(change, patterns), source: 'anomaly'
           });
@@ -3408,9 +3427,9 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
       setScanStatus(`ANALYZING: ${tickerToSearch.toUpperCase()}`);
       const ticker = tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "");
       
-      // Fetch data for manual ticker
-const [quoteRes, profileRes] = await Promise.all([
-  fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`),
+      // Fetch data for manual ticker - use snapshot for live data
+const [snapshotRes, profileRes] = await Promise.all([
+  fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${ticker}&apiKey=${POLYGON_KEY}`),
   fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`)
 ]);
 
@@ -3421,8 +3440,8 @@ const newsRes = await fetch(
 const newsData = await newsRes.json();
 const articles = newsData.results || [];
 
-const [quoteData, profileData] = await Promise.all([
-  quoteRes.json(),
+const [snapshotData, profileData] = await Promise.all([
+  snapshotRes.json(),
   profileRes.json()
 ]);
 
@@ -3431,31 +3450,34 @@ const news = dedupeArticles([...articles, ...finnhubNews])
   .sort((a, b) => new Date(b.published_utc) - new Date(a.published_utc))
   .slice(0, 5);
       
-      if (!quoteData.results?.[0]) {
+      const tickerData = snapshotData.tickers?.[0];
+      if (!tickerData) {
         setScanStatus(`NO DATA FOUND FOR ${ticker}`);
         setLoading(false);
         setScanComplete(true);
         return;
       }
       
-      const quote = quoteData.results[0];
       const profile = profileData.results || {};
-      const change = ((quote.c - quote.o) / quote.o) * 100;
+      const currentPrice = tickerData.day?.c || tickerData.prevDay?.c;
+      const prevClosePrice = tickerData.prevDay?.c;
+      const change = tickerData.todaysChangePerc || (prevClosePrice ? ((currentPrice - prevClosePrice) / prevClosePrice) * 100 : 0);
       const earnings = await fetchEarningsDate(ticker);
 
       
       const stock = {
         symbol: ticker,
         name: cleanCompanyName(profile.name) || ticker,
-        price: quote.c.toFixed(2),
-        change: change.toFixed(2),
+        price: currentPrice?.toFixed(2) || '0.00',
+        prevClose: prevClosePrice || null,
+        change: change?.toFixed(2) || '0.00',
         isPositive: change >= 0,
         headline: news[0]?.title || null,
         newsSource: news[0]?.publisher?.name || null,
         newsDate: news[0]?.published_utc ? new Date(news[0].published_utc).toLocaleDateString() : null,
         newsCount: news.length,
         news: news.slice(0, 3),
-        volume: quote.v,
+        volume: tickerData.day?.v || tickerData.prevDay?.v || 0,
         industry: profile.sic_description || '',
         source: 'manual',
         earnings: earnings,
@@ -3567,6 +3589,7 @@ for (const stock of candidates) {
       symbol: stock.ticker,
       name: cleanCompanyName(name),
       price: stock.price?.toFixed ? stock.price.toFixed(2) : String(stock.price || '0.00'),
+      prevClose: stock.prevClose || null,
       change: stock.change || '0.00',
       isPositive: parseFloat(stock.change || 0) >= 0,
       catalyst: stock.catalyst,
@@ -3634,6 +3657,7 @@ if (verified.length === 0) {
         symbol: stock.ticker,
         name: cleanCompanyName(name),
         price: stock.price?.toFixed ? stock.price.toFixed(2) : String(stock.price || '0.00'),
+        prevClose: stock.prevClose || null,
         change: stock.change || '0.00',
         isPositive: parseFloat(stock.change || 0) >= 0,
         catalyst: stock.catalyst,
@@ -5737,29 +5761,105 @@ setFilterSignal("all");
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
-                   <div className="space-y-6 md:space-y-8">
-                    {list.stocks.map((stock) => (
-                      <MetricCard 
-                        key={stock.symbol}
-                        stock={getStableStock(stock)}
-                        isMarketOpen={isMarketOpen} 
-                        livePrices={livePrices}
-                        onAction={(stock) => setShowAddToListMenu(stock)}
-                        removeFromWatchlist={(symbol) => removeStockFromList(list.id, symbol)}
-                        actionType="REMOVE"
-                        watchlist={flattenedWatchlist}
-                        showAddToListMenu={showAddToListMenu}
-                        onCloseMenu={() => setShowAddToListMenu(null)}
-                        watchlists={watchlists}
-                        onAddToList={addStockToList}
-                        user={user}
-                        onOpenChat={(stock) => setShowStockChat(stock)}
-                        onScanSimilar={handleScanSimilar}
-                         aiModel={aiModel}
-                        db={db}
-                        connectedBrokerages={connectedBrokerages}
-                      />
-                    ))}
+                   <div className="space-y-2 mt-3">
+                    {list.stocks.map((stock) => {
+                      const wsData = livePrices?.[stock.symbol];
+                      const currentPrice = wsData?.price ?? parseFloat(stock.price);
+                      const prevClose = stock.prevClose ? parseFloat(stock.prevClose) : null;
+                      const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
+                      const addedPrice = parseFloat(stock.addedPrice || stock.price);
+                      const sinceAdded = addedPrice > 0 ? ((currentPrice - addedPrice) / addedPrice) * 100 : null;
+                      const addedAgo = stock.addedAt ? (() => {
+                        const diff = Date.now() - new Date(stock.addedAt).getTime();
+                        const mins = Math.floor(diff / 60000);
+                        if (mins < 60) return `${mins}m`;
+                        const hrs = Math.floor(mins / 60);
+                        if (hrs < 24) return `${hrs}h`;
+                        const days = Math.floor(hrs / 24);
+                        if (days < 30) return `${days}d`;
+                        return `${Math.floor(days / 30)}mo`;
+                      })() : null;
+                      const chartKey = `${list.id}-${stock.symbol}`;
+                      const showListChart = expandedListCharts.has(chartKey);
+                      const toggleChart = () => {
+                        setExpandedListCharts(prev => {
+                          const next = new Set(prev);
+                          if (next.has(chartKey)) next.delete(chartKey);
+                          else next.add(chartKey);
+                          return next;
+                        });
+                      };
+                      
+                      return (
+                        <div key={stock.symbol}>
+                          <div
+                            className="w-full p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 transition-all"
+                          >
+                            <div 
+                              className="flex items-center justify-between cursor-pointer"
+                              onClick={() => {
+                                setManualSearch(stock.symbol);
+                                setIsManualResult(true);
+                                setStocks([]);
+                                runScanner(stock.symbol);
+                              }}
+                            >
+                              <div className="flex items-baseline gap-2">
+                                <span className="text-sm font-black text-white">{stock.symbol}</span>
+                                <span className="text-sm font-black text-white">${currentPrice.toFixed(2)}</span>
+                                <span className={`text-xs font-bold ${dayChange >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
+                                  {dayChange >= 0 ? '+' : ''}{dayChange.toFixed(2)}%
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {sinceAdded !== null && (
+                                  <div className="text-right">
+                                    <span className={`text-[10px] font-black ${sinceAdded >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
+                                      {sinceAdded >= 0 ? '+' : ''}{sinceAdded.toFixed(1)}%
+                                    </span>
+                                    <p className="text-[8px] text-zinc-600 uppercase">
+                                      {addedAgo ? `since ${addedAgo}` : 'since add'}
+                                    </p>
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={toggleChart}
+                                    className="text-zinc-600 hover:text-[#00ff4e] transition-colors p-1"
+                                    title="Toggle chart"
+                                  >
+                                    <BarChart3 size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => removeStockFromList(list.id, stock.symbol)}
+                                    className="text-zinc-600 hover:text-red-500 transition-colors p-1"
+                                    title="Remove"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            <span className="text-[10px] text-zinc-500 truncate block mt-0.5">{stock.name}</span>
+                          </div>
+                          <AnimatePresence>
+                            {showListChart && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="px-2 py-3 bg-zinc-900/30 rounded-b-lg border-x border-b border-zinc-800">
+                                  <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} livePrice={livePrices?.[stock.symbol]?.price} />
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
                   </div>
                   </motion.div>
                 )}
@@ -5842,28 +5942,76 @@ setFilterSignal("all");
                       exit={{ height: 0, opacity: 0 }}
                       className="overflow-hidden"
                     >
-                      <div className="space-y-6 md:space-y-8 mt-4">
-                        {list.stocks?.map((stock) => (
-                          <MetricCard
-                            key={stock.symbol}
-                            stock={getStableStock(stock)}
-                            isMarketOpen={isMarketOpen}
-                            livePrices={livePrices}
-                            onAction={(stock) => setShowAddToListMenu(stock)}
-                            actionType="ADD"
-                            watchlist={flattenedWatchlist}
-                            showAddToListMenu={showAddToListMenu}
-                            onCloseMenu={() => setShowAddToListMenu(null)}
-                            watchlists={watchlists}
-                            onAddToList={addStockToList}
-                            user={user}
-                            onOpenChat={(stock) => setShowStockChat(stock)}
-                            onScanSimilar={handleScanSimilar}
-                            aiModel={aiModel}
-                            db={db}
-                            connectedBrokerages={connectedBrokerages}
-                          />
-                        ))}
+                      <div className="space-y-2 mt-4">
+                        {list.stocks?.map((stock) => {
+                          const wsData = livePrices?.[stock.symbol];
+                          const currentPrice = wsData?.price ?? parseFloat(stock.price || 0);
+                          const prevClose = stock.prevClose ? parseFloat(stock.prevClose) : null;
+                          const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
+                          const chartKey = `followed-${list.id}-${stock.symbol}`;
+                          const showListChart = expandedListCharts.has(chartKey);
+                          const toggleChart = () => {
+                            setExpandedListCharts(prev => {
+                              const next = new Set(prev);
+                              if (next.has(chartKey)) next.delete(chartKey);
+                              else next.add(chartKey);
+                              return next;
+                            });
+                          };
+                          
+                          return (
+                            <div key={stock.symbol}>
+                              <div
+                                className="w-full flex items-center justify-between p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 transition-all"
+                              >
+                                <div 
+                                  className="flex items-center gap-3 flex-1 cursor-pointer"
+                                  onClick={() => {
+                                    setManualSearch(stock.symbol);
+                                    setIsManualResult(true);
+                                    setStocks([]);
+                                    runScanner(stock.symbol);
+                                  }}
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="text-sm font-black text-white">{stock.symbol}</span>
+                                    <span className="text-[10px] text-zinc-500 truncate max-w-[100px]">{stock.name}</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="text-right">
+                                    <span className="text-sm font-black text-white">${currentPrice.toFixed(2)}</span>
+                                    <span className={`text-xs font-bold ml-2 ${dayChange >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
+                                      {dayChange >= 0 ? '+' : ''}{dayChange.toFixed(2)}%
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={toggleChart}
+                                    className="text-zinc-600 hover:text-[#00ff4e] transition-colors p-1"
+                                    title="Toggle chart"
+                                  >
+                                    <BarChart3 size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                              <AnimatePresence>
+                                {showListChart && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="overflow-hidden"
+                                  >
+                                    <div className="px-2 py-3 bg-zinc-900/30 rounded-b-lg border-x border-b border-zinc-800">
+                                      <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} livePrice={livePrices?.[stock.symbol]?.price} />
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          );
+                        })}
                       </div>
                     </motion.div>
                   )}
@@ -6564,13 +6712,14 @@ function CustomDropdown({ value, onChange, options, label }) {
 }
 
 
-const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
+const StockChart = ({ symbol, polygonKey, isMarketOpen, livePrice }) => {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('1D');
   const [showVolume, setShowVolume] = useState(false);
   const [priceChange, setPriceChange] = useState(null);
   const [hoverData, setHoverData] = useState(null);
+  const [chartPrevClose, setChartPrevClose] = useState(null);
   
 
   const TIME_RANGES = [
@@ -6614,7 +6763,7 @@ const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
         return;
       }
 
-      const formatted = data.results.map((bar) => {
+      let formatted = data.results.map((bar) => {
         const date = new Date(bar.t);
         let label;
 
@@ -6639,15 +6788,40 @@ const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
         };
       });
 
-      setChartData(formatted);
-
-      // Calculate price change for the period
-      if (formatted.length >= 2) {
+      // For 1D, filter to only today's bars and use prevClose for change
+      if (range === '1D') {
+        const todayStr = new Date().toLocaleDateString();
+        const todayBars = formatted.filter(bar => new Date(bar.timestamp).toLocaleDateString() === todayStr);
+        if (todayBars.length > 0) formatted = todayBars;
+        
+        // Fetch prevClose from snapshot for accurate 1D change
+        try {
+          const snapRes = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${symbol}&apiKey=${polygonKey}`);
+          const snapData = await snapRes.json();
+          const prevClose = snapData.tickers?.[0]?.prevDay?.c;
+          if (prevClose) {
+            setChartPrevClose(prevClose);
+            const last = formatted[formatted.length - 1].price;
+            setPriceChange(((last - prevClose) / prevClose) * 100);
+          } else if (formatted.length >= 2) {
+            const first = formatted[0].price;
+            const last = formatted[formatted.length - 1].price;
+            setPriceChange(((last - first) / first) * 100);
+          }
+        } catch {
+          if (formatted.length >= 2) {
+            const first = formatted[0].price;
+            const last = formatted[formatted.length - 1].price;
+            setPriceChange(((last - first) / first) * 100);
+          }
+        }
+      } else if (formatted.length >= 2) {
         const first = formatted[0].price;
         const last = formatted[formatted.length - 1].price;
-        const change = ((last - first) / first) * 100;
-        setPriceChange(change);
+        setPriceChange(((last - first) / first) * 100);
       }
+
+      setChartData(formatted);
     } catch (error) {
       console.error('Chart data fetch error:', error);
       setChartData([]);
@@ -6660,13 +6834,37 @@ const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
     fetchChartData(timeRange);
   }, [timeRange, fetchChartData]);
 
+  // Recalculate 1D change when livePrice updates
+  useEffect(() => {
+    if (timeRange === '1D' && livePrice && chartPrevClose) {
+      setPriceChange(((livePrice - chartPrevClose) / chartPrevClose) * 100);
+    }
+  }, [livePrice, chartPrevClose, timeRange]);
+
+  // For 1D, append live price as the latest data point if it's newer
+  const displayChartData = useMemo(() => {
+    if (timeRange !== '1D' || !livePrice || chartData.length === 0) return chartData;
+    const lastBar = chartData[chartData.length - 1];
+    // Only add if live price differs meaningfully from last bar
+    if (Math.abs(livePrice - lastBar.price) < 0.001) return chartData;
+    const now = new Date();
+    return [...chartData, {
+      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: now.getTime(),
+      price: livePrice,
+      volume: 0,
+    }];
+  }, [chartData, livePrice, timeRange]);
+
   const isPositive = priceChange === null ? true : priceChange >= 0;
   const chartColor = isPositive ? '#00ff4e' : '#FF4B2B';
   const gradientId = `gradient-${symbol}-${timeRange}`;
   const volumeGradientId = `vol-gradient-${symbol}`;
 
-  // Display price from hover or latest
-  const displayPrice = hoverData?.price ?? chartData[chartData.length - 1]?.price;
+  // Display price from hover or latest (prefer livePrice for real-time accuracy)
+  const lastBarPrice = chartData[chartData.length - 1]?.price;
+  const currentBestPrice = (timeRange === '1D' && livePrice) ? livePrice : lastBarPrice;
+  const displayPrice = hoverData?.price ?? currentBestPrice;
   const displayTime = hoverData?.time ?? null;
 
   // Format volume for tooltip
@@ -6678,21 +6876,26 @@ const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
     return v.toString();
   };
 
-  // Custom tooltip
+  // Custom tooltip - shows price at cursor position
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
-      // Update hover state
+      // Update hover state for header display
       if (!hoverData || hoverData.timestamp !== data.timestamp) {
         setTimeout(() => setHoverData(data), 0);
       }
-      return null; // We display in the header instead
+      return (
+        <div className="bg-black/90 border border-zinc-700 rounded px-2 py-1 shadow-lg" style={{ pointerEvents: 'none' }}>
+          <p className="text-xs font-black text-white tabular-nums">${data.price?.toFixed(2)}</p>
+          <p className="text-[9px] text-zinc-500 font-mono">{data.time}</p>
+        </div>
+      );
     }
     return null;
   };
 
   // Calculate Y-axis domain with padding
-  const prices = chartData.map(d => d.price).filter(Boolean);
+  const prices = displayChartData.map(d => d.price).filter(Boolean);
   const minPrice = Math.min(...prices);
   const maxPrice = Math.max(...prices);
   const pricePadding = (maxPrice - minPrice) * 0.1 || 1;
@@ -6776,7 +6979,7 @@ const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
             <span className="text-xs text-zinc-600 font-bold">Loading chart...</span>
           </div>
         </div>
-      ) : chartData.length === 0 ? (
+      ) : displayChartData.length === 0 ? (
         <div className="h-[200px] md:h-[260px] flex items-center justify-center">
           <span className="text-xs text-zinc-600 font-bold uppercase tracking-wider">No data available</span>
         </div>
@@ -6787,7 +6990,7 @@ const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
         >
          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
             <ComposedChart 
-              data={chartData} 
+              data={displayChartData} 
               margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
             >
               <defs>
@@ -6859,13 +7062,17 @@ const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
                   style: { filter: `drop-shadow(0 0 6px ${chartColor})` }
                 }}
               />
+              <RechartsTooltip 
+                content={<CustomTooltip />}
+                cursor={{ stroke: '#52525b', strokeWidth: 1, strokeDasharray: '3 3' }}
+              />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
       )}
 
       {/* Footer Stats */}
-      {chartData.length > 0 && (
+      {displayChartData.length > 0 && (
         <div className="flex items-center justify-between mt-2 pt-2 border-t border-zinc-800/50">
           <div className="flex gap-4">
             <div>
@@ -6885,7 +7092,7 @@ const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
               </div>
             )}
           </div>
-          <span className="text-[8px] text-zinc-700 font-mono">{timeRange} · {chartData.length} bars</span>
+          <span className="text-[8px] text-zinc-700 font-mono">{timeRange} · {displayChartData.length} bars</span>
         </div>
       )}
     </div>
@@ -7002,9 +7209,12 @@ const chatInputRef = useRef(null);
   const prevChange = useRef(null);
   const hasAnimatedRef = useRef(false);
 
-  // Derive previous close from stock data (stable baseline)
+  // Use actual previous close from Polygon snapshot when available
   const prevCloseRef = useRef(null);
-  if (prevCloseRef.current === null && stock.price && stock.change) {
+  if (prevCloseRef.current === null && stock.prevClose) {
+    prevCloseRef.current = parseFloat(stock.prevClose);
+  } else if (prevCloseRef.current === null && stock.price && stock.change) {
+    // Fallback: derive from price/change (manual search, etc.)
     const changePercent = parseFloat(stock.change);
     prevCloseRef.current = parseFloat(stock.price) / (1 + changePercent / 100);
   }
@@ -8029,7 +8239,7 @@ className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounde
               exit={{ height: 0, opacity: 0 }}
               className="mt-4 md:mt-6 overflow-hidden"
             >
-              <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} />
+              <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} livePrice={livePrices?.[stock.symbol]?.price} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -9424,7 +9634,7 @@ const flashClass = live?.direction === 'up' ? 'price-flash-up' : live?.direction
               className="overflow-hidden mt-4"
             >
               <div className="bg-zinc-950/50 border border-zinc-800 rounded-xl p-3 md:p-4">
-<StockChart symbol={position.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} />              </div>
+<StockChart symbol={position.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} livePrice={livePrices?.[position.symbol]?.price} />              </div>
             </motion.div>
           )}
         </AnimatePresence>
