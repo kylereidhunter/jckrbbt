@@ -2981,14 +2981,64 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
 
   // ========== STEP 4: SPLIT INTO TIERS ==========
   // TIER 1: Activity BEFORE news — the money signal
-  const earlySignals = withData
+  let earlySignals = withData
     .filter(s => !s.hasRecentNews && s.anomalyScore >= 20)
     .sort((a, b) => b.anomalyScore - a.anomalyScore);
   
   // TIER 2: Activity WITH news — catalyst confirmed (fallback)
-  const catalystStocks = withData
+  let catalystStocks = withData
     .filter(s => s.hasRecentNews)
     .sort((a, b) => b.anomalyScore - a.anomalyScore);
+  
+  // ========== STEP 4b: VERIFY EARLY SIGNALS VIA FINNHUB ==========
+  // Polygon's ticker tagging misses a lot of news — cross-check with Finnhub
+  if (earlySignals.length > 0) {
+    setScanStatus('VERIFYING EARLY SIGNALS...');
+    const toVerify = earlySignals.slice(0, 40);
+    const twoDaysMs = 48 * 60 * 60 * 1000;
+    const promoted = []; // stocks that actually have news → move to Tier 2
+    
+    for (let i = 0; i < toVerify.length; i += 10) {
+      const batch = toVerify.slice(i, i + 10);
+      const results = await Promise.all(
+        batch.map(async (stock) => {
+          try {
+            const finnhubArticles = await fetchFinnhubNews(stock.ticker, 5);
+            // Check if any Finnhub articles are from the last 48 hours
+            const recentFinnhub = finnhubArticles.filter(a => {
+              const pubDate = new Date(a.published_utc);
+              return (Date.now() - pubDate.getTime()) < twoDaysMs;
+            });
+            return { ticker: stock.ticker, recentFinnhub };
+          } catch {
+            return { ticker: stock.ticker, recentFinnhub: [] };
+          }
+        })
+      );
+      
+      for (const r of results) {
+        if (r.recentFinnhub.length > 0) {
+          // This stock has news Polygon missed — move to Tier 2
+          const stock = earlySignals.find(s => s.ticker === r.ticker);
+          if (stock) {
+            stock.hasRecentNews = true;
+            stock.headline = r.recentFinnhub[0].title;
+            stock.newsSource = r.recentFinnhub[0].publisher?.name;
+            stock.news = r.recentFinnhub.slice(0, 3);
+            stock.newsCount = r.recentFinnhub.length;
+            promoted.push(stock);
+          }
+        }
+      }
+      if (i + 10 < toVerify.length) await new Promise(r => setTimeout(r, 100));
+    }
+    
+    if (promoted.length > 0) {
+      console.log(`🔄 Finnhub cross-check: ${promoted.length} stocks had news Polygon missed → moved to Tier 2 (${promoted.map(s => s.ticker).join(', ')})`);
+      earlySignals = earlySignals.filter(s => !s.hasRecentNews);
+      catalystStocks = [...catalystStocks, ...promoted].sort((a, b) => b.anomalyScore - a.anomalyScore);
+    }
+  }
   
   console.log(`🔍 Tier 1 (Early Signals): ${earlySignals.length} — activity before news`);
   console.log(`📰 Tier 2 (Catalysts): ${catalystStocks.length} — activity with news`);
