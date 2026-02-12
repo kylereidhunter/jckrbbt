@@ -3354,55 +3354,135 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
   console.log(`🔍 Tier 1 (Early Signals): ${earlySignals.length} — activity before news`);
   console.log(`📰 Tier 2 (Catalysts): ${catalystStocks.length} — activity with news`);
 
-  // ========== STEP 5: AI ANALYSIS ==========
+  // ========== STEP 5: FETCH COMPANY CONTEXT + AI ANALYSIS ==========
+  setScanStatus('FETCHING COMPANY CONTEXT...');
+  
+  // Batch fetch company names & industries for AI context
+  const allAIStocks = [...earlySignals.slice(0, 20), ...catalystStocks.slice(0, 25), ...preMoveSignals.slice(0, 15)];
+  const uniqueAITickers = [...new Set(allAIStocks.map(s => s.ticker))];
+  const companyContext = {};
+  
+  for (let i = 0; i < uniqueAITickers.length; i += 15) {
+    const batch = uniqueAITickers.slice(i, i + 15);
+    const results = await Promise.allSettled(
+      batch.map(ticker => 
+        fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`)
+          .then(r => r.json())
+          .then(d => ({ ticker, name: d.results?.name, industry: d.results?.sic_description }))
+      )
+    );
+    results.forEach(r => {
+      if (r.status === 'fulfilled' && r.value) {
+        const { ticker, name, industry } = r.value;
+        companyContext[ticker] = { name: cleanCompanyName(name || ticker), industry: industry || '' };
+      }
+    });
+    if (i + 15 < uniqueAITickers.length) await new Promise(r => setTimeout(r, 200));
+  }
+  console.log(`🏢 Company context fetched for ${Object.keys(companyContext).length}/${uniqueAITickers.length} tickers`);
+  
+  // Attach context to stocks for reuse in verification step
+  [...earlySignals, ...catalystStocks, ...preMoveSignals].forEach(s => {
+    if (companyContext[s.ticker]) s._company = companyContext[s.ticker];
+  });
+  
+  // Helper: build rich stock description for AI
+  const buildStockContext = (s, i) => {
+    const company = companyContext[s.ticker];
+    const parts = [];
+    parts.push(`${s.ticker}${company ? ` (${company.name}${company.industry ? ' — ' + company.industry : ''})` : ''}`);
+    parts.push(`price: ${s.change >= 0 ? '+' : ''}${s.change}%, vol: ${s.volumeRatio}x avg`);
+    const patterns = (s.patterns || []);
+    if (patterns.length > 0) parts.push(`signals: ${patterns.join(', ')}`);
+    if (s.optionsData) {
+      const ratio = (s.optionsData.callVolume / Math.max(s.optionsData.openInterest, 1)).toFixed(1);
+      parts.push(`calls: ${s.optionsData.callVolume.toLocaleString()} vol vs ${s.optionsData.openInterest.toLocaleString()} OI (${ratio}x)`);
+      if (s.optionsData.avgIV > 0) parts.push(`IV: ${(s.optionsData.avgIV * 100).toFixed(0)}%`);
+      if (s.optionsData.topContracts?.[0]) {
+        const tc = s.optionsData.topContracts[0];
+        parts.push(`hottest: $${tc.strike} calls, ${tc.volume} vol, ${tc.daysToExpiry}d out`);
+      }
+    }
+    if (s.sectorETF) parts.push(`sector ${s.sectorETF}: ${s.sectorChange >= 0 ? '+' : ''}${s.sectorChange.toFixed(1)}%`);
+    if (s.near52High) parts.push('near 52w high');
+    if (s.olderNews?.[0]) parts.push(`older news: "${s.olderNews[0].title}"`);
+    return `${i + 1}. ${parts.join(' | ')}`;
+  };
+
+  // Helper: build a readable fallback description from raw data (when AI doesn't run)
+  const buildReadableFallback = (s, type) => {
+    const company = companyContext[s.ticker];
+    const name = company?.name || s.ticker;
+    const industry = company?.industry ? ` ${company.industry.toLowerCase()}` : '';
+    const parts = [];
+    
+    if (type === 'options_first') {
+      parts.push(`${name}${industry} sitting flat`);
+      if (s.optionsData) {
+        const ratio = (s.optionsData.callVolume / Math.max(s.optionsData.openInterest, 1)).toFixed(1);
+        if (s.optionsData.topContracts?.[0]) {
+          const tc = s.optionsData.topContracts[0];
+          parts.push(`$${tc.strike} calls loading at ${ratio}x open interest, ${tc.daysToExpiry} days to expiry`);
+        } else {
+          parts.push(`call volume surging at ${ratio}x open interest`);
+        }
+        if (s.optionsData.avgIV > 0.8) parts.push(`IV elevated at ${(s.optionsData.avgIV * 100).toFixed(0)}%`);
+      }
+      return parts.join(' while ') + ' — potential smart money positioning ahead of catalyst';
+    }
+    
+    if (type === 'early_signal') {
+      parts.push(`${name}${industry}`);
+      const signals = [];
+      if (s.volumeRatio >= 3) signals.push(`${s.volumeRatio}x normal volume`);
+      if (s.patterns?.includes('INSTITUTIONAL_FOOTPRINT')) signals.push('institutional block buying');
+      if (s.patterns?.includes('QUIET_ACCUMULATION')) signals.push('quiet accumulation');
+      if (s.patterns?.includes('SECTOR_DIVERGENCE')) signals.push(`diverging from ${s.sectorETF || 'sector'}`);
+      if (s.patterns?.includes('MOMENTUM')) signals.push('momentum building');
+      if (s.near52High) signals.push('near 52-week high');
+      if (s.optionsData?.avgIV > 0.8) signals.push(`IV spiking to ${(s.optionsData.avgIV * 100).toFixed(0)}%`);
+      if (signals.length > 0) parts.push(`showing ${signals.slice(0, 3).join(', ')}`);
+      return parts.join(' ') + ' — no news yet, something may be developing';
+    }
+    
+    // catalyst/news fallback
+    if (s.headline) return s.headline.slice(0, 120);
+    return `${name}${industry} moving on ${s.volumeRatio ? s.volumeRatio + 'x volume' : 'elevated activity'}`;
+  };
+
   setScanStatus('ANALYZING ANOMALIES...');
   
-  // AI for EARLY SIGNALS — what's the pattern, what might it mean
+  // AI for EARLY SIGNALS — synthesize all signals into a compelling narrative
   if (earlySignals.length > 0) {
     try {
       const toAnalyze = earlySignals.slice(0, 20);
-      const input = toAnalyze.map((s, i) => {
-        const parts = [`${s.ticker}: ${s.change >= 0 ? '+' : ''}${s.change}%`, `volume ${s.volumeRatio}x normal`, `patterns: ${s.patterns.join(', ')}`];
-        if (s.optionsData) {
-          parts.push(`options: ${s.optionsData.callVolume.toLocaleString()} call vol vs ${s.optionsData.openInterest.toLocaleString()} OI`);
-          if (s.optionsData.avgIV > 0) parts.push(`IV: ${(s.optionsData.avgIV * 100).toFixed(0)}%`);
-          if (s.optionsData.topContracts?.[0]) {
-            const tc = s.optionsData.topContracts[0];
-            parts.push(`hot: $${tc.strike} calls, ${tc.volume} vol, ${tc.daysToExpiry}d exp`);
-          }
-        }
-        if (s.sectorETF) parts.push(`sector ${s.sectorETF} is ${s.sectorChange >= 0 ? '+' : ''}${s.sectorChange.toFixed(1)}%`);
-        if (s.near52High) parts.push('near 52-week high');
-        if (s.olderNews?.[0]) parts.push(`context: "${s.olderNews[0].title}"`);
-        return `${i + 1}. ${parts.join(', ')}`;
-      }).join('\n');
+      const input = toAnalyze.map((s, i) => buildStockContext(s, i)).join('\n');
       
       const result = await aiModel.generateContent(
-        `You are a stock analyst detecting unusual activity BEFORE news breaks. These stocks show data anomalies with NO recent news.
+        `You are a stock market detective writing for active traders. These stocks show unusual activity with NO recent news — something is happening behind the scenes.
 
-Pattern meanings:
-- PRE_MOVE: Unusual options activity on a flat stock — smart money positioning before price action
-- INSTITUTIONAL_FOOTPRINT: High volume on flat price — large buyer accumulating quietly
-- QUIET_ACCUMULATION: Tight price range with elevated volume — iceberg orders
-- VOLUME_SPIKE: Massive volume surge — something is happening
-- SECTOR_DIVERGENCE: Stock moving opposite to its sector — idiosyncratic catalyst
-- OPTIONS_UNUSUAL: Call volume far exceeds open interest — aggressive new bullish bets
-- OPTIONS_OTM_CALLS: Heavy out-of-the-money call buying — someone expects a big move
-- OPTIONS_IV_SPIKE: Implied volatility elevated without scheduled event
-- BREAKOUT_52W: Approaching all-time high on volume
+For each stock, write a 30-45 word narrative in TWO parts separated by " — ":
+PART 1 (bold hook): What the company does + what's happening in the data (be specific with numbers)
+PART 2 (the theory): What smart money might know — connect the dots between all signals to suggest a plausible catalyst
 
-For each, describe what's unusual and what it might signal in 10-15 words. Be specific.
+RULES:
+- Name the company and its business in the first few words
+- Use SPECIFIC numbers from the data (volume multiples, IV %, strike prices, expiry days)
+- Connect multiple signals into a single theory (don't list them separately)
+- The theory should be industry-appropriate (biotech = trial data, bank = M&A, defense = contract, etc.)
+- Never say "unusual activity detected" or "something may be brewing" — BE SPECIFIC about what
 
-Examples:
-"4x volume, no price move — institutional accumulation ahead of possible announcement"
-"Heavy OTM call buying ($50 strike, 14d exp) — someone betting on imminent catalyst"
-"Diverging from tech sector by 3% — company-specific positive development likely"
+Bad: "4x volume with institutional footprint and options IV spike — unusual activity detected"
+Bad: "Showing signs of accumulation with elevated options flow — worth watching"
+Good: "Regional bank quietly accumulating at 4x normal volume with $45 calls loading at 5x open interest, 12 days out — positioning suggests someone expects an acquisition bid or blowout earnings"
+Good: "Biotech sitting flat while $30 OTM calls surge with IV spiking to 140%, diverging +3% from XBI — pattern consistent with insiders front-running Phase 3 data readout"
+Good: "Defense contractor showing institutional block buying at 6x volume on a flat tape, $85 calls stacking 18 days out — likely front-running an unannounced DoD contract award"
 
 Stocks:
 ${input}
 
 Return ONLY a numbered list:
-1. [analysis]
+1. [insight]
 ...`
       );
       
@@ -3410,41 +3490,57 @@ Return ONLY a numbered list:
       const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
       
       toAnalyze.forEach((stock, i) => {
-        stock.catalyst = (analyses[i] && analyses[i].length > 5) ? analyses[i].replace(/^["']|["']$/g, '') : `Unusual activity: ${stock.trigger}`;
+        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '') : buildReadableFallback(stock, 'early_signal');
         stock.catalystType = 'early_signal';
         stock.signalTier = 1;
       });
-      earlySignals.slice(20).forEach(stock => { stock.catalyst = `Unusual activity: ${stock.trigger}`; stock.catalystType = 'early_signal'; stock.signalTier = 1; });
+      earlySignals.slice(20).forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'early_signal'); stock.catalystType = 'early_signal'; stock.signalTier = 1; });
       console.log(`🤖 AI analyzed ${toAnalyze.length} early signals`);
     } catch (e) {
       console.log('AI early signal failed:', e.message);
-      earlySignals.forEach(stock => { stock.catalyst = `Unusual activity: ${stock.trigger}`; stock.catalystType = 'early_signal'; stock.signalTier = 1; });
+      earlySignals.forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'early_signal'); stock.catalystType = 'early_signal'; stock.signalTier = 1; });
     }
   }
+
   
-  // AI for CATALYST STOCKS — explain the news
+  // AI for CATALYST STOCKS — news + technical context narrative
   if (catalystStocks.length > 0) {
     try {
       const toAnalyze = catalystStocks.slice(0, 25);
       const input = toAnalyze.map((s, i) => {
+        const company = companyContext[s.ticker];
         const newsText = s.recentNews?.slice(0, 2).map(n => n.title).join(' | ') || s.headline;
-        let extra = '';
-        if (s.optionsData) extra += ` | Options: ${s.optionsData.callVolume.toLocaleString()} call vol`;
-        if (s.patterns.includes('SECTOR_DIVERGENCE')) extra += ` | Diverging from sector`;
-        return `${i + 1}. ${s.ticker} (+${s.change}%): "${newsText}"${extra}`;
+        // Start with the rich context from buildStockContext
+        const base = buildStockContext(s, i);
+        // Add news headlines (the key differentiator for catalyst stocks)
+        return `${base} | news: "${newsText}"`;
       }).join('\n');
       
       const result = await aiModel.generateContent(
-        `You are a stock analyst. For each stock, explain WHY it's moving in 6-10 words. Be specific with numbers.
-Bad: "Positive news drives shares higher"
-Good: "FDA approves cancer drug, $2B market opportunity"
-Good: "Q4 earnings beat 15%, raised guidance"
+        `You are a stock market analyst writing for active traders. These stocks have NEWS driving them plus technical confirmation signals.
+
+For each stock, write a 30-45 word narrative in TWO parts separated by " — ":
+PART 1 (the catalyst): Lead with the SPECIFIC news event — use exact numbers, drug names, deal sizes, earnings beats, guidance raises, contract values. Name the company first.
+PART 2 (why it matters): Connect the news to the technical signals. Is smart money confirming the move? Is this the start of a bigger trend? What should the trader watch for next?
+
+RULES:
+- Always name the company and what it does in the first few words
+- Lead with the NEWS — that's why these stocks are here
+- Use specific details from the headlines (don't generalize "positive news")
+- If there are supporting signals (options, accumulation, sector divergence, 52w high), weave them in as CONFIRMATION of the news
+- Never say "positive news drives shares higher" — tell us WHAT the news IS
+
+Bad: "Positive news drives shares higher on volume"
+Bad: "Strong earnings report with technical confirmation"
+Good: "Graham Corporation beats Q4 by 22% and raises FY guidance to $580M — breaking through 52-week highs on 8x volume with call options surging, momentum setup for continuation"
+Good: "FDA grants priority review to lead cancer immunotherapy candidate — call volume exploding at 5x OI with IV spiking to 180%, market pricing in approval by June PDUFA date"
+Good: "Wins $340M Navy submarine contract, largest in company history — institutional blocks loading with stock diverging +4% from XLI, defense budget tailwinds ahead"
 
 Stocks:
 ${input}
 
 Return ONLY a numbered list:
-1. [catalyst]
+1. [insight]
 ...`
       );
       
@@ -3452,11 +3548,11 @@ Return ONLY a numbered list:
       const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
       
       toAnalyze.forEach((stock, i) => {
-        stock.catalyst = (analyses[i] && analyses[i].length > 5) ? analyses[i].replace(/^["']|["']$/g, '') : (stock.headline?.slice(0, 60) || stock.trigger);
+        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '') : buildReadableFallback(stock, 'news');
         stock.catalystType = 'news';
         stock.signalTier = 2;
       });
-      catalystStocks.slice(25).forEach(stock => { stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger; stock.catalystType = 'news'; stock.signalTier = 2; });
+      catalystStocks.slice(25).forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'news'); stock.catalystType = 'news'; stock.signalTier = 2; });
 
       // Clean bad AI responses
       catalystStocks.forEach(stock => {
@@ -3465,12 +3561,12 @@ Return ONLY a numbered list:
           stock.catalyst.toLowerCase().includes('no specific') || stock.catalyst.toLowerCase().includes('unclear') ||
           stock.catalyst.toLowerCase().includes('no catalyst') || stock.catalyst.toLowerCase().includes('cannot determine') ||
           stock.catalyst.toLowerCase().includes('no news') || stock.catalyst.toLowerCase().includes('provided summaries')
-        )) { stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger; }
+        )) { stock.catalyst = stock.headline?.slice(0, 120) || buildReadableFallback(stock, 'news'); }
       });
       console.log(`🤖 AI analyzed ${toAnalyze.length} catalyst stocks`);
     } catch (e) {
       console.log('AI catalyst failed:', e.message);
-      catalystStocks.forEach(stock => { stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger; stock.catalystType = 'news'; stock.signalTier = 2; });
+      catalystStocks.forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'news'); stock.catalystType = 'news'; stock.signalTier = 2; });
     }
   }
 
@@ -3481,34 +3577,33 @@ Return ONLY a numbered list:
   if (preMoveStocksForAI.length > 0) {
     try {
       const toAnalyze = preMoveStocksForAI.slice(0, 15);
-      const input = toAnalyze.map((s, i) => {
-        const parts = [`${s.ticker}: price flat (${s.change}%)`, `patterns: ${s.patterns.join(', ')}`];
-        if (s.optionsData) {
-          parts.push(`call vol: ${s.optionsData.callVolume.toLocaleString()} vs ${s.optionsData.openInterest.toLocaleString()} OI`);
-          if (s.optionsData.avgIV > 0) parts.push(`IV: ${(s.optionsData.avgIV * 100).toFixed(0)}%`);
-          if (s.optionsData.topContracts?.[0]) {
-            const tc = s.optionsData.topContracts[0];
-            parts.push(`hot contract: $${tc.strike} calls, ${tc.volume} vol, ${tc.daysToExpiry}d exp`);
-          }
-        }
-        return `${i + 1}. ${parts.join(', ')}`;
-      }).join('\n');
+      const input = toAnalyze.map((s, i) => buildStockContext(s, i)).join('\n');
       
       const result = await aiModel.generateContent(
-        `You are a stock analyst specializing in options flow. These stocks have FLAT prices but UNUSUAL options activity — potential smart money positioning before a move.
+        `You are a stock market detective specializing in unusual options flow. These stocks have FLAT prices but UNUSUAL options activity and NO news — this is the most valuable signal: smart money positioning BEFORE a move.
 
-For each, explain what the options activity suggests in 10-15 words. Focus on the OPTIONS signal, not any news.
+For each stock, write a 30-45 word narrative in TWO parts separated by " — ":
+PART 1 (the setup): Name the company, its business, and describe the SPECIFIC options positioning (strike prices, expiry timeline, volume vs open interest ratios, IV levels)
+PART 2 (the theory): Based on the industry and the specific options structure, what could smart money be anticipating? Be specific — M&A, earnings surprise, FDA decision, contract award, activist involvement?
 
-Examples:
-"Heavy OTM call buying 14 days out — someone expecting catalyst or earnings beat"
-"IV spiking with new call positions opening — market pricing in unannounced event"
-"3x call volume vs OI, concentrated in near-term expiry — aggressive bullish bet"
+RULES:
+- Name the company and industry in the first few words — context matters (a biotech with options activity means something completely different than a bank)
+- Use EXACT numbers: "$45 calls loading at 5x open interest" not "heavy call activity"
+- The expiry timeline is a critical clue — 7-14 days = imminent catalyst, 30-60 days = earnings/FDA, 90+ days = strategic position
+- If there are OTHER signals (accumulation, institutional footprint, sector divergence), they strengthen the theory
+- Never say "unusual options activity detected" — that's WHAT the scanner found, you need to say what it MEANS
+
+Bad: "High IV spike and call volume exceeding open interest — aggressive bullish sentiment"
+Bad: "Options flow suggests smart money positioning — worth monitoring"
+Good: "Community bank sitting flat while $45 calls load at 5x open interest with 12 days to expiry — concentrated near-term positioning suggests someone expects an acquisition bid before month-end"
+Good: "Biotech with quiet institutional accumulation and aggressive $30 OTM calls at 140% IV, 21 days out — pattern is textbook pre-readout positioning ahead of Phase 3 data"
+Good: "Semiconductor supplier diverging +2% from SMH while IV spikes to 120% on $60 calls 30 days out — market makers pricing in unannounced design win or strategic review"
 
 Stocks:
 ${input}
 
 Return ONLY a numbered list:
-1. [analysis]
+1. [insight]
 ...`
       );
       
@@ -3516,15 +3611,15 @@ Return ONLY a numbered list:
       const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
       
       toAnalyze.forEach((stock, i) => {
-        stock.catalyst = (analyses[i] && analyses[i].length > 5) ? analyses[i].replace(/^["']|["']$/g, '') : `Pre-move: ${stock.trigger}`;
+        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '') : buildReadableFallback(stock, 'options_first');
         stock.catalystType = 'options_first';
         stock.signalTier = 1;
       });
-      preMoveStocksForAI.slice(15).forEach(stock => { stock.catalyst = `Pre-move: ${stock.trigger}`; stock.catalystType = 'options_first'; stock.signalTier = 1; });
+      preMoveStocksForAI.slice(15).forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'options_first'); stock.catalystType = 'options_first'; stock.signalTier = 1; });
       console.log(`🎯 AI analyzed ${toAnalyze.length} pre-move options signals`);
     } catch (e) {
       console.log('AI pre-move failed:', e.message);
-      preMoveStocksForAI.forEach(stock => { stock.catalyst = `Pre-move: ${stock.trigger}`; stock.catalystType = 'options_first'; stock.signalTier = 1; });
+      preMoveStocksForAI.forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'options_first'); stock.catalystType = 'options_first'; stock.signalTier = 1; });
     }
   }
 
@@ -3801,11 +3896,19 @@ for (const stock of candidates) {
 }
   
   try {
+    // Reuse company context from AI step if available, otherwise fetch
+    let name, industry;
+    if (stock._company) {
+      name = stock._company.name || stock.ticker;
+      industry = stock._company.industry || '';
+    } else {
     const profileRes = await fetch(
       `https://api.polygon.io/v3/reference/tickers/${stock.ticker}?apiKey=${POLYGON_KEY}`
     );
     const profileData = await profileRes.json();
-    const name = profileData.results?.name || stock.ticker;
+    name = profileData.results?.name || stock.ticker;
+      industry = profileData.results?.sic_description || '';
+    }
     const nameLower = name.toLowerCase();
     
     // ETF/Junk filter
@@ -3866,7 +3969,7 @@ for (const stock of candidates) {
       trigger: stock.trigger,
       sentiment: stock.sentiment || 'NEUTRAL',
       source: stock.source,
-      industry: profileData.results?.sic_description || '',
+      industry: industry,
       earnings: earnings,
     });
     
@@ -4223,6 +4326,7 @@ const generateShareImage = useCallback(async () => {
 
     // Catalyst - below symbol
     const catalyst = stock.catalyst || stock.trigger || '';
+    const catalystHook = catalyst.includes(' — ') ? catalyst.split(' — ')[0] : catalyst;
     if (catalyst) {
       let catX = padding;
       
@@ -4246,7 +4350,7 @@ const generateShareImage = useCallback(async () => {
       ctx.font = '400 10px "JetBrains Mono", ui-monospace, monospace';
       ctx.fillStyle = '#a1a1aa';
       const maxLen = stock.signalTier === 1 ? 42 : 55;
-      let catText = catalyst.length > maxLen ? catalyst.slice(0, maxLen - 3) + '...' : catalyst;
+      let catText = catalystHook.length > maxLen ? catalystHook.slice(0, maxLen - 3) + '...' : catalystHook;
       ctx.fillText(`▸ ${catText}`, catX, y + 62);
     }
 
@@ -4327,9 +4431,10 @@ const copyForReddit = useCallback(() => {
     const price = stock.price ? `$${parseFloat(stock.price).toFixed(2)}` : '-';
     const change = parseFloat(stock.change) || 0;
     const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
-    const catalyst = (stock.catalyst || stock.trigger || '').slice(0, 80);
+    const catalyst = (stock.catalyst || stock.trigger || '');
+    const catalystHook = (catalyst.includes(' — ') ? catalyst.split(' — ')[0] : catalyst).slice(0, 80);
     const earlyTag = stock.signalTier === 1 ? '🔍 ' : '';
-    md += `|**${stock.symbol}**|${price}|${changeStr}|${earlyTag}${catalyst}|\n`;
+    md += `|**${stock.symbol}**|${price}|${changeStr}|${earlyTag}${catalystHook}|\n`;
   });
   md += `\nScanned with [jckrbbt.io](https://jckrbbt.io)${handle} — free AI stock scanner\n`;
   md += `\n*Not financial advice. For informational purposes only.*`;
@@ -4350,8 +4455,9 @@ const copyForTwitter = useCallback(() => {
   stocksToShare.forEach(stock => {
     const change = parseFloat(stock.change) || 0;
     const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
-    const catalyst = (stock.catalyst || stock.trigger || '').slice(0, 60);
-    text += `$${stock.symbol} ${changeStr} — ${catalyst}\n`;
+    const catalyst = (stock.catalyst || stock.trigger || '');
+    const catalystHook = (catalyst.includes(' — ') ? catalyst.split(' — ')[0] : catalyst).slice(0, 60);
+    text += `$${stock.symbol} ${changeStr} — ${catalystHook}\n`;
   });
   text += `\nFound with jckrbbt.io`;
   text += handle;
@@ -8250,19 +8356,38 @@ ref={cardRef}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">
-              {stock.catalystType === 'early_signal' ? 'Unusual Activity Detected' : 'Why It\'s Moving'}
+              {stock.catalystType === 'early_signal' ? 'Unusual Activity Detected' : stock.catalystType === 'options_first' ? 'Smart Money Positioning' : 'Why It\'s Moving'}
             </p>
-            <p className="text-lg md:text-2xl font-black text-white leading-tight">
-              {(() => {
-                const c = stock.catalyst || '';
-                const isUseless = c.toLowerCase().includes('no clear') || 
-                                  c.toLowerCase().includes('not identified') || 
-                                  c.toLowerCase().includes('provided summaries') ||
-                                  c.toLowerCase().includes('no catalyst');
-                if (c && !isUseless) return c;
-                return stock.headline?.slice(0, 80) || stock.trigger || 'Unusual activity detected';
-              })()}
-            </p>
+            {(() => {
+              const c = stock.catalyst || '';
+              const isUseless = c.toLowerCase().includes('no clear') || 
+                                c.toLowerCase().includes('not identified') || 
+                                c.toLowerCase().includes('provided summaries') ||
+                                c.toLowerCase().includes('no catalyst');
+              const text = (c && !isUseless) ? c : (stock.headline?.slice(0, 120) || stock.trigger || 'Unusual activity detected');
+              
+              // Split on " — " to separate hook from detail
+              const dashIdx = text.indexOf(' — ');
+              if (dashIdx > 0 && dashIdx < text.length - 4) {
+                const hook = text.slice(0, dashIdx);
+                const detail = text.slice(dashIdx + 3);
+                return (
+                  <>
+                    <p className="text-base md:text-xl font-black text-white leading-tight mb-1.5">
+                      {hook}
+                    </p>
+                    <p className="text-sm md:text-base text-zinc-400 leading-relaxed font-medium">
+                      {detail}
+                    </p>
+                  </>
+                );
+              }
+              return (
+                <p className="text-base md:text-xl font-black text-white leading-tight">
+                  {text}
+                </p>
+              );
+            })()}
           </div>
         </div>
 
