@@ -804,6 +804,7 @@ const [scanPriceMax, setScanPriceMax] = useState(500);
   const [publicWatchlists, setPublicWatchlists] = useState([]);
   const [selectedWatchlist, setSelectedWatchlist] = useState(null);
   const [expandedListCharts, setExpandedListCharts] = useState(new Set());
+  const [watchlistPrices, setWatchlistPrices] = useState({});
   const [showWatchlistModal, setShowWatchlistModal] = useState(false);
   const [editingWatchlist, setEditingWatchlist] = useState(null);
   const [showAddToListMenu, setShowAddToListMenu] = useState(null); // stockSymbol when menu is open
@@ -2408,6 +2409,45 @@ useEffect(() => {
   setSelectedWatchlist(null);
 }, [activeTab]);
 
+// Fetch current prices for watchlist stocks when a list is expanded
+useEffect(() => {
+  if (!selectedWatchlist) return;
+  
+  const allStocks = [];
+  // Gather from own watchlists
+  const ownList = watchlists.find(l => l.id === selectedWatchlist.id);
+  if (ownList) allStocks.push(...ownList.stocks);
+  // Gather from followed lists
+  const followedList = followedListsData?.find(l => l.id === selectedWatchlist.id);
+  if (followedList?.stocks) allStocks.push(...followedList.stocks);
+  
+  const symbols = [...new Set(allStocks.map(s => s.symbol).filter(Boolean))];
+  if (symbols.length === 0) return;
+  
+  const fetchPrices = async () => {
+    try {
+      const tickerParam = symbols.join(',');
+      const res = await fetch(
+        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickerParam}&apiKey=${POLYGON_KEY}`
+      );
+      const data = await res.json();
+      const prices = {};
+      data.tickers?.forEach(t => {
+        if (t.day?.c) {
+          prices[t.ticker] = { price: t.day.c, prevClose: t.prevDay?.c || null };
+        } else if (t.prevDay?.c) {
+          prices[t.ticker] = { price: t.prevDay.c, prevClose: t.prevDay.c };
+        }
+      });
+      setWatchlistPrices(prev => ({ ...prev, ...prices }));
+    } catch (e) {
+      console.log('Watchlist price fetch failed:', e.message);
+    }
+  };
+  
+  fetchPrices();
+}, [selectedWatchlist, watchlists, followedListsData]);
+
 // Close add-to-list menu on scroll (for positions and dashboard)
 useEffect(() => {
   if (!showAddToListMenu) return;
@@ -3162,7 +3202,9 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
             triggers.push(`[HOT] $${top.strike} calls: ${top.volume.toLocaleString()} vol vs ${top.oi.toLocaleString()} OI (${top.daysToExpiry}d exp)`);
           }
           
-          if (patterns.length === 0) return null;
+          // Require real conviction: 2+ broad patterns, OR 1 pattern + concentrated strike activity
+          // IV spike alone is noise on small caps, but IV spike + a specific hot contract = someone is positioning
+          if (patterns.length < 2 && highVolContracts.length === 0) return null;
           
           const price = t.day?.c || t.prevDay?.c;
           const change = t.todaysChangePerc || 0;
@@ -3859,20 +3901,35 @@ if (discoveredStocks.length === 0) {
   return;
 }
 
-// Shuffle for variety, but keep pre-move and early signals weighted highest
-const preMoveStocks = discoveredStocks.filter(s => s.catalystType === 'options_first');
-const earlyStocks = discoveredStocks.filter(s => s.catalystType === 'early_signal');
-const newsStocks = discoveredStocks.filter(s => s.catalystType === 'news');
-const otherStocks = discoveredStocks.filter(s => !['options_first', 'early_signal', 'news'].includes(s.catalystType));
+// Sort by signal quality — but bias toward NO-NEWS stocks (the whole point: catch them before news breaks)
+// Tier bonus ensures a 150-score early signal ranks above a 160-score catalyst
+// But a truly exceptional catalyst (200+) can still appear if no-news stocks are weak
+const tierBonus = (type) => {
+  if (type === 'options_first') return 40;  // Pre-move: highest alpha, smart money before anyone knows
+  if (type === 'early_signal') return 30;   // Activity before news: very valuable
+  return 0;                                  // Catalyst: news already out, fill remaining slots
+};
 
-// Shuffle each group
-const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
-const prioritized = [
-  ...shuffle(preMoveStocks),  // Pre-move options FIRST (highest alpha)
-  ...shuffle(earlyStocks),    // Early signals next
-  ...shuffle(newsStocks),
-  ...shuffle(otherStocks)
-];
+// SPACs/shell companies: volume spikes are usually redemption/arb noise, not real signals
+// Don't filter them — some users want them — but push them to the bottom
+const spacPenalty = (stock) => {
+  const name = (stock._company?.name || stock.catalyst || '').toLowerCase();
+  if (name.includes('acquisition corp') || name.includes('acquisition co') ||
+      name.includes('blank check') || name.includes('merger corp') || 
+      name.includes('merger sub') || name.includes('capital acquisition') ||
+      name.includes('holdings acquisition') || name.includes('sponsor') ||
+      /\bacquisition\b.*\bcorp\b/i.test(name)) return -80;
+  return 0;
+};
+
+const prioritized = [...discoveredStocks]
+  .map(s => ({ 
+    ...s, 
+    _sortScore: (s.anomalyScore || 0) + tierBonus(s.catalystType) + spacPenalty(s) + (Math.random() * 30 - 15) 
+  }))
+  .sort((a, b) => b._sortScore - a._sortScore);
+
+console.log(`📋 Top candidates by score: ${prioritized.slice(0, 10).map(s => `${s.ticker}(${s.anomalyScore}+${tierBonus(s.catalystType)}${spacPenalty(s) ? spacPenalty(s) : ''}=${s.anomalyScore + tierBonus(s.catalystType) + spacPenalty(s)}/${s.catalystType}/${s.patterns?.length}p)`).join(', ')}`);
 
 // Take more candidates when filtering by sector
 const candidateCount = 25;
@@ -6133,8 +6190,9 @@ setFilterSignal("all");
                    <div className="space-y-2 mt-3">
                     {list.stocks.map((stock) => {
                       const wsData = livePrices?.[stock.symbol];
-                      const currentPrice = wsData?.price ?? parseFloat(stock.price);
-                      const prevClose = stock.prevClose ? parseFloat(stock.prevClose) : null;
+                      const wpData = watchlistPrices?.[stock.symbol];
+                      const currentPrice = wsData?.price ?? wpData?.price ?? parseFloat(stock.price);
+                      const prevClose = wpData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
                       const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
                       const addedPrice = parseFloat(stock.addedPrice || stock.price);
                       const sinceAdded = addedPrice > 0 ? ((currentPrice - addedPrice) / addedPrice) * 100 : null;
@@ -6314,8 +6372,9 @@ setFilterSignal("all");
                       <div className="space-y-2 mt-4">
                         {list.stocks?.map((stock) => {
                           const wsData = livePrices?.[stock.symbol];
-                          const currentPrice = wsData?.price ?? parseFloat(stock.price || 0);
-                          const prevClose = stock.prevClose ? parseFloat(stock.prevClose) : null;
+                          const wpData = watchlistPrices?.[stock.symbol];
+                          const currentPrice = wsData?.price ?? wpData?.price ?? parseFloat(stock.price || 0);
+                          const prevClose = wpData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
                           const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
                           const chartKey = `followed-${list.id}-${stock.symbol}`;
                           const showListChart = expandedListCharts.has(chartKey);
