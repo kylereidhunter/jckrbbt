@@ -804,7 +804,6 @@ const [scanPriceMax, setScanPriceMax] = useState(500);
   const [publicWatchlists, setPublicWatchlists] = useState([]);
   const [selectedWatchlist, setSelectedWatchlist] = useState(null);
   const [expandedListCharts, setExpandedListCharts] = useState(new Set());
-  const [watchlistPrices, setWatchlistPrices] = useState({});
   const [showWatchlistModal, setShowWatchlistModal] = useState(false);
   const [editingWatchlist, setEditingWatchlist] = useState(null);
   const [showAddToListMenu, setShowAddToListMenu] = useState(null); // stockSymbol when menu is open
@@ -2409,45 +2408,6 @@ useEffect(() => {
   setSelectedWatchlist(null);
 }, [activeTab]);
 
-// Fetch current prices for watchlist stocks when a list is expanded
-useEffect(() => {
-  if (!selectedWatchlist) return;
-  
-  const allStocks = [];
-  // Gather from own watchlists
-  const ownList = watchlists.find(l => l.id === selectedWatchlist.id);
-  if (ownList) allStocks.push(...ownList.stocks);
-  // Gather from followed lists
-  const followedList = followedListsData?.find(l => l.id === selectedWatchlist.id);
-  if (followedList?.stocks) allStocks.push(...followedList.stocks);
-  
-  const symbols = [...new Set(allStocks.map(s => s.symbol).filter(Boolean))];
-  if (symbols.length === 0) return;
-  
-  const fetchPrices = async () => {
-    try {
-      const tickerParam = symbols.join(',');
-      const res = await fetch(
-        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickerParam}&apiKey=${POLYGON_KEY}`
-      );
-      const data = await res.json();
-      const prices = {};
-      data.tickers?.forEach(t => {
-        if (t.day?.c) {
-          prices[t.ticker] = { price: t.day.c, prevClose: t.prevDay?.c || null };
-        } else if (t.prevDay?.c) {
-          prices[t.ticker] = { price: t.prevDay.c, prevClose: t.prevDay.c };
-        }
-      });
-      setWatchlistPrices(prev => ({ ...prev, ...prices }));
-    } catch (e) {
-      console.log('Watchlist price fetch failed:', e.message);
-    }
-  };
-  
-  fetchPrices();
-}, [selectedWatchlist, watchlists, followedListsData]);
-
 // Close add-to-list menu on scroll (for positions and dashboard)
 useEffect(() => {
   if (!showAddToListMenu) return;
@@ -2628,6 +2588,7 @@ const isLikelyETF = (ticker) => {
 const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax) => {
   console.log(`🔍 ANOMALY + OPTIONS DISCOVERY`);
   console.log(`💰 Price range: $${priceMin} - $${priceMax}`);
+  setScanProgress(2);
   
   const movers = new Map();
   let allSnapshotTickers = []; // Save for options-first discovery
@@ -2806,6 +2767,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
 
   // ========== STEP 1: MARKET SNAPSHOT + SECTOR ETFs ==========
   setScanStatus('SCANNING MARKET DATA...');
+  setScanProgress(5);
   
   let sectorPerf = {};
   let spyChange = 0;
@@ -2923,6 +2885,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
 
   // ========== STEP 1.5: CORRELATION BREAKDOWN DETECTION ==========
   setScanStatus('ANALYZING SECTOR CORRELATIONS...');
+  setScanProgress(18);
   
   const topForCorrelation = [...movers.entries()]
     .sort((a, b) => b[1].anomalyScore - a[1].anomalyScore)
@@ -2970,6 +2933,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
 
   // ========== STEP 2: UNUSUAL OPTIONS ACTIVITY SCAN ==========
   setScanStatus('SCANNING OPTIONS FLOW...');
+  setScanProgress(22);
   
   const topForOptions = [...movers.entries()]
     .sort((a, b) => b[1].anomalyScore - a[1].anomalyScore)
@@ -3113,6 +3077,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
   // ========== STEP 2b: OPTIONS-FIRST DISCOVERY (pre-move detection) ==========
   // Scan FLAT stocks for unusual options activity — catches smart money positioning before price moves
   setScanStatus('SCANNING QUIET OPTIONS FLOW...');
+  setScanProgress(38);
   
   const flatCandidates = allSnapshotTickers
     .filter(t => {
@@ -3202,9 +3167,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
             triggers.push(`[HOT] $${top.strike} calls: ${top.volume.toLocaleString()} vol vs ${top.oi.toLocaleString()} OI (${top.daysToExpiry}d exp)`);
           }
           
-          // Require real conviction: 2+ broad patterns, OR 1 pattern + concentrated strike activity
-          // IV spike alone is noise on small caps, but IV spike + a specific hot contract = someone is positioning
-          if (patterns.length < 2 && highVolContracts.length === 0) return null;
+          if (patterns.length === 0) return null;
           
           const price = t.day?.c || t.prevDay?.c;
           const change = t.todaysChangePerc || 0;
@@ -3224,6 +3187,11 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
     );
     
     batchResults.filter(Boolean).forEach(result => {
+      // Tighten pre-move: require 2+ options patterns OR 1 pattern + hot contract
+      const optPatterns = result.patterns.filter(p => ['OPTIONS_UNUSUAL', 'OPTIONS_OTM_CALLS', 'OPTIONS_IV_SPIKE'].includes(p));
+      const hasHotContract = result.optionsData?.topContracts?.length >= 1;
+      if (optPatterns.length < 2 && !(optPatterns.length >= 1 && hasHotContract)) return;
+      
       // Add PRE_MOVE tag — this is the key signal: options activity with NO price move
       result.patterns.unshift('PRE_MOVE');
       result.triggers.unshift(`[PRE-MOVE] Flat price (${result.change}%) but unusual options positioning`);
@@ -3279,6 +3247,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
 
   // ========== STEP 3: CHECK NEWS COVERAGE ==========
   setScanStatus('CHECKING NEWS COVERAGE...');
+  setScanProgress(48);
   
   const sortedByAnomaly = [...movers.entries()]
     .sort((a, b) => b[1].anomalyScore - a[1].anomalyScore)
@@ -3346,6 +3315,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
   const signalsToVerify = [...earlySignals.slice(0, 15), ...preMoveSignals.slice(0, 10)];
   if (signalsToVerify.length > 0) {
     setScanStatus('VERIFYING EARLY SIGNALS...');
+    setScanProgress(58);
     const twoDaysMs = 48 * 60 * 60 * 1000;
     const promoted = []; // stocks that actually have news → move to Tier 2
     
@@ -3398,6 +3368,7 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
 
   // ========== STEP 5: FETCH COMPANY CONTEXT + AI ANALYSIS ==========
   setScanStatus('FETCHING COMPANY CONTEXT...');
+  setScanProgress(65);
   
   // Batch fetch company names & industries for AI context
   const allAIStocks = [...earlySignals.slice(0, 20), ...catalystStocks.slice(0, 25), ...preMoveSignals.slice(0, 15)];
@@ -3451,48 +3422,35 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
     return `${i + 1}. ${parts.join(' | ')}`;
   };
 
-  // Helper: build a readable fallback description from raw data (when AI doesn't run)
+  setScanStatus('ANALYZING ANOMALIES...');
+  setScanProgress(72);
+
+  // Helper: generate human-readable descriptions from raw data when AI doesn't run
   const buildReadableFallback = (s, type) => {
     const company = companyContext[s.ticker];
     const name = company?.name || s.ticker;
-    const industry = company?.industry ? ` ${company.industry.toLowerCase()}` : '';
+    const industry = company?.industry ? `, a ${company.industry.toLowerCase()}` : '';
+    const volText = s.volumeRatio ? `${s.volumeRatio}x normal volume` : '';
     const parts = [];
-    
+    if (s.patterns?.includes('INSTITUTIONAL_FOOTPRINT')) parts.push('institutional block buying');
+    if (s.patterns?.includes('QUIET_ACCUMULATION')) parts.push('quiet accumulation');
+    if (s.patterns?.includes('VOLUME_SPIKE')) parts.push(volText || 'volume spike');
+    if (s.patterns?.includes('MOMENTUM')) parts.push(`up ${s.change}%`);
+    if (s.patterns?.includes('SECTOR_DIVERGENCE')) parts.push('diverging from sector');
+    if (s.patterns?.includes('BREAKOUT_52W')) parts.push('near 52-week high');
+    if (s.patterns?.includes('OPTIONS_IV_SPIKE')) parts.push('elevated IV');
+    if (s.patterns?.includes('OPTIONS_OTM_CALLS')) parts.push('heavy OTM call buying');
+    if (s.patterns?.includes('OPTIONS_UNUSUAL')) parts.push('unusual call volume vs open interest');
+    const signals = parts.slice(0, 3).join(', ');
     if (type === 'options_first') {
-      parts.push(`${name}${industry} sitting flat`);
-      if (s.optionsData) {
-        const ratio = (s.optionsData.callVolume / Math.max(s.optionsData.openInterest, 1)).toFixed(1);
-        if (s.optionsData.topContracts?.[0]) {
-          const tc = s.optionsData.topContracts[0];
-          parts.push(`$${tc.strike} calls loading at ${ratio}x open interest, ${tc.daysToExpiry} days to expiry`);
-        } else {
-          parts.push(`call volume surging at ${ratio}x open interest`);
-        }
-        if (s.optionsData.avgIV > 0.8) parts.push(`IV elevated at ${(s.optionsData.avgIV * 100).toFixed(0)}%`);
-      }
-      return parts.join(' while ') + ' — potential smart money positioning ahead of catalyst';
+      return `${name}${industry} showing ${signals} — no news yet, options market pricing in an undisclosed catalyst`;
+    } else if (type === 'early_signal') {
+      return `${name}${industry} showing ${signals} — no news yet, something may be developing behind the scenes`;
+    } else {
+      const headline = s.headline || s.recentNews?.[0]?.title || '';
+      return headline ? `${name}${industry}: ${headline.slice(0, 80)}` : `${name}${industry} showing ${signals}`;
     }
-    
-    if (type === 'early_signal') {
-      parts.push(`${name}${industry}`);
-      const signals = [];
-      if (s.volumeRatio >= 3) signals.push(`${s.volumeRatio}x normal volume`);
-      if (s.patterns?.includes('INSTITUTIONAL_FOOTPRINT')) signals.push('institutional block buying');
-      if (s.patterns?.includes('QUIET_ACCUMULATION')) signals.push('quiet accumulation');
-      if (s.patterns?.includes('SECTOR_DIVERGENCE')) signals.push(`diverging from ${s.sectorETF || 'sector'}`);
-      if (s.patterns?.includes('MOMENTUM')) signals.push('momentum building');
-      if (s.near52High) signals.push('near 52-week high');
-      if (s.optionsData?.avgIV > 0.8) signals.push(`IV spiking to ${(s.optionsData.avgIV * 100).toFixed(0)}%`);
-      if (signals.length > 0) parts.push(`showing ${signals.slice(0, 3).join(', ')}`);
-      return parts.join(' ') + ' — no news yet, something may be developing';
-    }
-    
-    // catalyst/news fallback
-    if (s.headline) return s.headline.slice(0, 120);
-    return `${name}${industry} moving on ${s.volumeRatio ? s.volumeRatio + 'x volume' : 'elevated activity'}`;
   };
-
-  setScanStatus('ANALYZING ANOMALIES...');
   
   // AI for EARLY SIGNALS — synthesize all signals into a compelling narrative
   if (earlySignals.length > 0) {
@@ -3546,37 +3504,45 @@ Return ONLY a numbered list:
 
   
   // AI for CATALYST STOCKS — news + technical context narrative
+  setScanProgress(80);
   if (catalystStocks.length > 0) {
     try {
       const toAnalyze = catalystStocks.slice(0, 25);
       const input = toAnalyze.map((s, i) => {
         const company = companyContext[s.ticker];
         const newsText = s.recentNews?.slice(0, 2).map(n => n.title).join(' | ') || s.headline;
-        // Start with the rich context from buildStockContext
-        const base = buildStockContext(s, i);
-        // Add news headlines (the key differentiator for catalyst stocks)
-        return `${base} | news: "${newsText}"`;
+        const parts = [];
+        parts.push(`${s.ticker}${company ? ` (${company.name}${company.industry ? ' — ' + company.industry : ''})` : ''}`);
+        parts.push(`+${s.change}%, vol: ${s.volumeRatio}x avg`);
+        parts.push(`news: "${newsText}"`);
+        if (s.optionsData) {
+          const ratio = (s.optionsData.callVolume / Math.max(s.optionsData.openInterest, 1)).toFixed(1);
+          parts.push(`options: ${ratio}x call/OI`);
+        }
+        if (s.patterns.includes('SECTOR_DIVERGENCE')) parts.push('diverging from sector');
+        if (s.patterns.includes('INSTITUTIONAL_FOOTPRINT')) parts.push('institutional accumulation');
+        if (s.near52High) parts.push('near 52w high');
+        return `${i + 1}. ${parts.join(' | ')}`;
       }).join('\n');
       
       const result = await aiModel.generateContent(
-        `You are a stock market analyst writing for active traders. These stocks have NEWS driving them plus technical confirmation signals.
+        `You are a stock analyst writing for active traders. These stocks have NEWS driving them.
 
 For each stock, write a 30-45 word narrative in TWO parts separated by " — ":
-PART 1 (the catalyst): Lead with the SPECIFIC news event — use exact numbers, drug names, deal sizes, earnings beats, guidance raises, contract values. Name the company first.
-PART 2 (why it matters): Connect the news to the technical signals. Is smart money confirming the move? Is this the start of a bigger trend? What should the trader watch for next?
+PART 1 (the catalyst): Lead with SPECIFIC news details — drug names, deal sizes, earnings beats/misses, contract values, regulatory decisions
+PART 2 (the setup): Connect the news to technical confirmation — is smart money piling in? Options surging? Breaking key levels?
 
 RULES:
-- Always name the company and what it does in the first few words
-- Lead with the NEWS — that's why these stocks are here
-- Use specific details from the headlines (don't generalize "positive news")
-- If there are supporting signals (options, accumulation, sector divergence, 52w high), weave them in as CONFIRMATION of the news
-- Never say "positive news drives shares higher" — tell us WHAT the news IS
+- Be specific: "$2.3B acquisition" not "positive deal news"
+- Include numbers: "beat by 22%" not "strong earnings"
+- Use the technical signals to validate the news: "8x volume confirms this isn't just headlines"
+- Never say "positive news" or "shares rise" — tell the trader WHY and WHAT COMES NEXT
 
 Bad: "Positive news drives shares higher on volume"
-Bad: "Strong earnings report with technical confirmation"
-Good: "Graham Corporation beats Q4 by 22% and raises FY guidance to $580M — breaking through 52-week highs on 8x volume with call options surging, momentum setup for continuation"
-Good: "FDA grants priority review to lead cancer immunotherapy candidate — call volume exploding at 5x OI with IV spiking to 180%, market pricing in approval by June PDUFA date"
-Good: "Wins $340M Navy submarine contract, largest in company history — institutional blocks loading with stock diverging +4% from XLI, defense budget tailwinds ahead"
+Bad: "Company reports strong earnings, stock moves up"
+Good: "FDA fast-tracks cancer immunotherapy into priority review, $45 calls surging 5x open interest — institutional buyers loading suggests multi-day runner ahead"
+Good: "Beat Q4 by 22% and raised FY guidance above consensus, breaking 52-week high on 8x volume — momentum just starting as shorts scramble to cover"
+Good: "$500M DoD drone contract awarded, stock diverging +4% from XLI sector — smart money accumulating with near-term calls stacking"
 
 Stocks:
 ${input}
@@ -3614,6 +3580,7 @@ Return ONLY a numbered list:
 
   // ========== STEP 5b: AI ANALYSIS FOR PRE-MOVE OPTIONS ==========
   setScanStatus('ANALYZING PRE-MOVE OPTIONS...');
+  setScanProgress(88);
   const preMoveStocksForAI = preMoveSignals; // Already filtered: no news
   
   if (preMoveStocksForAI.length > 0) {
@@ -3622,24 +3589,25 @@ Return ONLY a numbered list:
       const input = toAnalyze.map((s, i) => buildStockContext(s, i)).join('\n');
       
       const result = await aiModel.generateContent(
-        `You are a stock market detective specializing in unusual options flow. These stocks have FLAT prices but UNUSUAL options activity and NO news — this is the most valuable signal: smart money positioning BEFORE a move.
+        `You are a smart money detective. These stocks have FLAT prices but UNUSUAL options activity and NO news — someone is positioning before a catalyst.
 
 For each stock, write a 30-45 word narrative in TWO parts separated by " — ":
-PART 1 (the setup): Name the company, its business, and describe the SPECIFIC options positioning (strike prices, expiry timeline, volume vs open interest ratios, IV levels)
-PART 2 (the theory): Based on the industry and the specific options structure, what could smart money be anticipating? Be specific — M&A, earnings surprise, FDA decision, contract award, activist involvement?
+PART 1: Name the company, its business, and describe the exact options positioning (strikes, expiry timeline, volume vs OI ratios, IV level)
+PART 2: Use the OPTIONS TIMELINE as a clue to the catalyst type:
+  - 7-14 days out = imminent event (data readout, ruling, contract decision)
+  - 30-60 days out = earnings play or scheduled FDA date
+  - 90+ days out = strategic positioning (M&A thesis, sector rotation)
 
 RULES:
-- Name the company and industry in the first few words — context matters (a biotech with options activity means something completely different than a bank)
-- Use EXACT numbers: "$45 calls loading at 5x open interest" not "heavy call activity"
-- The expiry timeline is a critical clue — 7-14 days = imminent catalyst, 30-60 days = earnings/FDA, 90+ days = strategic position
-- If there are OTHER signals (accumulation, institutional footprint, sector divergence), they strengthen the theory
-- Never say "unusual options activity detected" — that's WHAT the scanner found, you need to say what it MEANS
+- Industry context MUST inform your theory (biotech ≠ bank ≠ defense)
+- Include specific numbers from the data
+- The theory should explain WHY this timeline makes sense for this company
+- Never say "bullish sentiment" or "aggressive positioning" — say WHAT they're positioning FOR
 
 Bad: "High IV spike and call volume exceeding open interest — aggressive bullish sentiment"
-Bad: "Options flow suggests smart money positioning — worth monitoring"
-Good: "Community bank sitting flat while $45 calls load at 5x open interest with 12 days to expiry — concentrated near-term positioning suggests someone expects an acquisition bid before month-end"
-Good: "Biotech with quiet institutional accumulation and aggressive $30 OTM calls at 140% IV, 21 days out — pattern is textbook pre-readout positioning ahead of Phase 3 data"
-Good: "Semiconductor supplier diverging +2% from SMH while IV spikes to 120% on $60 calls 30 days out — market makers pricing in unannounced design win or strategic review"
+Good: "Community bank flat while $45 calls load at 5x OI, 12 days out — timeline aligns with Q4 earnings, someone expects a blowout or acquisition announcement"
+Good: "Biotech showing quiet accumulation with $30 OTM calls surging, IV at 140%, expiring in 21 days — positioning consistent with Phase 3 data readout imminent"
+Good: "Defense contractor flat on a green tape, $85 calls 6x OI with 45-day expiry — timeline suggests front-running a major contract award cycle"
 
 Stocks:
 ${input}
@@ -3676,7 +3644,7 @@ Return ONLY a numbered list:
 
   return { stocks: allStocks, total: movers.size };
   
-}, [setScanStatus, isLikelyETF, aiModel]);
+}, [setScanStatus, setScanProgress, isLikelyETF, aiModel]);
 
 
 
@@ -3901,58 +3869,44 @@ if (discoveredStocks.length === 0) {
   return;
 }
 
-// Sort by signal quality — but bias toward NO-NEWS stocks (the whole point: catch them before news breaks)
-// Tier bonus ensures a 150-score early signal ranks above a 160-score catalyst
-// But a truly exceptional catalyst (200+) can still appear if no-news stocks are weak
-const tierBonus = (type) => {
-  if (type === 'options_first') return 40;  // Pre-move: highest alpha, smart money before anyone knows
-  if (type === 'early_signal') return 30;   // Activity before news: very valuable
-  return 0;                                  // Catalyst: news already out, fill remaining slots
+// Score-based ordering with tier bonuses (replaces tier-based priority)
+const isLikelySPAC = (name) => {
+  if (!name) return false;
+  const n = name.toLowerCase();
+  return n.includes('acquisition corp') || n.includes('acquisition co') || n.includes('blank check') ||
+    n.includes('merger corp') || n.includes('capital acquisition') || n.includes('equity partners') ||
+    n.includes('growth capital') || n.includes('venture acquisition') || /\bacquisition\b/.test(n) || /\bspac\b/.test(n);
 };
 
-// SPACs/shell companies: volume spikes are usually redemption/arb noise, not real signals
-// Don't filter them — some users want them — but push them to the bottom
-const spacPenalty = (stock) => {
-  const name = (stock._company?.name || stock.catalyst || '').toLowerCase();
-  if (name.includes('acquisition corp') || name.includes('acquisition co') ||
-      name.includes('blank check') || name.includes('merger corp') || 
-      name.includes('merger sub') || name.includes('capital acquisition') ||
-      name.includes('holdings acquisition') || name.includes('sponsor') ||
-      name.includes('equity partners') || name.includes('growth capital') ||
-      name.includes('venture acquisition') || name.includes('strategic acquisitions') ||
-      /\bacquisition\b/i.test(name) ||
-      /\bspac\b/i.test(name)) return -80;
-  return 0;
+const isDebtInstrument = (name) => {
+  if (!name) return false;
+  const n = name.toLowerCase();
+  return n.includes(' bonds') || n.includes(' bond ') || n.includes('debenture') || n.includes('notes due') ||
+    n.includes('% senior') || n.includes('% subordinated') || n.includes('convertible note') ||
+    n.includes('fixed rate') || n.includes('floating rate') || n.includes('capital securities') ||
+    n.includes('debt') || n.includes('warrant');
 };
 
-// Recently-scanned stocks: soft penalty instead of hard block
-// A strong signal (185) that was seen recently still beats a weak fresh stock (90)
-// But between two similar-scored stocks, the fresh one wins
 const recentTickers = getRecentTickers();
-const recentPenalty = (stock) => recentTickers.has(stock.ticker) ? -50 : 0;
 
-const prioritized = [...discoveredStocks]
-  .map(s => ({ 
-    ...s, 
-    _sortScore: (s.anomalyScore || 0) + tierBonus(s.catalystType) + spacPenalty(s) + recentPenalty(s) + (Math.random() * 30 - 15) 
-  }))
-  .sort((a, b) => b._sortScore - a._sortScore);
+// Add tier bonus + SPAC penalty + recently-seen penalty, then sort by total score
+const sortedCandidates = discoveredStocks.map(s => {
+  const tierBonus = s.catalystType === 'options_first' ? 40 : s.catalystType === 'early_signal' ? 30 : 0;
+  const spacPenalty = isLikelySPAC(s._company?.name) ? -80 : 0;
+  const seenPenalty = recentTickers.has(s.ticker) ? -50 : 0;
+  const jitter = Math.floor(Math.random() * 31) - 15;
+  const finalScore = (s.anomalyScore || 0) + tierBonus + spacPenalty + seenPenalty + jitter;
+  return { ...s, finalScore, tierBonus, spacPenalty, seenPenalty };
+}).sort((a, b) => b.finalScore - a.finalScore);
 
-console.log(`📋 Top candidates by score: ${prioritized.slice(0, 10).map(s => {
-  const tb = tierBonus(s.catalystType);
-  const sp = spacPenalty(s);
-  const rp = recentPenalty(s);
-  const base = s.anomalyScore || 0;
-  const bonuses = `${tb ? '+' + tb : ''}${sp ? sp : ''}${rp ? rp : ''}`;
-  return `${s.ticker}(${base}${bonuses}=${base + tb + sp + rp}/${s.catalystType}/${s.patterns?.length}p${rp ? '/seen' : ''})`;
-}).join(', ')}`);
+console.log(`📋 Top candidates by score: ${sortedCandidates.slice(0, 10).map(s => 
+  `${s.ticker}(${s.anomalyScore}${s.tierBonus ? '+' + s.tierBonus : ''}${s.seenPenalty ? s.seenPenalty : ''}=${s.finalScore}/${s.catalystType}/${(s.patterns||[]).length}p${s.seenPenalty ? '/seen' : ''})`
+).join(', ')}`);
 
-// Take more candidates when filtering by sector
-const candidateCount = 25;
-const candidates = prioritized.slice(0, candidateCount);
+const candidates = sortedCandidates.slice(0, 25);
 
 setScanStatus('VERIFYING STOCKS...');
-setScanProgress(60);
+setScanProgress(92);
 
 // Verify each stock
 const verified = [];
@@ -4002,22 +3956,15 @@ for (const stock of candidates) {
       nameLower.includes(' 2x') ||
       nameLower.includes(' 3x') ||
       nameLower.includes('2x ') ||
-      nameLower.includes('3x ') ||
-      // Debt instruments — not stocks
-      nameLower.includes(' bonds') ||
-      nameLower.includes(' bond ') ||
-      nameLower.includes('debenture') ||
-      nameLower.includes('notes due') ||
-      nameLower.includes('% senior') ||
-      nameLower.includes('% subordinated') ||
-      nameLower.includes('convertible note') ||
-      nameLower.includes('fixed rate') ||
-      nameLower.includes('floating rate') ||
-      nameLower.includes('capital securities') ||
-      nameLower.includes('debt') ||
-      nameLower.includes('warrant')
+      nameLower.includes('3x ')
     ) {
       console.log(`❌ Filtered: ${stock.ticker} (${name})`);
+      continue;
+    }
+
+    // Debt instrument hard filter
+    if (isDebtInstrument(name)) {
+      console.log(`❌ Filtered: ${stock.ticker} (${name}) [debt]`);
       continue;
     }
 
@@ -4062,7 +4009,7 @@ for (const stock of candidates) {
 if (verified.length === 0) {
   // Fallback: relax filters - allow recently scanned, expand candidates
   setScanStatus('EXPANDING SEARCH...');
-  const fallbackCandidates = prioritized.slice(0, 120);
+  const fallbackCandidates = sortedCandidates.slice(0, 120);
   
   for (const stock of fallbackCandidates) {
     if (verified.length >= 5) break;
@@ -4090,6 +4037,7 @@ if (verified.length === 0) {
         nameLower.includes(' 2x') || nameLower.includes(' 3x') ||
         nameLower.includes('2x ') || nameLower.includes('3x ')
       ) continue;
+      if (isDebtInstrument(name)) continue;
 
       const earnings = await fetchEarningsDate(stock.ticker);
       
@@ -4510,10 +4458,10 @@ const copyForReddit = useCallback(() => {
     const price = stock.price ? `$${parseFloat(stock.price).toFixed(2)}` : '-';
     const change = parseFloat(stock.change) || 0;
     const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
-    const catalyst = (stock.catalyst || stock.trigger || '');
-    const catalystHook = (catalyst.includes(' — ') ? catalyst.split(' — ')[0] : catalyst).slice(0, 80);
+    const catalystHook = (stock.catalyst || stock.trigger || '');
+    const catalyst = (catalystHook.includes(' — ') ? catalystHook.split(' — ')[0] : catalystHook).slice(0, 80);
     const earlyTag = stock.signalTier === 1 ? '🔍 ' : '';
-    md += `|**${stock.symbol}**|${price}|${changeStr}|${earlyTag}${catalystHook}|\n`;
+    md += `|**${stock.symbol}**|${price}|${changeStr}|${earlyTag}${catalyst}|\n`;
   });
   md += `\nScanned with [jckrbbt.io](https://jckrbbt.io)${handle} — free AI stock scanner\n`;
   md += `\n*Not financial advice. For informational purposes only.*`;
@@ -4534,9 +4482,9 @@ const copyForTwitter = useCallback(() => {
   stocksToShare.forEach(stock => {
     const change = parseFloat(stock.change) || 0;
     const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
-    const catalyst = (stock.catalyst || stock.trigger || '');
-    const catalystHook = (catalyst.includes(' — ') ? catalyst.split(' — ')[0] : catalyst).slice(0, 60);
-    text += `$${stock.symbol} ${changeStr} — ${catalystHook}\n`;
+    const catalystRaw = (stock.catalyst || stock.trigger || '');
+    const catalyst = (catalystRaw.includes(' — ') ? catalystRaw.split(' — ')[0] : catalystRaw).slice(0, 60);
+    text += `$${stock.symbol} ${changeStr} — ${catalyst}\n`;
   });
   text += `\nFound with jckrbbt.io`;
   text += handle;
@@ -6212,9 +6160,8 @@ setFilterSignal("all");
                    <div className="space-y-2 mt-3">
                     {list.stocks.map((stock) => {
                       const wsData = livePrices?.[stock.symbol];
-                      const wpData = watchlistPrices?.[stock.symbol];
-                      const currentPrice = wsData?.price ?? wpData?.price ?? parseFloat(stock.price);
-                      const prevClose = wpData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
+                      const currentPrice = wsData?.price ?? parseFloat(stock.price);
+                      const prevClose = stock.prevClose ? parseFloat(stock.prevClose) : null;
                       const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
                       const addedPrice = parseFloat(stock.addedPrice || stock.price);
                       const sinceAdded = addedPrice > 0 ? ((currentPrice - addedPrice) / addedPrice) * 100 : null;
@@ -6394,9 +6341,8 @@ setFilterSignal("all");
                       <div className="space-y-2 mt-4">
                         {list.stocks?.map((stock) => {
                           const wsData = livePrices?.[stock.symbol];
-                          const wpData = watchlistPrices?.[stock.symbol];
-                          const currentPrice = wsData?.price ?? wpData?.price ?? parseFloat(stock.price || 0);
-                          const prevClose = wpData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
+                          const currentPrice = wsData?.price ?? parseFloat(stock.price || 0);
+                          const prevClose = stock.prevClose ? parseFloat(stock.prevClose) : null;
                           const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
                           const chartKey = `followed-${list.id}-${stock.symbol}`;
                           const showListChart = expandedListCharts.has(chartKey);
@@ -8449,7 +8395,7 @@ ref={cardRef}
               
               // Split on " — " to separate hook from detail
               const dashIdx = text.indexOf(' — ');
-              if (dashIdx > 0 && dashIdx < text.length - 4) {
+              if (dashIdx > 15 && dashIdx < text.length - 4) {
                 const hook = text.slice(0, dashIdx);
                 const detail = text.slice(dashIdx + 3);
                 return (
