@@ -902,7 +902,9 @@ const [showDashboardNews, setShowDashboardNews] = useState(false);
 const [showAllNews, setShowAllNews] = useState(false);
 const [scanHistory, setScanHistory] = useState([]);
 const [showScanHistory, setShowScanHistory] = useState(false);
+const [scanAccuracy, setScanAccuracy] = useState({ stats: null, byTicker: {} });
 const [accountsExpanded, setAccountsExpanded] = useState(false);
+const [watchlistPrices, setWatchlistPrices] = useState({});
 const [positionSortBy, setPositionSortBy] = useState('value-high');
 const [editingCostBasis, setEditingCostBasis] = useState(null);
 const [costBasisInput, setCostBasisInput] = useState('');
@@ -1333,6 +1335,37 @@ const flattenedWatchlist = useMemo(() => {
   return watchlists.flatMap(l => l.stocks);
 }, [watchlists]);
 
+// Fetch Polygon snapshot prices for watchlist stocks (WS only covers scanned stocks)
+useEffect(() => {
+  if (flattenedWatchlist.length === 0) return;
+  const tickers = [...new Set(flattenedWatchlist.map(s => s.symbol).filter(Boolean))];
+  if (tickers.length === 0) return;
+  
+  const fetchWatchlistPrices = async () => {
+    try {
+      const res = await fetch(
+        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers.join(',')}&apiKey=${POLYGON_KEY}`
+      );
+      const data = await res.json();
+      const prices = {};
+      (data.tickers || []).forEach(t => {
+        prices[t.ticker] = {
+          price: t.day?.c || t.prevDay?.c || 0,
+          prevClose: t.prevDay?.c || 0
+        };
+      });
+      setWatchlistPrices(prices);
+    } catch (e) {
+      console.error('Watchlist price fetch failed:', e);
+    }
+  };
+  
+  fetchWatchlistPrices();
+  // Refresh every 5 minutes
+  const interval = setInterval(fetchWatchlistPrices, 5 * 60 * 1000);
+  return () => clearInterval(interval);
+}, [flattenedWatchlist.length]);
+
 // Collect unique tickers for websocket based on active tab
 const wsTickers = useMemo(() => {
   const tickerSet = new Set();
@@ -1613,12 +1646,17 @@ const logScanHistory = async (scannedStocks) => {
     const existing = await getDoc(histRef);
     const prev = existing.exists() ? existing.data().scans || [] : [];
     
+    const scanBatchId = Date.now().toString(36);
     const newEntries = scannedStocks.map(s => ({
       symbol: s.symbol,
       name: s.name,
       price: s.price,
+      entryPrice: parseFloat(s.price) || 0,
       change: s.change,
       catalystType: s.catalystType || 'manual',
+      sentiment: s.sentiment || 'NEUTRAL',
+      patterns: (s.patterns || []).slice(0, 5),
+      scanBatchId,
       timestamp: new Date().toISOString()
     }));
     
@@ -1655,6 +1693,110 @@ const loadScanHistory = async () => {
     console.error('Failed to load scan history:', e);
   }
 };
+
+// ========== ACCURACY TRACKING ==========
+const checkScanAccuracy = useCallback(async (history) => {
+  if (!history || history.length === 0) return;
+  
+  const now = Date.now();
+  const oneHour = 60 * 60 * 1000;
+  const fourHours = 4 * oneHour;
+  const twentyFourHours = 24 * oneHour;
+  
+  // Get entries from last 72h that are at least 1h old
+  const candidates = history.filter(s => {
+    const age = now - new Date(s.timestamp).getTime();
+    return age > oneHour && age < 72 * oneHour && (s.entryPrice > 0 || parseFloat(s.price) > 0);
+  });
+  
+  if (candidates.length === 0) {
+    setScanAccuracy({ stats: null, byTicker: {} });
+    return;
+  }
+  
+  // Batch-fetch current prices (Polygon snapshot supports multiple tickers)
+  const uniqueTickers = [...new Set(candidates.map(s => s.symbol))];
+  const tickerPrices = {};
+  
+  try {
+    // Fetch in batches of 20
+    for (let i = 0; i < uniqueTickers.length; i += 20) {
+      const batch = uniqueTickers.slice(i, i + 20);
+      const res = await fetch(
+        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${batch.join(',')}&apiKey=${POLYGON_KEY}`
+      );
+      const data = await res.json();
+      (data.tickers || []).forEach(t => {
+        tickerPrices[t.ticker] = t.day?.c || t.prevDay?.c || 0;
+      });
+      if (i + 20 < uniqueTickers.length) await new Promise(r => setTimeout(r, 200));
+    }
+  } catch (e) {
+    console.error('Accuracy price fetch failed:', e);
+    return;
+  }
+  
+  // Calculate per-entry results
+  const byTicker = {};
+  let totalChecked = 0;
+  let hit2pct = 0;
+  let hitDirectional = 0;
+  
+  candidates.forEach(entry => {
+    const currentPrice = tickerPrices[entry.symbol];
+    const entryPrice = entry.entryPrice || parseFloat(entry.price) || 0;
+    if (!currentPrice || !entryPrice) return;
+    
+    const pctChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+    const age = now - new Date(entry.timestamp).getTime();
+    const isBullish = entry.sentiment === 'BULLISH';
+    const moved2pct = Math.abs(pctChange) >= 2;
+    const correctDirection = isBullish ? pctChange >= 2 : pctChange <= -2;
+    
+    // Track best result per ticker (most recent scan entry)
+    if (!byTicker[entry.symbol] || new Date(entry.timestamp) > new Date(byTicker[entry.symbol].detectedAt)) {
+      byTicker[entry.symbol] = {
+        entryPrice: entryPrice,
+        currentPrice,
+        pctChange: parseFloat(pctChange.toFixed(2)),
+        detectedAt: entry.timestamp,
+        sentiment: entry.sentiment,
+        catalystType: entry.catalystType,
+        hit: correctDirection,
+        moved: moved2pct
+      };
+    }
+    
+    // Stats count only entries 4h+ old (enough time for signal to play out)
+    if (age >= fourHours) {
+      totalChecked++;
+      if (moved2pct) hit2pct++;
+      if (correctDirection) hitDirectional++;
+    }
+  });
+  
+  const stats = totalChecked > 0 ? {
+    totalChecked,
+    hit2pct,
+    hitDirectional,
+    hitRate: Math.round((hit2pct / totalChecked) * 100),
+    directionalRate: Math.round((hitDirectional / totalChecked) * 100),
+    lastUpdated: new Date().toISOString()
+  } : null;
+  
+  if (stats) {
+    console.log(`📊 Accuracy: ${stats.hit2pct}/${stats.totalChecked} moved 2%+ (${stats.hitRate}%), ${stats.hitDirectional} directionally correct (${stats.directionalRate}%)`);
+  }
+  
+  setScanAccuracy({ stats, byTicker });
+}, []);
+
+// Check accuracy when scan history loads or changes
+useEffect(() => {
+  if (scanHistory.length > 0) {
+    checkScanAccuracy(scanHistory);
+  }
+}, [scanHistory, checkScanAccuracy]);
 
 // Clear recently scanned stocks every 24 hours
 useEffect(() => {
@@ -5394,7 +5536,7 @@ searchTimeoutRef.current = setTimeout(async () => {
     >
       <History size={14} className={`md:w-4 md:h-4 ${showScanHistory ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
       <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showScanHistory ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
-        Scan History ({scanHistory.filter(s => new Date(s.timestamp) > new Date(Date.now() - 24*60*60*1000)).length} in 24hr)
+        Scan History ({scanHistory.filter(s => new Date(s.timestamp) > new Date(Date.now() - 24*60*60*1000)).length} in 24hr){scanAccuracy.stats ? ` • ${scanAccuracy.stats.hitRate}% hit rate` : ''}
       </span>
       <motion.span animate={{ rotate: showScanHistory ? 180 : 0 }} className={`text-[10px] ${showScanHistory ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
     </button>
@@ -5411,8 +5553,9 @@ searchTimeoutRef.current = setTimeout(async () => {
           <div className="space-y-2 max-h-[300px] overflow-y-auto">
             {scanHistory.map((scan, i) => {
               const isRecent = new Date(scan.timestamp) > new Date(Date.now() - 24*60*60*1000);
+              const age = Date.now() - new Date(scan.timestamp).getTime();
               const timeAgo = (() => {
-                const diff = Date.now() - new Date(scan.timestamp).getTime();
+                const diff = age;
                 const mins = Math.floor(diff / 60000);
                 if (mins < 60) return `${mins}m ago`;
                 const hrs = Math.floor(mins / 60);
@@ -5420,6 +5563,8 @@ searchTimeoutRef.current = setTimeout(async () => {
                 return `${Math.floor(hrs / 24)}d ago`;
               })();
               const change = parseFloat(scan.change);
+              const acc = scanAccuracy.byTicker[scan.symbol];
+              const hasResult = acc && age > 60 * 60 * 1000; // 1h+ old
               
               return (
                 <button
@@ -5434,26 +5579,43 @@ searchTimeoutRef.current = setTimeout(async () => {
                   className="w-full flex items-center justify-between p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 transition-all text-left"
                 >
                   <div className="flex items-center gap-3">
+                    {/* Accuracy dot */}
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      hasResult 
+                        ? (Math.abs(acc.pctChange) >= 2 
+                          ? (acc.hit ? 'bg-[#00ff4e]' : 'bg-yellow-500') 
+                          : 'bg-zinc-700')
+                        : 'bg-zinc-800'
+                    }`} title={hasResult ? `${acc.pctChange >= 0 ? '+' : ''}${acc.pctChange.toFixed(1)}% since detected` : 'Pending'} />
                     <div className="flex flex-col">
                       <span className="text-sm font-black text-white">{scan.symbol}</span>
                       <span className="text-[10px] text-zinc-500 truncate max-w-[120px]">{scan.name}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
                     <div className="text-right">
                       <span className="text-sm font-black text-white">${scan.price}</span>
                       <span className={`text-xs font-bold ml-2 ${change >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
                         {change >= 0 ? '+' : ''}{change.toFixed(2)}%
                       </span>
                     </div>
-                    <div className="flex flex-col items-end">
-                      <span className={`text-[9px] font-bold ${isRecent ? 'text-[#00ff4e]' : 'text-zinc-600'}`}>
-                        {timeAgo}
-                      </span>
-                      {isRecent && (
-                        <span className="text-[8px] text-zinc-600 uppercase">24hr lock</span>
-                      )}
-                    </div>
+                    {hasResult ? (
+                      <div className="flex flex-col items-end min-w-[52px]">
+                        <span className={`text-[10px] font-black ${acc.pctChange >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
+                          {acc.pctChange >= 0 ? '+' : ''}{acc.pctChange.toFixed(1)}%
+                        </span>
+                        <span className="text-[8px] text-zinc-600">{timeAgo}</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-end min-w-[52px]">
+                        <span className={`text-[9px] font-bold ${isRecent ? 'text-[#00ff4e]' : 'text-zinc-600'}`}>
+                          {timeAgo}
+                        </span>
+                        {age < 60 * 60 * 1000 && (
+                          <span className="text-[8px] text-zinc-700 uppercase">tracking</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </button>
               );
@@ -5678,9 +5840,79 @@ setFilterSignal("all");
   </div>
 )}
 
-{!isManualResult && displayedStocks.map((stock, index) => (
+{/* ACCURACY BANNER */}
+{!isManualResult && !loading && scanComplete && stocks.length > 0 && scanAccuracy.stats && (
+  <div className="mb-4 px-4 py-3 rounded-lg border" style={{ 
+    background: 'linear-gradient(135deg, rgba(0,255,78,0.03) 0%, rgba(0,0,0,0.4) 100%)',
+    borderColor: 'rgba(0,255,78,0.15)'
+  }}>
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-[#00ff4e] animate-pulse" />
+        <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-zinc-400">
+          Scanner Accuracy
+        </span>
+      </div>
+      <span className="text-[9px] text-zinc-600">
+        Last {scanAccuracy.stats.totalChecked} picks (4h+ old)
+      </span>
+    </div>
+    <div className="flex items-center gap-4 mt-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xl md:text-2xl font-black text-[#00ff4e]">
+          {scanAccuracy.stats.hitRate}%
+        </span>
+        <span className="text-[10px] text-zinc-500 leading-tight">
+          moved 2%+<br/>after detection
+        </span>
+      </div>
+      <div className="w-px h-8 bg-zinc-800" />
+      <div className="flex items-center gap-2">
+        <span className="text-xl md:text-2xl font-black text-white">
+          {scanAccuracy.stats.hit2pct}/{scanAccuracy.stats.totalChecked}
+        </span>
+        <span className="text-[10px] text-zinc-500 leading-tight">
+          picks hit<br/>2%+ move
+        </span>
+      </div>
+      {scanAccuracy.stats.directionalRate > 0 && (
+        <>
+          <div className="w-px h-8 bg-zinc-800 hidden md:block" />
+          <div className="items-center gap-2 hidden md:flex">
+            <span className="text-xl md:text-2xl font-black text-white">
+              {scanAccuracy.stats.directionalRate}%
+            </span>
+            <span className="text-[10px] text-zinc-500 leading-tight">
+              correct<br/>direction
+            </span>
+          </div>
+        </>
+      )}
+    </div>
+  </div>
+)}
+
+{!isManualResult && displayedStocks.map((stock, index) => {
+  const acc = scanAccuracy.byTicker[stock.symbol];
+  return (
+    <div key={stock.symbol}>
+      {acc && (
+        <div className="flex items-center gap-2 mb-2 px-3">
+          <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-600">Since detected</span>
+          <span className={`text-xs font-black ${acc.pctChange >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
+            {acc.pctChange >= 0 ? '↑' : '↓'} {acc.pctChange >= 0 ? '+' : ''}{acc.pctChange.toFixed(2)}%
+          </span>
+          <span className="text-[9px] text-zinc-700">
+            from ${acc.entryPrice.toFixed(2)} → ${acc.currentPrice.toFixed(2)}
+          </span>
+          {Math.abs(acc.pctChange) >= 2 && (
+            <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${acc.hit ? 'bg-[#00ff4e]/10 text-[#00ff4e] border border-[#00ff4e]/20' : 'bg-[#FF4B2B]/10 text-[#FF4B2B] border border-[#FF4B2B]/20'}`}>
+              {acc.hit ? '✓ Hit' : 'Moved'}
+            </span>
+          )}
+        </div>
+      )}
     <MetricCard 
-      key={stock.symbol}
       stock={getStableStock(stock)}
       isMarketOpen={isMarketOpen}
       livePrices={livePrices} 
@@ -5699,7 +5931,9 @@ setFilterSignal("all");
   db={db}
   connectedBrokerages={connectedBrokerages}
     />
-  ))}
+    </div>
+  );
+})}
 
   {/* Scan Complete Indicator */}
   {!loading && scanComplete && stocks.length > 0 && !isManualResult && (
@@ -6160,8 +6394,9 @@ setFilterSignal("all");
                    <div className="space-y-2 mt-3">
                     {list.stocks.map((stock) => {
                       const wsData = livePrices?.[stock.symbol];
-                      const currentPrice = wsData?.price ?? parseFloat(stock.price);
-                      const prevClose = stock.prevClose ? parseFloat(stock.prevClose) : null;
+                      const snapData = watchlistPrices?.[stock.symbol];
+                      const currentPrice = wsData?.price ?? snapData?.price ?? parseFloat(stock.price);
+                      const prevClose = snapData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
                       const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
                       const addedPrice = parseFloat(stock.addedPrice || stock.price);
                       const sinceAdded = addedPrice > 0 ? ((currentPrice - addedPrice) / addedPrice) * 100 : null;
@@ -6341,8 +6576,9 @@ setFilterSignal("all");
                       <div className="space-y-2 mt-4">
                         {list.stocks?.map((stock) => {
                           const wsData = livePrices?.[stock.symbol];
-                          const currentPrice = wsData?.price ?? parseFloat(stock.price || 0);
-                          const prevClose = stock.prevClose ? parseFloat(stock.prevClose) : null;
+                          const snapData = watchlistPrices?.[stock.symbol];
+                          const currentPrice = wsData?.price ?? snapData?.price ?? parseFloat(stock.price || 0);
+                          const prevClose = snapData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
                           const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
                           const chartKey = `followed-${list.id}-${stock.symbol}`;
                           const showListChart = expandedListCharts.has(chartKey);
