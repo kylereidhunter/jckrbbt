@@ -3918,18 +3918,34 @@ const spacPenalty = (stock) => {
       name.includes('blank check') || name.includes('merger corp') || 
       name.includes('merger sub') || name.includes('capital acquisition') ||
       name.includes('holdings acquisition') || name.includes('sponsor') ||
-      /\bacquisition\b.*\bcorp\b/i.test(name)) return -80;
+      name.includes('equity partners') || name.includes('growth capital') ||
+      name.includes('venture acquisition') || name.includes('strategic acquisitions') ||
+      /\bacquisition\b/i.test(name) ||
+      /\bspac\b/i.test(name)) return -80;
   return 0;
 };
+
+// Recently-scanned stocks: soft penalty instead of hard block
+// A strong signal (185) that was seen recently still beats a weak fresh stock (90)
+// But between two similar-scored stocks, the fresh one wins
+const recentTickers = getRecentTickers();
+const recentPenalty = (stock) => recentTickers.has(stock.ticker) ? -50 : 0;
 
 const prioritized = [...discoveredStocks]
   .map(s => ({ 
     ...s, 
-    _sortScore: (s.anomalyScore || 0) + tierBonus(s.catalystType) + spacPenalty(s) + (Math.random() * 30 - 15) 
+    _sortScore: (s.anomalyScore || 0) + tierBonus(s.catalystType) + spacPenalty(s) + recentPenalty(s) + (Math.random() * 30 - 15) 
   }))
   .sort((a, b) => b._sortScore - a._sortScore);
 
-console.log(`📋 Top candidates by score: ${prioritized.slice(0, 10).map(s => `${s.ticker}(${s.anomalyScore}+${tierBonus(s.catalystType)}${spacPenalty(s) ? spacPenalty(s) : ''}=${s.anomalyScore + tierBonus(s.catalystType) + spacPenalty(s)}/${s.catalystType}/${s.patterns?.length}p)`).join(', ')}`);
+console.log(`📋 Top candidates by score: ${prioritized.slice(0, 10).map(s => {
+  const tb = tierBonus(s.catalystType);
+  const sp = spacPenalty(s);
+  const rp = recentPenalty(s);
+  const base = s.anomalyScore || 0;
+  const bonuses = `${tb ? '+' + tb : ''}${sp ? sp : ''}${rp ? rp : ''}`;
+  return `${s.ticker}(${base}${bonuses}=${base + tb + sp + rp}/${s.catalystType}/${s.patterns?.length}p${rp ? '/seen' : ''})`;
+}).join(', ')}`);
 
 // Take more candidates when filtering by sector
 const candidateCount = 25;
@@ -3941,16 +3957,9 @@ setScanProgress(60);
 // Verify each stock
 const verified = [];
 
-const recentTickers = getRecentTickers();
-
 for (const stock of candidates) {
   if (verified.length >= 5) break;
   if (!stock.ticker) continue;
-  
-  if (recentTickers.has(stock.ticker)) {
-  console.log(`⏭️ Skipped (scanned recently): ${stock.ticker}`);
-  continue;
-}
   
   try {
     // Reuse company context from AI step if available, otherwise fetch
@@ -3993,7 +4002,20 @@ for (const stock of candidates) {
       nameLower.includes(' 2x') ||
       nameLower.includes(' 3x') ||
       nameLower.includes('2x ') ||
-      nameLower.includes('3x ')
+      nameLower.includes('3x ') ||
+      // Debt instruments — not stocks
+      nameLower.includes(' bonds') ||
+      nameLower.includes(' bond ') ||
+      nameLower.includes('debenture') ||
+      nameLower.includes('notes due') ||
+      nameLower.includes('% senior') ||
+      nameLower.includes('% subordinated') ||
+      nameLower.includes('convertible note') ||
+      nameLower.includes('fixed rate') ||
+      nameLower.includes('floating rate') ||
+      nameLower.includes('capital securities') ||
+      nameLower.includes('debt') ||
+      nameLower.includes('warrant')
     ) {
       console.log(`❌ Filtered: ${stock.ticker} (${name})`);
       continue;
