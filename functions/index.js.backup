@@ -4,21 +4,10 @@ const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 
 admin.initializeApp();
 
-// ============================================================
-// CONFIG — uses functions/.env (not deprecated functions.config())
-// ============================================================
-
-const PLAID_CLIENT_ID = process.env.PLAID_CLIENT_ID;
-const PLAID_SECRET = process.env.PLAID_SECRET;
-const PLAID_ENV = process.env.PLAID_ENV || 'production';
-
-const POLYGON_KEY = process.env.POLYGON_KEY;
-const FINNHUB_KEY = process.env.FINNHUB_KEY;
-const GEMINI_KEY = process.env.GEMINI_KEY;
-
-// ============================================================
-// PLAID CLIENT
-// ============================================================
+// Initialize Plaid client
+const PLAID_CLIENT_ID = functions.config().plaid?.client_id || '6978f77110c986001d23496d';
+const PLAID_SECRET = functions.config().plaid?.secret || 'fc9f96184fc3ed0fbb85bd06f8af1d';
+const PLAID_ENV = functions.config().plaid?.env || 'production';
 
 const configuration = new Configuration({
   basePath: PLAID_ENV === 'production' ? PlaidEnvironments.production : PlaidEnvironments.sandbox,
@@ -32,16 +21,14 @@ const configuration = new Configuration({
 
 const plaidClient = new PlaidApi(configuration);
 
-// ============================================================
-// HELPERS
-// ============================================================
-
+// Helper to add CORS headers
 const setCorsHeaders = (res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
 };
 
+// Helper to verify Firebase auth token
 const verifyAuth = async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -58,121 +45,6 @@ const verifyAuth = async (req, res) => {
     return null;
   }
 };
-
-// ============================================================
-// POLYGON PROXY
-// ============================================================
-// Usage: /polygonProxy?path=/v2/snapshot/locale/us/markets/stocks/tickers&tickers=AAPL,MSFT
-
-exports.polygonProxy = functions.https.onRequest(async (req, res) => {
-  setCorsHeaders(res);
-  if (req.method === 'OPTIONS') {
-    res.status(204).send('');
-    return;
-  }
-
-  try {
-    const { path, ...queryParams } = req.query;
-
-    if (!path) {
-      return res.status(400).json({ error: "Missing 'path' parameter" });
-    }
-
-    const params = new URLSearchParams(queryParams);
-    params.set('apiKey', POLYGON_KEY);
-
-    const url = `https://api.polygon.io${path}?${params.toString()}`;
-    const response = await fetch(url);
-    const data = await response.json();
-
-    if (path.includes('snapshot') || path.includes('reference')) {
-      res.set('Cache-Control', 'public, max-age=5, s-maxage=5');
-    }
-
-    res.status(response.status).json(data);
-  } catch (error) {
-    console.error('Polygon proxy error:', error);
-    res.status(500).json({ error: 'Polygon API request failed' });
-  }
-});
-
-// ============================================================
-// FINNHUB PROXY
-// ============================================================
-// Usage: /finnhubProxy?path=/api/v1/company-news&symbol=AAPL&from=2026-02-01&to=2026-02-14
-
-exports.finnhubProxy = functions.https.onRequest(async (req, res) => {
-  setCorsHeaders(res);
-  if (req.method === 'OPTIONS') {
-    res.status(204).send('');
-    return;
-  }
-
-  try {
-    const { path, ...queryParams } = req.query;
-
-    if (!path) {
-      return res.status(400).json({ error: "Missing 'path' parameter" });
-    }
-
-    const params = new URLSearchParams(queryParams);
-    params.set('token', FINNHUB_KEY);
-
-    const url = `https://finnhub.io${path}?${params.toString()}`;
-    const response = await fetch(url);
-    const data = await response.json();
-
-    res.set('Cache-Control', 'public, max-age=30, s-maxage=30');
-    res.status(response.status).json(data);
-  } catch (error) {
-    console.error('Finnhub proxy error:', error);
-    res.status(500).json({ error: 'Finnhub API request failed' });
-  }
-});
-
-// ============================================================
-// GEMINI AI PROXY
-// ============================================================
-// Usage: POST /geminiProxy  Body: { model: "gemini-2.0-flash", contents: [...] }
-
-exports.geminiProxy = functions.https.onRequest(async (req, res) => {
-  setCorsHeaders(res);
-  if (req.method === 'OPTIONS') {
-    res.status(204).send('');
-    return;
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'POST only' });
-  }
-
-  try {
-    const { model, contents, generationConfig, systemInstruction } = req.body;
-
-    const modelName = model || 'gemini-2.0-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_KEY}`;
-
-    const body = { contents };
-    if (generationConfig) body.generationConfig = generationConfig;
-    if (systemInstruction) body.systemInstruction = systemInstruction;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (error) {
-    console.error('Gemini proxy error:', error);
-    res.status(500).json({ error: 'Gemini API request failed' });
-  }
-});
-
-// ============================================================
-// PLAID FUNCTIONS (existing — unchanged)
-// ============================================================
 
 // Create Link Token
 exports.createLinkToken = functions.https.onRequest(async (req, res) => {
@@ -204,7 +76,7 @@ exports.createLinkToken = functions.https.onRequest(async (req, res) => {
   }
 });
 
-// Exchange Token
+// Exchange Token - UPDATED FOR MULTI-BROKERAGE
 exports.exchangePlaidToken = functions.https.onRequest(async (req, res) => {
   setCorsHeaders(res);
   if (req.method === 'OPTIONS') {
@@ -225,6 +97,7 @@ exports.exchangePlaidToken = functions.https.onRequest(async (req, res) => {
     const accessToken = response.data.access_token;
     const itemId = response.data.item_id;
 
+    // Store the access token in a subcollection for multi-brokerage support
     await admin.firestore()
       .collection('users')
       .doc(userId)
@@ -236,6 +109,7 @@ exports.exchangePlaidToken = functions.https.onRequest(async (req, res) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
+    // Return the item_id so frontend can track this brokerage
     res.json({ 
       success: true,
       item_id: itemId
@@ -246,7 +120,7 @@ exports.exchangePlaidToken = functions.https.onRequest(async (req, res) => {
   }
 });
 
-// Get Holdings
+// Get Holdings - UPDATED FOR MULTI-BROKERAGE
 exports.getHoldings = functions.https.onRequest(async (req, res) => {
   setCorsHeaders(res);
   if (req.method === 'OPTIONS') {
@@ -258,11 +132,13 @@ exports.getHoldings = functions.https.onRequest(async (req, res) => {
   if (!userId) return;
 
   try {
+    // Get brokerageId from request body (POST) or query params (GET)
     const brokerageId = req.body?.brokerageId || req.query?.brokerageId;
     
     let accessToken;
 
     if (brokerageId) {
+      // New multi-brokerage: fetch from subcollection
       const itemDoc = await admin.firestore()
         .collection('users')
         .doc(userId)
@@ -271,6 +147,7 @@ exports.getHoldings = functions.https.onRequest(async (req, res) => {
         .get();
 
       if (!itemDoc.exists) {
+        // Fallback: check if it's the legacy single brokerage
         const userDoc = await admin.firestore()
           .collection('users')
           .doc(userId)
@@ -285,6 +162,7 @@ exports.getHoldings = functions.https.onRequest(async (req, res) => {
         accessToken = itemDoc.data()?.accessToken;
       }
     } else {
+      // Legacy support: no brokerageId provided, use old single token
       const userDoc = await admin.firestore()
         .collection('users')
         .doc(userId)
@@ -312,7 +190,7 @@ exports.getHoldings = functions.https.onRequest(async (req, res) => {
   }
 });
 
-// Disconnect Brokerage
+// Disconnect Brokerage - UPDATED FOR MULTI-BROKERAGE
 exports.disconnectBrokerage = functions.https.onRequest(async (req, res) => {
   setCorsHeaders(res);
   if (req.method === 'OPTIONS') {
@@ -330,6 +208,7 @@ exports.disconnectBrokerage = functions.https.onRequest(async (req, res) => {
       return res.status(400).json({ error: 'brokerageId is required' });
     }
 
+    // Get the access token to remove the item from Plaid
     const itemDoc = await admin.firestore()
       .collection('users')
       .doc(userId)
@@ -340,6 +219,7 @@ exports.disconnectBrokerage = functions.https.onRequest(async (req, res) => {
     if (itemDoc.exists) {
       const accessToken = itemDoc.data()?.accessToken;
 
+      // Remove item from Plaid (optional but recommended)
       if (accessToken) {
         try {
           await plaidClient.itemRemove({
@@ -347,9 +227,11 @@ exports.disconnectBrokerage = functions.https.onRequest(async (req, res) => {
           });
         } catch (plaidError) {
           console.warn('Could not remove item from Plaid:', plaidError.message);
+          // Continue anyway - we still want to remove from our database
         }
       }
 
+      // Delete from subcollection
       await admin.firestore()
         .collection('users')
         .doc(userId)
@@ -357,12 +239,14 @@ exports.disconnectBrokerage = functions.https.onRequest(async (req, res) => {
         .doc(brokerageId)
         .delete();
     } else {
+      // Check if it's the legacy brokerage
       const userDoc = await admin.firestore()
         .collection('users')
         .doc(userId)
         .get();
 
       if (userDoc.data()?.plaidItemId === brokerageId || brokerageId === 'legacy_brokerage') {
+        // Remove legacy brokerage data
         const accessToken = userDoc.data()?.plaidAccessToken;
         
         if (accessToken) {
@@ -395,7 +279,7 @@ exports.disconnectBrokerage = functions.https.onRequest(async (req, res) => {
   }
 });
 
-// Legacy disconnect
+// Legacy disconnect (keep for backward compatibility)
 exports.disconnectPlaid = functions.https.onRequest(async (req, res) => {
   setCorsHeaders(res);
   if (req.method === 'OPTIONS') {
