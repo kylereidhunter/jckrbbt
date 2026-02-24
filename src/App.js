@@ -13,42 +13,742 @@ import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
-import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History, Pencil, FileText, X, Share2, Download, Copy, Check } from 'lucide-react';
-import PlaidLink from './PlaidLink';
+import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History, Pencil } from 'lucide-react';import PlaidLink from './PlaidLink';
 import StockChatModal from './StockChatModal';
 import UserProfileModal from './UserProfileModal';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, ComposedChart, PieChart, Pie, Cell, Sector } from 'recharts';
 import { logActivity, getActivityFeed, getGlobalFeed } from './activityService';
-
-// Extracted modules
-import {
-  FINNHUB_KEY, GEN_AI_KEY, ALPHA_VANTAGE_KEY, TWELVE_DATA_KEY, POLYGON_KEY,
-  NEWS_SOURCES, REPUTABLE_SOURCES, sourceString, cleanCompanyName,
-  extract, clean, formatText, calculateHV, calculateSignalStrength,
-  BROKERAGE_LOGOS, BROKERAGE_TRADE_URLS, getTradeUrl,
-  BROKERAGE_ICONS, getBrokerageLogo, getBrokerageIcon
-} from './config/constants';
-import usePolygonWebSocket from './hooks/usePolygonWebSocket';
-import MiniChart from './components/MiniChart';
-import CurrentTime from './components/CurrentTime';
-import CustomDropdown from './components/CustomDropdown';
-import MetricCard from './components/MetricCard';
-import PortfolioPerformanceChart from './components/PortfolioPerformanceChart';
-import PortfolioAnalytics from './components/PortfolioAnalytics';
-import PositionCard from './components/PositionCard';
-import NewsCard from './components/NewsCard';
-import StockChart from './components/StockChart';
-import TradeButton from './components/TradeButton';
 
 
 console.log('FINNHUB_KEY:', process.env.REACT_APP_FINNHUB_KEY);
 console.log('GEN_AI_KEY:', process.env.REACT_APP_GEN_AI_KEY);
 
 // --- CONFIGURATION ---
+const FINNHUB_KEY = process.env.REACT_APP_FINNHUB_KEY; 
+const GEN_AI_KEY = process.env.REACT_APP_GEN_AI_KEY;
 const genAI = new GoogleGenerativeAI(GEN_AI_KEY);
 const aiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const ALPHA_VANTAGE_KEY = process.env.REACT_APP_ALPHA_VANTAGE_KEY;
+const TWELVE_DATA_KEY = process.env.REACT_APP_TWELVE_DATA_KEY;
+const POLYGON_KEY = process.env.REACT_APP_POLYGON_KEY;
+
 
 const isMobile = () => window.innerWidth < 768;
+
+
+// ========== NEWS SOURCES FOR SCANNING ==========
+const NEWS_SOURCES = [
+  // === MAJOR FINANCIAL NEWS ===
+  { name: 'Wall Street Journal', domain: 'wsj.com' },
+  { name: 'Bloomberg', domain: 'bloomberg.com' },
+  { name: 'Financial Times', domain: 'ft.com' },
+  { name: 'Reuters', domain: 'reuters.com' },
+  { name: 'CNBC', domain: 'cnbc.com' },
+  { name: 'Barrons', domain: 'barrons.com' },
+  { name: 'MarketWatch', domain: 'marketwatch.com' },
+  { name: 'Seeking Alpha', domain: 'seekingalpha.com' },
+  { name: 'The Economist', domain: 'economist.com' },
+  { name: 'Forbes', domain: 'forbes.com' },
+  { name: 'Investors Business Daily', domain: 'investors.com' },
+  { name: 'Yahoo Finance', domain: 'finance.yahoo.com' },
+  { name: 'Benzinga', domain: 'benzinga.com' },
+  { name: 'Morningstar', domain: 'morningstar.com' },
+  { name: 'Zacks', domain: 'zacks.com' },
+  { name: 'Motley Fool', domain: 'fool.com' },
+  { name: 'Barchart', domain: 'barchart.com' },
+  { name: 'Investing.com', domain: 'investing.com' },
+  { name: 'Fortune', domain: 'fortune.com' },
+  { name: 'Business Insider', domain: 'businessinsider.com' },
+  { name: 'The Street', domain: 'thestreet.com' },
+  { name: 'CNN Business', domain: 'cnn.com/business' },
+  { name: 'Fox Business', domain: 'foxbusiness.com' },
+  { name: 'Nikkei Asia', domain: 'asia.nikkei.com' },
+  { name: 'TradingView', domain: 'tradingview.com' },
+  { name: 'FinViz', domain: 'finviz.com' },
+  { name: 'TipRanks', domain: 'tipranks.com' },
+  { name: 'Investopedia', domain: 'investopedia.com' },
+  { name: 'Bankrate', domain: 'bankrate.com' },
+  { name: 'NerdWallet', domain: 'nerdwallet.com' },
+  { name: 'Kiplinger', domain: 'kiplinger.com' },
+  { name: 'CoinDesk', domain: 'coindesk.com' },
+  { name: 'The Block', domain: 'theblock.co' },
+  { name: 'South China Morning Post', domain: 'scmp.com' },
+  { name: 'LiveMint', domain: 'livemint.com' },
+  { name: 'Globe and Mail', domain: 'theglobeandmail.com' },
+  { name: 'Australian Financial Review', domain: 'afr.com' },
+  { name: 'WhaleWisdom', domain: 'whalewisdom.com' },
+  { name: 'Dataroma', domain: 'dataroma.com' },
+  { name: 'OpenInsider', domain: 'openinsider.com' },
+  { name: 'ETF.com', domain: 'etf.com' },
+  { name: 'ValueWalk', domain: 'valuewalk.com' },
+  { name: 'Institutional Investor', domain: 'institutionalinvestor.com' },
+  { name: 'Morning Brew', domain: 'morningbrew.com' },
+
+  // === RESEARCH & ANALYTICS ===
+  { name: 'GuruFocus', domain: 'gurufocus.com' },
+  { name: 'Simply Wall St', domain: 'simplywall.st' },
+  { name: 'Alpha Spread', domain: 'alphaspread.com' },
+  { name: 'Stocktwits', domain: 'stocktwits.com' },
+  { name: 'Fintel', domain: 'fintel.io' },
+  { name: 'Ortex', domain: 'ortex.com' },
+  { name: 'Unusual Whales', domain: 'unusualwhales.com' },
+  { name: 'Market Chameleon', domain: 'marketchameleon.com' },
+  { name: 'Bamsec', domain: 'bamsec.com' },
+  { name: 'S&P Global', domain: 'spglobal.com' },
+  { name: 'PitchBook', domain: 'pitchbook.com' },
+  { name: 'CB Insights', domain: 'cbinsights.com' },
+  { name: 'Crunchbase', domain: 'crunchbase.com' },
+  { name: 'Insider Monkey', domain: 'insidermonkey.com' },
+
+  // === BIOTECH & PHARMA ===
+  { name: 'BioPharma Dive', domain: 'biopharmadive.com' },
+  { name: 'FiercePharma', domain: 'fiercepharma.com' },
+  { name: 'FierceBiotech', domain: 'fiercebiotech.com' },
+  { name: 'MedCity News', domain: 'medcitynews.com' },
+  { name: 'Endpoints News', domain: 'endpts.com' },
+  { name: 'STAT News', domain: 'statnews.com' },
+  { name: 'Clinical Trials Arena', domain: 'clinicaltrialsarena.com' },
+  { name: 'BioSpace', domain: 'biospace.com' },
+  { name: 'BioWorld', domain: 'bioworld.com' },
+  { name: 'Pharmaceutical Technology', domain: 'pharmaceutical-technology.com' },
+  { name: 'Drug Discovery Today', domain: 'drugdiscoverytoday.com' },
+
+  // === PRESS RELEASES & FILINGS ===
+  { name: 'GlobeNewswire', domain: 'globenewswire.com' },
+  { name: 'PR Newswire', domain: 'prnewswire.com' },
+  { name: 'Business Wire', domain: 'businesswire.com' },
+  { name: 'EIN Presswire', domain: 'einpresswire.com' },
+  { name: 'Accesswire', domain: 'accesswire.com' },
+  { name: 'Cision', domain: 'cision.com' },
+  { name: 'SEC EDGAR', domain: 'sec.gov/cgi-bin/browse-edgar' },
+
+  // === TECH & STARTUPS ===
+  { name: 'TechCrunch', domain: 'techcrunch.com' },
+  { name: 'The Verge', domain: 'theverge.com' },
+  { name: 'Ars Technica', domain: 'arstechnica.com' },
+  { name: 'Wired', domain: 'wired.com' },
+  { name: 'VentureBeat', domain: 'venturebeat.com' },
+  { name: 'The Information', domain: 'theinformation.com' },
+  { name: 'Techmeme', domain: 'techmeme.com' },
+  { name: 'Hacker News', domain: 'news.ycombinator.com' },
+  { name: 'SiliconANGLE', domain: 'siliconangle.com' },
+  { name: 'ZDNet', domain: 'zdnet.com' },
+  { name: 'CNET', domain: 'cnet.com' },
+  { name: 'Engadget', domain: 'engadget.com' },
+  { name: 'MIT Technology Review', domain: 'technologyreview.com' },
+
+  // === ENERGY & COMMODITIES ===
+  { name: 'Oil Price', domain: 'oilprice.com' },
+  { name: 'Rigzone', domain: 'rigzone.com' },
+  { name: 'Platts', domain: 'spglobal.com/platts' },
+  { name: 'Argus Media', domain: 'argusmedia.com' },
+  { name: 'Natural Gas Intelligence', domain: 'naturalgasintel.com' },
+  { name: 'World Oil', domain: 'worldoil.com' },
+  { name: 'Hart Energy', domain: 'hartenergy.com' },
+  { name: 'Mining.com', domain: 'mining.com' },
+  { name: 'Kitco', domain: 'kitco.com' },
+
+  // === REAL ESTATE ===
+  { name: 'Commercial Observer', domain: 'commercialobserver.com' },
+  { name: 'The Real Deal', domain: 'therealdeal.com' },
+  { name: 'CoStar', domain: 'costar.com' },
+  { name: 'Bisnow', domain: 'bisnow.com' },
+  { name: 'GlobeSt', domain: 'globest.com' },
+  { name: 'National Real Estate Investor', domain: 'nreionline.com' },
+
+  // === MACRO & ECONOMICS ===
+  { name: 'Zero Hedge', domain: 'zerohedge.com' },
+  { name: 'Real Vision', domain: 'realvision.com' },
+  { name: 'Mauldin Economics', domain: 'mauldineconomics.com' },
+
+  // === OPTIONS & DERIVATIVES ===
+  { name: 'CBOE', domain: 'cboe.com' },
+  { name: 'CME Group', domain: 'cmegroup.com' },
+  { name: 'tastylive', domain: 'tastylive.com' },
+  { name: 'Option Alpha', domain: 'optionalpha.com' },
+
+  // === EARNINGS & TRANSCRIPTS ===
+  { name: 'Earnings Whispers', domain: 'earningswhispers.com' },
+  { name: 'Estimize', domain: 'estimize.com' },
+  { name: 'The Transcript', domain: 'thetranscript.substack.com' },
+  { name: 'AlphaStreet', domain: 'alphastreet.com' },
+  { name: 'Quartr', domain: 'quartr.com' },
+
+  // === INTERNATIONAL ===
+  { name: 'Caixin', domain: 'caixinglobal.com' },
+  { name: 'Economic Times India', domain: 'economictimes.indiatimes.com' },
+  { name: 'Handelsblatt', domain: 'handelsblatt.com' },
+  { name: 'Les Echos', domain: 'lesechos.fr' },
+  { name: 'Nikkei', domain: 'nikkei.com' },
+  { name: 'Korea Herald', domain: 'koreaherald.com' },
+  { name: 'Straits Times', domain: 'straitstimes.com' },
+];
+
+const REPUTABLE_SOURCES = [
+  // === MAJOR FINANCIAL NEWS ===
+  "Wall Street Journal", "Bloomberg", "Financial Times", "Reuters", "CNBC", 
+  "Barron's", "MarketWatch", "Seeking Alpha", "The Economist", "Forbes",
+  "Investor's Business Daily", "Yahoo Finance", "Benzinga", "Morningstar",
+  "Zacks Investment Research", "The Motley Fool", "Barchart", "Investing.com",
+  "Fortune", "Business Insider", "The Street", "CNN Business", "Fox Business",
+  "Nikkei Asia", "TradingView", "FinViz", "Koyfin", "StockCharts", "TipRanks",
+  "Investopedia", "Bankrate", "NerdWallet", "Kiplinger", "FRED (Federal Reserve)",
+  "SEC EDGAR", "CoinDesk", "The Block", "Glassnode", "South China Morning Post",
+  "LiveMint", "The Globe and Mail", "Australian Financial Review", "WhaleWisdom",
+  "Dataroma", "OpenInsider", "ETF.com", "Project Syndicate", "ValueWalk",
+  "Institutional Investor", "Morning Brew",
+  
+  // === RESEARCH & ANALYTICS ===
+  "GuruFocus", "Simply Wall St", "Alpha Spread", "Stocktwits", "Trade Ideas",
+  "Fintel", "Ortex", "Unusual Whales", "Market Chameleon", "Bamsec",
+  "AlphaSense", "Sentieo", "S&P Global", "FactSet", "Capital IQ",
+  "Pitchbook", "CB Insights", "Crunchbase",
+  
+  // === BIOTECH & PHARMA ===
+  "BioPharma Dive", "FiercePharma", "MedCity News", "Endpoints News", 
+  "STAT News", "Clinical Trials Arena", "FDA.gov", "ClinicalTrials.gov", 
+  "BioSpace", "BioWorld", "Evaluate Pharma", "Drug Discovery Today",
+  "Pharmaceutical Technology", "PharmaLive", "Fierce Biotech",
+  
+  // === PRESS RELEASES & FILINGS ===
+  "GlobeNewswire", "PR Newswire", "Business Wire", "EIN Presswire", 
+  "Shareholder.com", "Insider Monkey", "13F filings", "Form 4 filings", 
+  "8-K filings", "Hedge Fund Tracker", "Accesswire", "Cision",
+  
+  // === TECH & STARTUPS ===
+  "TechCrunch", "The Verge", "Ars Technica", "Wired", "VentureBeat",
+  "The Information", "Protocol", "Techmeme", "Hacker News", "SiliconANGLE",
+  "ZDNet", "CNET", "Engadget", "MIT Technology Review",
+  
+  // === ENERGY & COMMODITIES ===
+  "Oil Price", "Rigzone", "Energy Intelligence", "Platts", "Argus Media",
+  "Natural Gas Intelligence", "World Oil", "Upstream", "Hart Energy",
+  "Mining.com", "Kitco", "Metal Bulletin",
+  
+  // === REAL ESTATE ===
+  "Commercial Observer", "The Real Deal", "CoStar", "Bisnow", "GlobeSt",
+  "Real Capital Analytics", "PERE News", "National Real Estate Investor",
+  
+  // === MACRO & ECONOMICS ===
+  "Zero Hedge", "MacroVoices", "Real Vision", "Grant's Interest Rate Observer",
+  "Evergreen Gavekal", "Mauldin Economics", "Bridgewater Daily Observations",
+  "Bank for International Settlements", "IMF", "World Bank",
+  
+  // === OPTIONS & DERIVATIVES ===
+  "Options Clearing Corporation", "CBOE", "CME Group", "tastylive",
+  "Option Alpha", "Options Insider",
+  
+  // === EARNINGS & TRANSCRIPTS ===
+  "Earnings Whispers", "Estimize", "The Transcript", "AlphaStreet",
+  "Quartr", "Tikr Terminal",
+  
+  // === INTERNATIONAL ===
+  "Caixin", "Economic Times India", "Handelsblatt", "Les Echos",
+  "Il Sole 24 Ore", "Nikkei", "Yonhap News", "Korea Herald",
+  "The Edge Malaysia", "Straits Times", "AFR", "NZX"
+];
+
+const sourceString = REPUTABLE_SOURCES.map(s => `site:${s}`).join(" OR ");
+
+const cleanCompanyName = (name) => {
+  if (!name) return name;
+  return name
+    .replace(/,?\s*(common\s+stock|class\s+[a-z](\s+common\s+stock)?|ordinary\s+shares?|american\s+depositary\s+(shares?|receipts?)|ads|adr|warrant.*|units?|series\s+[a-z]).*$/gi, '')
+    .replace(/,?\s*(inc\.?|corp\.?|ltd\.?|llc\.?|plc\.?|n\.?v\.?|s\.?a\.?|co\.?|group|holdings?|enterprises?|international|&\s*co\.?)$/gi, '')
+    .replace(/,?\s*$/, '')
+    .trim();
+};
+
+
+
+
+
+
+const extract = (tag, text) => {
+  const regex = new RegExp(`\\[${tag}\\]\\s*([\\s\\S]*?)\\s*\\[\\/${tag}\\]`, "i");
+  const match = text.match(regex);
+  return (match && match[1]) ? match[1].trim() : "";
+};
+
+const clean = (val) => {
+  if (!val) return "";
+  return val.replace(/["':`|]/g, "").trim(); // Removed \- to keep hyphens
+};
+
+const formatText = (text) => {
+  if (!text) return text;
+  
+  // Fix common formatting issues
+  let result = text;
+  
+  // Match: 52week, 52 week, 52weeks, 52 weeks (case insensitive)
+  result = result.replace(/(\d+)\s*(week|weeks|wk|wks)/gi, '$1-week');
+  result = result.replace(/(\d+)\s*(day|days)/gi, '$1-day');
+  result = result.replace(/(\d+)\s*(month|months|mo|mos)/gi, '$1-month');
+  result = result.replace(/(\d+)\s*(year|years|yr|yrs)/gi, '$1-year');
+  result = result.replace(/\bPE\b/g, 'P/E');
+  result = result.replace(/\bPS\b/g, 'P/S');
+  result = result.replace(/alltime/gi, 'all-time');
+  
+  // Fix double hyphens if they occur
+  result = result.replace(/(\d+)--/g, '$1-');
+  
+  return result;
+};
+
+// Calculate Historical Volatility (annualized)
+const calculateHV = (closePrices) => {
+  if (!closePrices || closePrices.length < 5) return 40; // Need at least 5 days
+  
+  // Calculate daily returns
+  const returns = [];
+  for (let i = 1; i < closePrices.length; i++) {
+    const dailyReturn = Math.log(closePrices[i] / closePrices[i - 1]);
+    
+    // Filter out extreme outliers (likely bad data)
+    // Daily moves over 50% are extremely rare and usually data errors
+    if (Math.abs(dailyReturn) < 0.5) {
+      returns.push(dailyReturn);
+    }
+  }
+  
+  if (returns.length < 5) return 40; // Not enough valid data
+  
+  // Calculate mean return
+  const meanReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+  
+  // Calculate variance
+  const variance = returns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / returns.length;
+  
+  // Standard deviation
+  const stdDev = Math.sqrt(variance);
+  
+  // Annualize (multiply by sqrt of trading days per year)
+  const annualizedVolatility = stdDev * Math.sqrt(252) * 100;
+  
+console.log(`Raw volatility: ${annualizedVolatility.toFixed(2)}%, Valid returns: ${returns.length}/${closePrices.length - 1}`);
+
+// Cap between 10-120% (allow for extreme but valid volatility in penny stocks/biotech)
+return Math.min(Math.max(annualizedVolatility, 10), 120);
+};
+
+// Calculate Signal Strength based on quantifiable factors
+const calculateSignalStrength = (newsData, priceData, currentPrice, volatility, aiCatalystScore, volumeRatio = 1) => {
+  let score = 0;
+
+  
+  
+  // 1. NEWS RECENCY (25 points max) - More generous
+  if (newsData && newsData.length > 0) {
+    const mostRecentNews = newsData[0];
+    const daysSinceNews = (Date.now() / 1000 - mostRecentNews.datetime) / (24 * 60 * 60);
+    
+    if (daysSinceNews <= 3) {
+      score += 25; // Very recent (within 3 days)
+    } else if (daysSinceNews <= 7) {
+      score += 20; // Recent (within a week)
+    } else if (daysSinceNews <= 14) {
+      score += 15; // Somewhat recent
+    } else if (daysSinceNews <= 30) {
+      score += 10; // Within a month
+    }
+  }
+  
+  // 2. NEWS VOLUME (15 points max) - Lower thresholds
+  const newsCount = newsData?.length || 0;
+  if (newsCount >= 8) {
+    score += 15;
+  } else if (newsCount >= 5) {
+    score += 12;
+  } else if (newsCount >= 3) {
+    score += 9;
+  } else if (newsCount >= 1) {
+    score += 6; // At least some news
+  }
+  
+  // 3. PRICE MOMENTUM (20 points max)
+  if (priceData && priceData.length >= 5) {
+    const fiveDaysAgo = priceData[priceData.length - 6];
+    const priceChange = ((currentPrice - fiveDaysAgo) / fiveDaysAgo) * 100;
+    
+    const absMomentum = Math.abs(priceChange);
+    if (absMomentum >= 10) {
+      score += 20; // Strong momentum
+    } else if (absMomentum >= 5) {
+      score += 15; // Good momentum
+    } else if (absMomentum >= 2) {
+      score += 10; // Moderate momentum
+    } else if (absMomentum >= 0.5) {
+      score += 5; // Some momentum
+    }
+  }
+  
+  // 4. VOLATILITY FACTOR (15 points max)
+  const vol = parseFloat(volatility);
+  if (vol >= 60) {
+    score += 15; // High volatility
+  } else if (vol >= 45) {
+    score += 13; // Moderate-high
+  } else if (vol >= 30) {
+    score += 10; // Moderate
+  } else if (vol >= 20) {
+    score += 7; // Low-moderate
+  } else if (vol >= 10) {
+    score += 4; // Low but present
+  }
+  
+  // 5. AI CATALYST ASSESSMENT (25 points max) - Increased weight
+  // This is the most important factor since AI evaluates all qualitative aspects
+  const normalizedAI = Math.min(Math.max(aiCatalystScore, 0), 100);
+  score += (normalizedAI / 100) * 25;
+  
+  // BONUS: If we have both news AND volatility, add synergy bonus
+  if (newsCount >= 1 && vol >= 30) {
+    score += 5;
+  }
+  
+  // Ensure score is between 0-100
+  return Math.min(Math.max(Math.round(score), 15), 95);
+
+    // 6. VOLUME SURGE FACTOR (10 points max) - NEW
+  if (volumeRatio >= 3) {
+    score += 10; // Major volume spike
+  } else if (volumeRatio >= 2) {
+    score += 7; // Strong volume
+  } else if (volumeRatio >= 1.5) {
+    score += 4; // Elevated volume
+  }
+  
+  // BONUS: If we have both news AND elevated volume, add synergy bonus
+  if (newsCount >= 1 && volumeRatio >= 2) {
+    score += 5; // News + volume = stronger signal
+  }
+  
+  // Ensure score is between 0-100
+  return Math.min(Math.max(Math.round(score), 15), 95);
+};
+
+// Brokerage logo URLs - using direct URLs
+const BROKERAGE_LOGOS = {
+  'robinhood': 'https://cdn.brandfetch.io/robinhood.com/w/400/h/400/logo',
+  'fidelity': 'https://cdn.brandfetch.io/fidelity.com/w/400/h/400/logo',
+  'charles schwab': 'https://cdn.brandfetch.io/schwab.com/w/400/h/400/logo',
+  'schwab': 'https://cdn.brandfetch.io/schwab.com/w/400/h/400/logo',
+  'td ameritrade': 'https://cdn.brandfetch.io/tdameritrade.com/w/400/h/400/logo',
+  'e*trade': 'https://cdn.brandfetch.io/etrade.com/w/400/h/400/logo',
+  'etrade': 'https://cdn.brandfetch.io/etrade.com/w/400/h/400/logo',
+  'webull': 'https://cdn.brandfetch.io/webull.com/w/400/h/400/logo',
+  'vanguard': 'https://cdn.brandfetch.io/vanguard.com/w/400/h/400/logo',
+  'interactive brokers': 'https://cdn.brandfetch.io/interactivebrokers.com/w/400/h/400/logo',
+  'coinbase': 'https://cdn.brandfetch.io/coinbase.com/w/400/h/400/logo',
+  'merrill': 'https://cdn.brandfetch.io/ml.com/w/400/h/400/logo',
+  'morgan stanley': 'https://cdn.brandfetch.io/morganstanley.com/w/400/h/400/logo',
+  'ally': 'https://cdn.brandfetch.io/ally.com/w/400/h/400/logo',
+  'sofi': 'https://cdn.brandfetch.io/sofi.com/w/400/h/400/logo',
+  'public': 'https://cdn.brandfetch.io/public.com/w/400/h/400/logo',
+  'wealthfront': 'https://cdn.brandfetch.io/wealthfront.com/w/400/h/400/logo',
+  'betterment': 'https://cdn.brandfetch.io/betterment.com/w/400/h/400/logo',
+  'acorns': 'https://cdn.brandfetch.io/acorns.com/w/400/h/400/logo',
+  'm1 finance': 'https://cdn.brandfetch.io/m1finance.com/w/400/h/400/logo',
+  'm1': 'https://cdn.brandfetch.io/m1finance.com/w/400/h/400/logo',
+};
+
+const BROKERAGE_TRADE_URLS = {
+  'robinhood': (symbol) => `https://robinhood.com/stocks/${symbol}`,
+  'webull': (symbol) => `https://www.webull.com/quote/${symbol.toLowerCase()}`,
+  'fidelity': (symbol) => `https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=${symbol}`,
+  'schwab': (symbol) => `https://www.schwab.com/research/stocks/quotes/summary/${symbol}`,
+  'charles schwab': (symbol) => `https://www.schwab.com/research/stocks/quotes/summary/${symbol}`,
+  'e*trade': (symbol) => `https://us.etrade.com/etx/mkt/quotes?symbol=${symbol}`,
+  'etrade': (symbol) => `https://us.etrade.com/etx/mkt/quotes?symbol=${symbol}`,
+  'td ameritrade': (symbol) => `https://research.tdameritrade.com/grid/public/research/stocks/summary?symbol=${symbol}`,
+  'interactive brokers': (symbol) => `https://www.interactivebrokers.com/en/index.php?f=46777&symbology=IB&symbol=${symbol}`,
+  'sofi': (symbol) => `https://www.sofi.com/invest/stocks/${symbol.toLowerCase()}`,
+  'public': (symbol) => `https://public.com/stocks/${symbol}`,
+  'vanguard': (symbol) => `https://investor.vanguard.com/investment-products/stocks/profile/${symbol.toLowerCase()}`,
+  'ally': (symbol) => `https://www.ally.com/invest/stocks/${symbol}`,
+  'm1 finance': (symbol) => `https://m1.com/invest/stocks/${symbol}`,
+  'm1': (symbol) => `https://m1.com/invest/stocks/${symbol}`,
+};
+
+const getTradeUrl = (brokerageName, symbol) => {
+  const lowerName = brokerageName?.toLowerCase() || '';
+  for (const [key, urlFn] of Object.entries(BROKERAGE_TRADE_URLS)) {
+    if (lowerName.includes(key)) return urlFn(symbol);
+  }
+  return null;
+};
+
+// Fallback emoji icons
+const BROKERAGE_ICONS = {
+  'robinhood': '🟢',
+  'fidelity': '🔵',
+  'charles schwab': '🔷',
+  'schwab': '🔷',
+  'td ameritrade': '🟩',
+  'e*trade': '🟣',
+  'etrade': '🟣',
+  'webull': '🟠',
+  'vanguard': '🔴',
+  'interactive brokers': '⬛',
+  'coinbase': '🪙',
+  'merrill': '🔵',
+  'morgan stanley': '💎',
+  'default': '📊'
+};
+
+const getBrokerageLogo = (name) => {
+  const lowerName = name?.toLowerCase() || '';
+  for (const [key, url] of Object.entries(BROKERAGE_LOGOS)) {
+    if (lowerName.includes(key)) {
+      return url;
+    }
+  }
+  return null;
+};
+
+const getBrokerageIcon = (name) => {
+  const lowerName = name?.toLowerCase() || '';
+  for (const [key, icon] of Object.entries(BROKERAGE_ICONS)) {
+    if (lowerName.includes(key)) {
+      return icon;
+    }
+  }
+  return BROKERAGE_ICONS.default;
+};
+
+
+
+
+
+// --- TRADINGVIEW MINI CHART COMPONENT ---
+const MiniChart = ({ symbol }) => {
+  const cleanSymbol = symbol ? symbol.split(/[^a-zA-Z]/)[0].toUpperCase() : "";
+
+  const settings = {
+    "symbol": cleanSymbol,
+    "width": "100%",
+    "height": 220,
+    "locale": "en",
+    "dateRange": "1D",
+    "colorTheme": "dark",
+    "trendLineColor": "#00ff4e",
+    "underLineColor": "rgba(0, 255, 78, 0.3)",
+    "underLineBottomColor": "rgba(0, 0, 0, 0)",
+    "isTransparent": true,
+    "autosize": false
+  };
+
+  const encodedSettings = encodeURIComponent(JSON.stringify(settings));
+  const chartUrl = `https://s.tradingview.com/embed-widget/mini-symbol-overview/?locale=en#${encodedSettings}`;
+
+  return (
+    <div style={{ height: '220px', width: '100%', overflow: 'hidden', background: '#000', borderRadius: '8px' }}>
+      {cleanSymbol ? (
+        <iframe
+          key={cleanSymbol}
+          title={`chart-${cleanSymbol}`}
+          src={chartUrl}
+          width="100%"
+          height="220"
+          style={{ border: 'none' }}
+          allowtransparency="true" 
+          scrolling="no"
+        />
+      ) : (
+        <div className="flex items-center justify-center h-full text-zinc-800 text-[10px] uppercase font-black">
+          Invalid Ticker
+        </div>
+      )}
+    </div>
+  );
+};
+
+// =============================================
+// POLYGON WEBSOCKET HOOK
+// =============================================
+const usePolygonWebSocket = (apiKey, tickers, enabled = true) => {
+  const [livePrices, setLivePrices] = useState({});
+  const [wsStatus, setWsStatus] = useState('disconnected');
+  const wsRef = useRef(null);
+  const reconnectTimeout = useRef(null);
+  const subscribedTickers = useRef(new Set());
+  const enabledRef = useRef(enabled);
+  const tickersRef = useRef(tickers);
+  const connectRef = useRef(null);
+  enabledRef.current = enabled;
+  tickersRef.current = tickers;
+
+  // Store connect in a ref to avoid useCallback/dependency issues
+  connectRef.current = () => {
+    const currentTickers = tickersRef.current;
+    if (!apiKey || !enabledRef.current || currentTickers.length === 0) return;
+    
+    if (reconnectTimeout.current) {
+      clearTimeout(reconnectTimeout.current);
+      reconnectTimeout.current = null;
+    }
+    if (wsRef.current) {
+      const old = wsRef.current;
+      wsRef.current = null;
+      old.onclose = null;
+      old.close();
+    }
+
+    setWsStatus('connecting');
+    const ws = new WebSocket('wss://socket.polygon.io/stocks');
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('[WS] Connected to Polygon');
+      ws.send(JSON.stringify({ action: 'auth', params: apiKey }));
+    };
+
+    ws.onmessage = (event) => {
+      const messages = JSON.parse(event.data);
+      messages.forEach((msg) => {
+        if (msg.ev === 'status' && msg.status === 'auth_success') {
+          console.log('[WS] Authenticated');
+          setWsStatus('connected');
+          const subs = tickersRef.current.map(t => `A.${t}`).join(',');
+          ws.send(JSON.stringify({ action: 'subscribe', params: subs }));
+          subscribedTickers.current = new Set(tickersRef.current);
+          console.log(`[WS] Subscribed to ${tickersRef.current.length} tickers`);
+        }
+        if (msg.ev === 'status' && msg.status === 'auth_failed') {
+          console.error('[WS] Auth failed');
+          setWsStatus('disconnected');
+        }
+        if (msg.ev === 'A') {
+          setLivePrices(prev => {
+            const prevPrice = prev[msg.sym]?.price;
+            const newPrice = msg.c;
+            return {
+              ...prev,
+              [msg.sym]: {
+                price: newPrice,
+                prevPrice: prevPrice ?? newPrice,
+                volume: msg.v,
+                vwap: msg.vw,
+                open: msg.o,
+                high: msg.h,
+                low: msg.l,
+                timestamp: msg.s,
+                direction: newPrice > (prevPrice ?? newPrice) ? 'up' : newPrice < (prevPrice ?? newPrice) ? 'down' : 'flat',
+                updatedAt: Date.now()
+              }
+            };
+          });
+        }
+      });
+    };
+
+    ws.onerror = (err) => {
+      console.error('[WS] Error:', err);
+    };
+
+   ws.onclose = (event) => {
+      // Only handle if this is still the active socket
+      if (wsRef.current !== ws) return;
+      console.log(`[WS] Disconnected - code: ${event.code}, reason: ${event.reason || 'none'}`);
+      setWsStatus('disconnected');
+      wsRef.current = null;
+      
+      const now = new Date();
+      const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const day = et.getDay();
+      const hour = et.getHours();
+      const isMarketDay = day >= 1 && day <= 5;
+      const isMarketWindow = hour >= 4 && hour <= 20;
+      
+      if (enabledRef.current && isMarketDay && isMarketWindow) {
+        // Exponential backoff: 5s, 10s, 20s, 40s, max 60s
+        const attempts = (ws._reconnectAttempts || 0) + 1;
+        const delay = Math.min(5000 * Math.pow(2, attempts - 1), 60000);
+        console.log(`[WS] Reconnecting in ${delay/1000}s (attempt ${attempts})...`);
+        reconnectTimeout.current = setTimeout(() => {
+          const newWs = connectRef.current?.();
+          if (wsRef.current) wsRef.current._reconnectAttempts = attempts;
+        }, delay);
+      }
+    };
+  };
+
+  // Connect once on mount, disconnect on unmount
+  useEffect(() => {
+    if (!enabled) return;
+    // Small delay to let tickers populate
+    const timer = setTimeout(() => {
+      if (tickersRef.current.length > 0) {
+        connectRef.current?.();
+      }
+    }, 1000);
+    
+    return () => {
+      clearTimeout(timer);
+      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+      if (wsRef.current) {
+        const ws = wsRef.current;
+        wsRef.current = null;
+        ws.onclose = null;
+        ws.close();
+      }
+    };
+  }, [enabled]); // ONLY depends on enabled, not tickers
+
+  // Handle ticker changes by subscribing/unsubscribing (no reconnect)
+  useEffect(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    
+    const currentSubs = subscribedTickers.current;
+    const newTickers = new Set(tickers);
+    
+    const toUnsub = [...currentSubs].filter(t => !newTickers.has(t));
+    if (toUnsub.length > 0) {
+      wsRef.current.send(JSON.stringify({ 
+        action: 'unsubscribe', 
+        params: toUnsub.map(t => `A.${t}`).join(',') 
+      }));
+    }
+    
+    const toSub = [...newTickers].filter(t => !currentSubs.has(t));
+    if (toSub.length > 0) {
+      wsRef.current.send(JSON.stringify({ 
+        action: 'subscribe', 
+        params: toSub.map(t => `A.${t}`).join(',') 
+      }));
+      console.log(`[WS] Added ${toSub.length} tickers (total: ${newTickers.size})`);
+    }
+    
+    subscribedTickers.current = newTickers;
+  }, [tickers]);
+
+  return { livePrices, wsStatus };
+};
+
+
+
+// Separate Clock component to isolate re-renders
+function CurrentTime() {  // Changed name from Clock to CurrentTime
+  const [time, setTime] = useState(new Date());
+  
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  
+  return (
+    <>
+      <p className="text-[#00ff4e] font-black tabular-nums text-lg md:text-xl tracking-tighter">
+        {time.toLocaleTimeString([], { hour12: true })}
+      </p>
+      <p className="text-zinc-500 text-[8px] md:text-[10px] font-black uppercase tracking-wider md:tracking-widest">
+        {time.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+      </p>
+    </>
+  );
+}
+
 
 
 export default function App() {
@@ -68,12 +768,12 @@ const [scanPriceMax, setScanPriceMax] = useState(500);
   const [user, setUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
+  const [scanSector, setScanSector] = useState('all');
   const [showProfileSettings, setShowProfileSettings] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
   const [watchlists, setWatchlists] = useState([]);
   const [publicWatchlists, setPublicWatchlists] = useState([]);
   const [selectedWatchlist, setSelectedWatchlist] = useState(null);
-  const [expandedListCharts, setExpandedListCharts] = useState(new Set());
   const [showWatchlistModal, setShowWatchlistModal] = useState(false);
   const [editingWatchlist, setEditingWatchlist] = useState(null);
   const [showAddToListMenu, setShowAddToListMenu] = useState(null); // stockSymbol when menu is open
@@ -104,57 +804,6 @@ const [recentlyScanned, setRecentlyScanned] = useState(() => {
   return saved ? new Set(JSON.parse(saved)) : new Set();
 });
 const [showSearch, setShowSearch] = useState(false);
-const [showWelcome, setShowWelcome] = useState(() => {
-
-  return !localStorage.getItem('jckrbbt_onboarded');
-});
-const [tourStep, setTourStep] = useState(0); // 0 = no tour, 1-4 = active steps
-const [copiedReddit, setCopiedReddit] = useState(false);
-const [copiedTwitter, setCopiedTwitter] = useState(false);
-const [tourRect, setTourRect] = useState(null);
-const tourSteps = useRef([
-  { target: 'analyze-stock', title: 'Search Any Stock', desc: 'Type any ticker or company name to get instant AI-powered analysis, charts, and news.', position: 'bottom' },
-  { target: 'scan-market', title: 'Scan the Market', desc: 'Hit this to scan the entire market for unusual stock activity — data anomalies, volume spikes, and moves the news hasn\'t caught yet.', position: 'top' },
-  { target: 'lists-tab', title: 'Save to Watchlists', desc: 'Save interesting stocks to watchlists to track them over time. Share lists publicly for others to follow.', position: 'top' },
-  { target: 'portfolio-tab', title: 'Your Portfolio', desc: 'Connect your brokerage to see all your positions, P&L, and cost basis in one place.', position: 'top' },
-]);
-
-useEffect(() => {
-  if (tourStep === 0) { setTourRect(null); return; }
-  const step = tourSteps.current[tourStep - 1];
-  if (!step) return;
-  
-  // Clear previous rect immediately to avoid stale positions
-  setTourRect(null);
-  
-  // Small delay to ensure DOM is ready
-  const timer = setTimeout(() => {
-    const els = document.querySelectorAll(`[data-tour="${step.target}"]`);
-    // Find the first visible element (skip display:none which has 0 dimensions)
-    const el = Array.from(els).find(e => {
-      const r = e.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
-    });
-    if (el) {
-      // Check if element is fixed/in viewport already
-      const r = el.getBoundingClientRect();
-      const isInViewport = r.top >= 0 && r.bottom <= window.innerHeight;
-      
-      if (!isInViewport) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-      
-      // Wait for any scroll to finish then capture rect
-      setTimeout(() => {
-        const rect = el.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          setTourRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
-        }
-      }, isInViewport ? 50 : 500);
-    }
-  }, 150);
-  return () => clearTimeout(timer);
-}, [tourStep]);
 const [stockSearchResults, setStockSearchResults] = useState([]);
 const [isManualResult, setIsManualResult] = useState(false);
 const [scanProgress, setScanProgress] = useState(0);
@@ -172,9 +821,7 @@ const [showDashboardNews, setShowDashboardNews] = useState(false);
 const [showAllNews, setShowAllNews] = useState(false);
 const [scanHistory, setScanHistory] = useState([]);
 const [showScanHistory, setShowScanHistory] = useState(false);
-const [scanAccuracy, setScanAccuracy] = useState({ stats: null, byTicker: {} });
 const [accountsExpanded, setAccountsExpanded] = useState(false);
-const [watchlistPrices, setWatchlistPrices] = useState({});
 const [positionSortBy, setPositionSortBy] = useState('value-high');
 const [editingCostBasis, setEditingCostBasis] = useState(null);
 const [costBasisInput, setCostBasisInput] = useState('');
@@ -605,63 +1252,14 @@ const flattenedWatchlist = useMemo(() => {
   return watchlists.flatMap(l => l.stocks);
 }, [watchlists]);
 
-// Fetch Polygon snapshot prices for watchlist stocks (WS only covers scanned stocks)
-useEffect(() => {
-  if (flattenedWatchlist.length === 0) return;
-  const tickers = [...new Set(flattenedWatchlist.map(s => s.symbol).filter(Boolean))];
-  if (tickers.length === 0) return;
-  
-  const fetchWatchlistPrices = async () => {
-    try {
-      const res = await fetch(
-        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers.join(',')}&apiKey=${POLYGON_KEY}`
-      );
-      const data = await res.json();
-      const prices = {};
-      (data.tickers || []).forEach(t => {
-        prices[t.ticker] = {
-          price: t.day?.c || t.prevDay?.c || 0,
-          prevClose: t.prevDay?.c || 0
-        };
-      });
-      setWatchlistPrices(prices);
-    } catch (e) {
-      console.error('Watchlist price fetch failed:', e);
-    }
-  };
-  
-  fetchWatchlistPrices();
-  // Refresh every 5 minutes
-  const interval = setInterval(fetchWatchlistPrices, 5 * 60 * 1000);
-  return () => clearInterval(interval);
-}, [flattenedWatchlist.length]);
-
-// Collect unique tickers for websocket based on active tab
+// Collect all unique tickers for websocket
 const wsTickers = useMemo(() => {
   const tickerSet = new Set();
-  
-  // Always add the stock being analyzed (if any)
-  if (manualSearch) tickerSet.add(manualSearch);
-  
-  if (activeTab === 'DASHBOARD') {
-    // Scan results
-    if (stocks) stocks.forEach(s => { if (s.symbol) tickerSet.add(s.symbol); });
-  } else if (activeTab === 'MY LISTS') {
-    // Only the expanded watchlist's stocks
-    if (selectedWatchlist) {
-      const ownList = watchlists.find(l => l.id === selectedWatchlist.id);
-      if (ownList) ownList.stocks.forEach(s => { if (s.symbol) tickerSet.add(s.symbol); });
-      const followedList = followedListsData.find(l => l.id === selectedWatchlist.id);
-      if (followedList) followedList.stocks?.forEach(s => { if (s.symbol) tickerSet.add(s.symbol); });
-    }
-  } else if (activeTab === 'MY POSITIONS') {
-    // Portfolio positions
-    positions.forEach(p => { if (p.symbol && p.symbol !== 'N/A' && !p.symbol.includes(':')) tickerSet.add(p.symbol); });
-  }
-  // DISCOVER, TRENDING, FEED etc. don't need live WS prices
-  
+  positions.forEach(p => { if (p.symbol && p.symbol !== 'N/A' && !p.symbol.includes(':')) tickerSet.add(p.symbol); });
+  if (flattenedWatchlist) flattenedWatchlist.forEach(w => { if (w.symbol) tickerSet.add(w.symbol); });
+  if (stocks) stocks.forEach(s => { if (s.symbol) tickerSet.add(s.symbol); });
   return [...tickerSet];
-}, [activeTab, stocks, selectedWatchlist, watchlists, followedListsData, positions, manualSearch]);
+}, [positions, flattenedWatchlist, stocks]);
 
 // Polygon websocket for real-time prices
 const { livePrices, wsStatus } = usePolygonWebSocket(POLYGON_KEY, wsTickers, !!auth.currentUser);
@@ -683,7 +1281,6 @@ const addStockToList = async (stock, listId) => {
       symbol: stock.symbol || '',
       name: stock.name || '',
       price: stock.price || null,
-      addedPrice: stock.price || null,
       change: stock.change || null,
       addedAt: new Date().toISOString(),
     };
@@ -692,27 +1289,15 @@ const addStockToList = async (stock, listId) => {
     
     // Track this stock being watched in Firestore
     try {
-      const { doc, getDoc, setDoc, updateDoc, arrayUnion, Timestamp } = await import('firebase/firestore');
       const watchRef = doc(db, 'trending', stock.symbol);
       const watchDoc = await getDoc(watchRef);
       
-      const now = Timestamp.now();
+      const now = new Date();
       
       if (watchDoc.exists()) {
-        await updateDoc(watchRef, {
-          adds: arrayUnion(now),
-          totalCount: (watchDoc.data().totalCount || 0) + 1,
-          lastAdded: now
-        });
+        // ... existing trending code ...
       } else {
-        await setDoc(watchRef, {
-          symbol: stock.symbol,
-          name: stock.name || '',
-          adds: [now],
-          totalCount: 1,
-          lastAdded: now,
-          createdAt: now
-        });
+        // ... existing trending code ...
       }
     } catch (trendingError) {
       console.log('Trending update failed (non-critical):', trendingError.message);
@@ -747,43 +1332,27 @@ if (targetList?.isPublic) {
 };
 
 const updateList = useCallback(async (list) => {
-  if (!list || !Array.isArray(list) || list.length === 0) {
+  if (!list || !Array.isArray(list)) {
     return [];
   }
   
-  // Batch fetch using snapshot endpoint - 1 API call for all tickers
-  try {
-    const tickers = list.map(s => s.symbol).join(',');
-    const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apiKey=${POLYGON_KEY}`);
-    const data = await res.json();
-    
-    const priceMap = {};
-    data.tickers?.forEach(t => {
-      const currentPrice = t.day?.c || t.prevDay?.c;
-      const prevClose = t.prevDay?.c;
-      const change = t.todaysChangePerc || (prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : 0);
-      priceMap[t.ticker] = { price: currentPrice, prevClose, change };
-    });
-    
-    return list.map(stock => {
-      const live = priceMap[stock.symbol];
-      if (!live) return stock;
-      // Capture old price BEFORE overwriting for fallback
-      const oldPrice = stock.price;
+  return Promise.all(list.map(async (stock) => {
+    try {
+      const res = await fetch(`https://api.polygon.io/v2/aggs/ticker/${stock.symbol}/prev?adjusted=true&apiKey=${POLYGON_KEY}`);
+      const data = await res.json();
+      if (!data.results || !data.results[0]) return stock;
+      
+      const quote = data.results[0];
+      const change = ((quote.c - quote.o) / quote.o) * 100;
+      
       return {
         ...stock,
-        price: live.price?.toFixed(2) || stock.price,
-        prevClose: live.prevClose || null,
-        change: live.change?.toFixed(2) || stock.change,
-        isPositive: (live.change || 0) >= 0,
-        // Preserve original add data for "since added" tracking
-        addedPrice: stock.addedPrice || stock.price,
-        addedAt: stock.addedAt || null,
+        price: quote.c.toFixed(2),
+        change: change.toFixed(2),
+        isPositive: change >= 0
       };
-    });
-  } catch (e) {
-    return list;
-  }
+    } catch (e) { return stock; }
+  }));
 }, []);
 
 // User-specific seeded shuffle for legal compliance
@@ -849,7 +1418,7 @@ const fetchMarketIndices = useCallback(async () => {
 const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
   setLoadingTrending(true);
   try {
-    const { collection, getDocs } = await import('firebase/firestore');
+    const { collection, query, getDocs } = await import('firebase/firestore');
     const trendingRef = collection(db, 'trending');
     const snapshot = await getDocs(trendingRef);
     
@@ -860,40 +1429,47 @@ const fetchTrendingStocks = useCallback(async (interval = 'weekly') => {
     if (interval === 'daily') {
       cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     } else if (interval === 'weekly') {
-      cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     } else { // monthly
       cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     }
+    
+    
 
     const trending = [];
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data();
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      let adds = [];
       
-      // Support both new unified 'adds' array and legacy separate arrays
-      let allAdds = data.adds || [];
-      
-      // Also check legacy fields
-      if (allAdds.length === 0) {
-        if (interval === 'daily' && data.dailyAdds) allAdds = data.dailyAdds;
-        else if (interval === 'weekly' && data.weeklyAdds) allAdds = data.weeklyAdds;
-        else if (interval === 'monthly' && data.monthlyAdds) allAdds = data.monthlyAdds;
+      // Filter adds based on interval
+      if (interval === 'daily' && data.dailyAdds) {
+        adds = data.dailyAdds.filter(add => {
+          const addDate = add.toDate ? add.toDate() : new Date(add);
+          return addDate >= cutoffDate;
+        });
+      } else if (interval === 'weekly' && data.weeklyAdds) {
+        adds = data.weeklyAdds.filter(add => {
+          const addDate = add.toDate ? add.toDate() : new Date(add);
+          return addDate >= cutoffDate;
+        });
+      } else if (interval === 'monthly' && data.monthlyAdds) {
+        adds = data.monthlyAdds.filter(add => {
+          const addDate = add.toDate ? add.toDate() : new Date(add);
+          return addDate >= cutoffDate;
+        });
       }
       
-      // Filter adds within the time window
-      const recentAdds = allAdds.filter(add => {
-        const addDate = add.toDate ? add.toDate() : new Date(add);
-        return addDate >= cutoffDate;
-      });
-      
-      if (recentAdds.length > 0) {
+      if (adds.length > 0) {
         trending.push({
           symbol: data.symbol,
           name: data.name,
-          watchCount: recentAdds.length,
+          watchCount: adds.length,
           totalWatches: data.totalCount || 0
         });
       }
     });
+
+
     
     // Sort by watch count
     trending.sort((a, b) => b.watchCount - a.watchCount);
@@ -916,17 +1492,12 @@ const logScanHistory = async (scannedStocks) => {
     const existing = await getDoc(histRef);
     const prev = existing.exists() ? existing.data().scans || [] : [];
     
-    const scanBatchId = Date.now().toString(36);
     const newEntries = scannedStocks.map(s => ({
       symbol: s.symbol,
       name: s.name,
       price: s.price,
-      entryPrice: parseFloat(s.price) || 0,
       change: s.change,
       catalystType: s.catalystType || 'manual',
-      sentiment: s.sentiment || 'NEUTRAL',
-      patterns: (s.patterns || []).slice(0, 5),
-      scanBatchId,
       timestamp: new Date().toISOString()
     }));
     
@@ -963,110 +1534,6 @@ const loadScanHistory = async () => {
     console.error('Failed to load scan history:', e);
   }
 };
-
-// ========== ACCURACY TRACKING ==========
-const checkScanAccuracy = useCallback(async (history) => {
-  if (!history || history.length === 0) return;
-  
-  const now = Date.now();
-  const oneHour = 60 * 60 * 1000;
-  const fourHours = 4 * oneHour;
-  const twentyFourHours = 24 * oneHour;
-  
-  // Get entries from last 72h that are at least 1h old
-  const candidates = history.filter(s => {
-    const age = now - new Date(s.timestamp).getTime();
-    return age > oneHour && age < 72 * oneHour && (s.entryPrice > 0 || parseFloat(s.price) > 0);
-  });
-  
-  if (candidates.length === 0) {
-    setScanAccuracy({ stats: null, byTicker: {} });
-    return;
-  }
-  
-  // Batch-fetch current prices (Polygon snapshot supports multiple tickers)
-  const uniqueTickers = [...new Set(candidates.map(s => s.symbol))];
-  const tickerPrices = {};
-  
-  try {
-    // Fetch in batches of 20
-    for (let i = 0; i < uniqueTickers.length; i += 20) {
-      const batch = uniqueTickers.slice(i, i + 20);
-      const res = await fetch(
-        `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${batch.join(',')}&apiKey=${POLYGON_KEY}`
-      );
-      const data = await res.json();
-      (data.tickers || []).forEach(t => {
-        tickerPrices[t.ticker] = t.day?.c || t.prevDay?.c || 0;
-      });
-      if (i + 20 < uniqueTickers.length) await new Promise(r => setTimeout(r, 200));
-    }
-  } catch (e) {
-    console.error('Accuracy price fetch failed:', e);
-    return;
-  }
-  
-  // Calculate per-entry results
-  const byTicker = {};
-  let totalChecked = 0;
-  let hit2pct = 0;
-  let hitDirectional = 0;
-  
-  candidates.forEach(entry => {
-    const currentPrice = tickerPrices[entry.symbol];
-    const entryPrice = entry.entryPrice || parseFloat(entry.price) || 0;
-    if (!currentPrice || !entryPrice) return;
-    
-    const pctChange = ((currentPrice - entryPrice) / entryPrice) * 100;
-    const age = now - new Date(entry.timestamp).getTime();
-    const isBullish = entry.sentiment === 'BULLISH';
-    const moved2pct = Math.abs(pctChange) >= 2;
-    const correctDirection = isBullish ? pctChange >= 2 : pctChange <= -2;
-    
-    // Track best result per ticker (most recent scan entry)
-    if (!byTicker[entry.symbol] || new Date(entry.timestamp) > new Date(byTicker[entry.symbol].detectedAt)) {
-      byTicker[entry.symbol] = {
-        entryPrice: entryPrice,
-        currentPrice,
-        pctChange: parseFloat(pctChange.toFixed(2)),
-        detectedAt: entry.timestamp,
-        sentiment: entry.sentiment,
-        catalystType: entry.catalystType,
-        hit: correctDirection,
-        moved: moved2pct
-      };
-    }
-    
-    // Stats count only entries 4h+ old (enough time for signal to play out)
-    if (age >= fourHours) {
-      totalChecked++;
-      if (moved2pct) hit2pct++;
-      if (correctDirection) hitDirectional++;
-    }
-  });
-  
-  const stats = totalChecked > 0 ? {
-    totalChecked,
-    hit2pct,
-    hitDirectional,
-    hitRate: Math.round((hit2pct / totalChecked) * 100),
-    directionalRate: Math.round((hitDirectional / totalChecked) * 100),
-    lastUpdated: new Date().toISOString()
-  } : null;
-  
-  if (stats) {
-    console.log(`📊 Accuracy: ${stats.hit2pct}/${stats.totalChecked} moved 2%+ (${stats.hitRate}%), ${stats.hitDirectional} directionally correct (${stats.directionalRate}%)`);
-  }
-  
-  setScanAccuracy({ stats, byTicker });
-}, []);
-
-// Check accuracy when scan history loads or changes
-useEffect(() => {
-  if (scanHistory.length > 0) {
-    checkScanAccuracy(scanHistory);
-  }
-}, [scanHistory, checkScanAccuracy]);
 
 // Clear recently scanned stocks every 24 hours
 useEffect(() => {
@@ -1652,9 +2119,6 @@ useEffect(() => {
     
     
     if (currentUser) {
-      // Dismiss welcome screen if still showing
-      setShowWelcome(false);
-      localStorage.setItem('jckrbbt_onboarded', 'true');
       // Load user's watchlist and profile from Firestore
       const docRef = doc(db, 'users', currentUser.uid);
       const docSnap = await getDoc(docRef);
@@ -1902,7 +2366,7 @@ useEffect(() => {
       );
       setWatchlists(updatedLists);
     }
-  }, 300000); // Every 5 minutes (WebSocket handles real-time price updates)
+  }, 60000); // Every 60 seconds
 
   return () => clearInterval(liveTimer);
 }, [updateList, stocks, watchlists]); // Removed isMarketOpen check
@@ -1996,47 +2460,13 @@ const isLikelyETF = (ticker) => {
   return false;
 };
 
-// ========== ENHANCED ANOMALY + OPTIONS STOCK DISCOVERY ==========
+// ========== STREAMLINED STOCK DISCOVERY ==========
 const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax) => {
-  console.log(`🔍 ANOMALY + OPTIONS DISCOVERY`);
+  console.log(`🔍 STREAMLINED DISCOVERY`);
   console.log(`💰 Price range: $${priceMin} - $${priceMax}`);
-  setScanProgress(2);
   
   const movers = new Map();
-  let allSnapshotTickers = []; // Save for options-first discovery
   
-  // ========== DYNAMIC ETF/FUND FILTER (cached daily from Polygon) ==========
-  let dynamicETFs = new Set();
-  const cacheKey = 'polygon_etf_tickers';
-  const today = new Date().toISOString().split('T')[0];
-  
-  try {
-    const cached = JSON.parse(localStorage.getItem(cacheKey) || '{}');
-    if (cached.date === today && cached.tickers?.length > 0) {
-      dynamicETFs = new Set(cached.tickers);
-      console.log(`📋 ETF filter: ${dynamicETFs.size} tickers (cached)`);
-    } else {
-      // Fetch all ETF, ETN, and FUND tickers from Polygon reference API
-      const allNonStock = [];
-      for (const type of ['ETF', 'ETN', 'FUND']) {
-        let url = `https://api.polygon.io/v3/reference/tickers?type=${type}&market=stocks&active=true&limit=1000&apiKey=${POLYGON_KEY}`;
-        while (url) {
-          const res = await fetch(url);
-          const data = await res.json();
-          if (data.results) {
-            allNonStock.push(...data.results.map(r => r.ticker));
-          }
-          url = data.next_url ? `${data.next_url}&apiKey=${POLYGON_KEY}` : null;
-        }
-      }
-      dynamicETFs = new Set(allNonStock);
-      localStorage.setItem(cacheKey, JSON.stringify({ date: today, tickers: allNonStock }));
-      console.log(`📋 ETF filter: ${dynamicETFs.size} tickers (fetched fresh)`);
-    }
-  } catch (e) {
-    console.log('ETF filter fetch failed, using static list:', e.message);
-  }
-
   // ========== MASSIVE ETF/JUNK BLACKLIST ==========
   const JUNK_TICKERS = new Set([
     'BAGY', 'MEMY', 'SOLC', 'OKTG', 'HIBL', 'HIBS', 'WEBL', 'WEBS',
@@ -2066,997 +2496,294 @@ const discoverStocks = useCallback(async (sector, marketCap, priceMin, priceMax)
     'VGT', 'VHT', 'VFH', 'VDE', 'VIS', 'VCR', 'VDC', 'VNQ', 'VPU',
     'GLD', 'SLV', 'IAU', 'USO', 'UNG',
     'TLT', 'IEF', 'SHY', 'BND', 'AGG', 'LQD', 'HYG', 'JNK',
-    'SCHD', 'VYM', 'JEPI', 'JEPQ', 'QYLD', 'XYLD',
-    // ETFs/funds that slip through pattern detection
-    'HIGH', 'SBAR', 'SPOG', 'EPI', 'VXF', 'IYM', 'BBMC', 'EXI', 'INTL', 'OILK',
-    'TDEC', 'VEM', 'JANB', 'IFLR', 'RSBT', 'MFSB', 'XC', 'SLDR', 'SJB', 'IEUR',
-    'VUSV', 'PRSD', 'KCSH', 'FITBM',
-    'DTH', 'NFRA', 'METV', 'ZALT', 'RFLR', 'BINC', 'IBHI', 'IGEB', 'MTBA', 'RSPT',
-    'DBL', 'CGBL', 'IWMI', 'ZROZ', 'CURB', 'FBL', 'ECON', 'VRTL', 'AEXA',
-    'IWC', 'ULST', 'WTV', 'ACEI', 'VNQI', 'MHD',
-    // Preferred shares / depositary shares
-    'NCZpA', 'ALBpA'
+    'SCHD', 'VYM', 'JEPI', 'JEPQ', 'QYLD', 'XYLD'
   ]);
 
   const isJunk = (ticker) => {
     if (JUNK_TICKERS.has(ticker)) return true;
-    if (dynamicETFs.has(ticker)) return true;
     if (isLikelyETF(ticker)) return true;
     if (ticker.length < 2 || ticker.length > 5) return true;
     if (/\d/.test(ticker)) return true;
-    // Preferred/depositary shares have lowercase letters (e.g., NCZpA, ALBpA, FITBpM)
-    if (/[a-z]/.test(ticker)) return true;
+    
     if (ticker.length === 5) {
       const lastChar = ticker.slice(-1);
       const lastTwo = ticker.slice(-2);
       if (['P', 'W', 'U', 'R', 'Z', 'Y', 'F', 'Q'].includes(lastChar)) return true;
       if (['WS', 'WT', 'UN', 'PR', 'PF', 'CL'].includes(lastTwo)) return true;
     }
+    
     if (ticker.length === 4 && ['W', 'Y', 'F', 'Q'].includes(ticker.slice(-1))) return true;
+    
     return false;
   };
-
-  // ========== SECTOR ETF MAP (for correlation analysis) ==========
-  const SECTOR_ETFS = {
-    'XLK': 'Technology', 'XLF': 'Financials', 'XLE': 'Energy',
-    'XLV': 'Healthcare', 'XLI': 'Industrials', 'XLY': 'Consumer Discretionary',
-    'XLP': 'Consumer Staples', 'XLU': 'Utilities', 'XLB': 'Materials',
-    'XLRE': 'Real Estate', 'XLC': 'Communication'
-  };
-
-  const sicToSector = (sic) => {
-    if (!sic) return null;
-    const s = sic.toLowerCase();
-    if (s.includes('software') || s.includes('computer') || s.includes('semiconductor') || s.includes('electronic')) return 'XLK';
-    if (s.includes('bank') || s.includes('financ') || s.includes('insurance') || s.includes('invest')) return 'XLF';
-    if (s.includes('oil') || s.includes('gas') || s.includes('petrol') || s.includes('energy') || s.includes('mining')) return 'XLE';
-    if (s.includes('pharma') || s.includes('biotech') || s.includes('medical') || s.includes('health') || s.includes('surgical')) return 'XLV';
-    if (s.includes('aerospace') || s.includes('defense') || s.includes('manufactur') || s.includes('machinery') || s.includes('industrial')) return 'XLI';
-    if (s.includes('retail') || s.includes('restaurant') || s.includes('hotel') || s.includes('auto') || s.includes('apparel')) return 'XLY';
-    if (s.includes('food') || s.includes('beverage') || s.includes('tobacco') || s.includes('household')) return 'XLP';
-    if (s.includes('electric') || s.includes('utilit') || s.includes('water supply')) return 'XLU';
-    if (s.includes('chemical') || s.includes('steel') || s.includes('paper') || s.includes('lumber')) return 'XLB';
-    if (s.includes('real estate') || s.includes('reit')) return 'XLRE';
-    if (s.includes('telecom') || s.includes('broadcast') || s.includes('media') || s.includes('entertain')) return 'XLC';
-    return null;
-  };
-
-  // ========== PATTERN-BASED ANOMALY SCORING ==========
-  const scoreAnomaly = (patterns) => {
-    let score = 0;
-    if (patterns.includes('PRE_MOVE')) score += 50;  // Highest value — options activity before price move
-    if (patterns.includes('INSTITUTIONAL_FOOTPRINT')) score += 45;
-    if (patterns.includes('QUIET_ACCUMULATION')) score += 40;
-    if (patterns.includes('VOLUME_SPIKE')) score += 35;
-    if (patterns.includes('SECTOR_DIVERGENCE')) score += 35;
-    if (patterns.includes('OPTIONS_UNUSUAL')) score += 50;
-    if (patterns.includes('OPTIONS_IV_SPIKE')) score += 40;
-    if (patterns.includes('OPTIONS_OTM_CALLS')) score += 45;
-    if (patterns.includes('BREAKOUT_52W')) score += 25;
-    if (patterns.includes('MOMENTUM')) score += 15;
-    // Combo bonus
-    const count = patterns.length;
-    if (count >= 3) score += 25;
-    else if (count >= 2) score += 10;
-    return score;
-  };
-
-  // ========== SENTIMENT SCORING ==========
-  const scoreSentiment = (change, patterns, optionsData = null) => {
-    let score = 0; // positive = bullish, negative = bearish
-    const c = parseFloat(change) || 0;
-    
-    // Price direction is the primary signal
-    if (c > 2) score += 3;
-    else if (c > 0.5) score += 2;
-    else if (c > -0.3) score += 1; // flat-to-slightly-green
-    else if (c > -2) score -= 1;
-    else score -= 3; // big red day
-    
-    // Accumulation patterns are inherently bullish
-    if (patterns.includes('QUIET_ACCUMULATION') && c >= -0.5) score += 2;
-    if (patterns.includes('INSTITUTIONAL_FOOTPRINT') && c >= -0.3) score += 2;
-    if (patterns.includes('BREAKOUT_52W')) score += 3;
-    
-    // Momentum follows direction
-    if (patterns.includes('MOMENTUM')) score += (c >= 0 ? 2 : -2);
-    
-    // Volume spike on red = bearish, on green = bullish
-    if (patterns.includes('VOLUME_SPIKE')) score += (c >= 0 ? 1 : -1);
-    
-    // Options call activity = bullish lean
-    if (patterns.includes('OPTIONS_UNUSUAL')) score += 2;
-    if (patterns.includes('OPTIONS_OTM_CALLS')) score += 2;
-    if (optionsData?.callVolume > 0) score += 1;
-    
-    // Pre-move options positioning on flat stock = bullish (someone is betting on upside)
-    if (patterns.includes('PRE_MOVE')) score += 2;
-    
-    if (score >= 3) return 'BULLISH';
-    if (score <= -2) return 'BEARISH';
-    return 'NEUTRAL';
-  };
-
-  // ========== STEP 1: MARKET SNAPSHOT + SECTOR ETFs ==========
-  setScanStatus('SCANNING MARKET DATA...');
-  setScanProgress(5);
   
-  let sectorPerf = {};
-  let spyChange = 0;
-  
-  // Normalize volume for time of day — today's volume is partial during market hours
-  const now = new Date();
-  const etHour = now.getUTCHours() - 5; // rough ET offset
-  const etMinute = now.getUTCMinutes();
-  const marketOpenMin = 9 * 60 + 30; // 9:30 AM ET
-  const marketCloseMin = 16 * 60; // 4:00 PM ET
-  const currentMin = etHour * 60 + etMinute;
-  const totalMarketMinutes = marketCloseMin - marketOpenMin; // 390 min
-  const elapsedMinutes = Math.max(1, Math.min(totalMarketMinutes, currentMin - marketOpenMin));
-  const dayFraction = elapsedMinutes / totalMarketMinutes; // 0.0 to 1.0
-  const isMarketHours = currentMin >= marketOpenMin && currentMin <= marketCloseMin;
-  const volFloor = isMarketHours ? Math.max(25000, Math.round(100000 * dayFraction)) : 100000;
-  
-  console.log(`⏰ Market time: ${etHour}:${String(etMinute).padStart(2, '0')} ET, ${isMarketHours ? `${(dayFraction * 100).toFixed(0)}% of day elapsed, volFloor: ${volFloor}` : 'after hours (no normalization)'}`);
-
+  // ========== STEP 1: Get gainers ==========
+  setScanStatus('SCANNING GAINERS...');
   try {
-    const [snapshotRes, sectorRes] = await Promise.all([
-      fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`),
-      fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${['SPY', ...Object.keys(SECTOR_ETFS)].join(',')}&apiKey=${POLYGON_KEY}`)
-    ]);
-    
-    const [snapshotData, sectorData] = await Promise.all([snapshotRes.json(), sectorRes.json()]);
-    
-    sectorData.tickers?.forEach(t => {
-      const change = t.todaysChangePerc || 0;
-      if (t.ticker === 'SPY') spyChange = change;
-      else sectorPerf[t.ticker] = change;
-    });
-    console.log(`📊 SPY: ${spyChange >= 0 ? '+' : ''}${spyChange.toFixed(2)}%`);
-    
-    // Save all snapshot tickers for options-first discovery later
-    allSnapshotTickers = snapshotData.tickers || [];
-    
-    // ========== Pattern detection on each stock ==========
-    snapshotData.tickers?.forEach(t => {
-      if (isJunk(t.ticker)) return;
-      
-      const price = t.day?.c || t.prevDay?.c;
-      const change = t.todaysChangePerc || ((t.day?.c - t.prevDay?.c) / t.prevDay?.c * 100);
-      const volume = t.day?.v || 0;
-      const prevVolume = t.prevDay?.v || 1;
-      // During market hours, project today's volume to full day pace
-      // e.g., at 11 AM (23% of day), 500K volume → projected 2.17M full-day pace
-      const projectedVolume = isMarketHours ? volume / dayFraction : volume;
-      const volumeRatio = projectedVolume / prevVolume;
-      const high52 = t.max52Week?.high;
-      const absChange = Math.abs(change || 0);
-      
-      if (!price || price < priceMin || price > priceMax) return;
-      if (volume < volFloor) return;
-      // Require meaningful baseline volume — filters out micro-caps that normally trade 200 shares
-      if (prevVolume < 20000) return;
-      
-      const patterns = [];
-      const triggers = [];
-      
-      // 1. INSTITUTIONAL FOOTPRINT: 3x+ volume on flat day (<2% move)
-      if (volumeRatio >= 3 && absChange < 2) {
-        patterns.push('INSTITUTIONAL_FOOTPRINT');
-        triggers.push(`[FOOTPRINT] ${volumeRatio.toFixed(1)}x volume, only ${change >= 0 ? '+' : ''}${change.toFixed(1)}% move`);
-      }
-      
-      // 2. QUIET ACCUMULATION: Tight range + elevated volume
-      const accumVolFloor = isMarketHours ? Math.max(50000, Math.round(200000 * dayFraction)) : 200000;
-      if (absChange < 1.5 && volumeRatio >= 2.5 && volume >= accumVolFloor) {
-        patterns.push('QUIET_ACCUMULATION');
-        triggers.push(`[ACCUMULATION] Tight range (${change >= 0 ? '+' : ''}${change.toFixed(1)}%) on ${volumeRatio.toFixed(1)}x volume`);
-      }
-      
-      // 3. VOLUME SPIKE: 5x+ volume
-      if (volumeRatio >= 5) {
-        patterns.push('VOLUME_SPIKE');
-        triggers.push(`[VOLUME] ${volumeRatio.toFixed(1)}x average volume`);
-      }
-      
-      // 4. BREAKOUT: Near 52-week high on volume
-      if (high52 && price && ((high52 - price) / high52 * 100) <= 3 && volumeRatio >= 1.5) {
-        patterns.push('BREAKOUT_52W');
-        triggers.push(`[BREAKOUT] Within 3% of 52-week high on volume`);
-      }
-      
-      // 5. MOMENTUM: Large price move + volume
-      if (absChange >= 4 && volumeRatio >= 2) {
-        patterns.push('MOMENTUM');
-        triggers.push(`[MOMENTUM] ${change >= 0 ? '+' : ''}${change.toFixed(1)}% on ${volumeRatio.toFixed(1)}x vol`);
-      }
-      
-      if (patterns.length === 0) return;
-      
-      movers.set(t.ticker, {
-        price,
-        prevClose: t.prevDay?.c || null,
-        change: change?.toFixed(2),
-        volume,
-        volumeRatio: volumeRatio.toFixed(1),
-        anomalyScore: scoreAnomaly(patterns),
-        near52High: patterns.includes('BREAKOUT_52W'),
-        patterns: [...patterns],
-        trigger: triggers.join(' • '),
-        triggerType: patterns[0].toLowerCase(),
-        sentiment: scoreSentiment(change, patterns),
-        sic: null,
-        source: 'anomaly'
-      });
-    });
-    
-    console.log(`✓ Snapshot: ${movers.size} stocks with anomaly patterns`);
-  } catch (e) {
-    console.log('Snapshot scan failed:', e.message);
-  }
-
-  // ========== STEP 1.5: CORRELATION BREAKDOWN DETECTION ==========
-  setScanStatus('ANALYZING SECTOR CORRELATIONS...');
-  setScanProgress(18);
-  
-  const topForCorrelation = [...movers.entries()]
-    .sort((a, b) => b[1].anomalyScore - a[1].anomalyScore)
-    .slice(0, 80);
-  
-  for (let i = 0; i < topForCorrelation.length; i += 10) {
-    const batch = topForCorrelation.slice(i, i + 10);
-    const results = await Promise.all(
-      batch.map(async ([ticker]) => {
-        try {
-          const res = await fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`);
-          const data = await res.json();
-          return { ticker, sic: data.results?.sic_description || null };
-        } catch { return { ticker, sic: null }; }
-      })
+    const res = await fetch(
+      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers?apiKey=${POLYGON_KEY}`
     );
-    
-    results.forEach(({ ticker, sic }) => {
-      const stock = movers.get(ticker);
-      if (!stock) return;
-      stock.sic = sic;
-      
-      const sectorETF = sicToSector(sic);
-      if (sectorETF && sectorPerf[sectorETF] !== undefined) {
-        const sectorChange = sectorPerf[sectorETF];
-        const stockChange = parseFloat(stock.change) || 0;
-        
-        const isDiverging = (stockChange > 0.5 && sectorChange < -0.5) || (stockChange < -0.5 && sectorChange > 0.5);
-        const divergenceStrength = Math.abs(stockChange - sectorChange);
-        
-        if (isDiverging && divergenceStrength >= 2) {
-          stock.patterns.push('SECTOR_DIVERGENCE');
-          stock.trigger += ` • [DIVERGENCE] ${stockChange >= 0 ? 'Up' : 'Down'} while ${SECTOR_ETFS[sectorETF]} (${sectorETF}) ${sectorChange >= 0 ? '+' : ''}${sectorChange.toFixed(1)}%`;
-          stock.sectorETF = sectorETF;
-          stock.sectorChange = sectorChange;
-          stock.anomalyScore = scoreAnomaly(stock.patterns);
-        }
-      }
-    });
-    
-    if (i + 10 < topForCorrelation.length) await new Promise(r => setTimeout(r, 50));
-  }
-  
-  console.log(`🔀 Sector divergences: ${[...movers.values()].filter(s => s.patterns.includes('SECTOR_DIVERGENCE')).length}`);
-
-  // ========== STEP 2: UNUSUAL OPTIONS ACTIVITY SCAN ==========
-  setScanStatus('SCANNING OPTIONS FLOW...');
-  setScanProgress(22);
-  
-  const topForOptions = [...movers.entries()]
-    .sort((a, b) => b[1].anomalyScore - a[1].anomalyScore)
-    .slice(0, 40)
-    .map(([ticker]) => ticker);
-  
-  let optionsHits = 0;
-  
-  for (let i = 0; i < topForOptions.length; i += 5) {
-    const batch = topForOptions.slice(i, i + 5);
-    
-    const batchResults = await Promise.all(
-      batch.map(async (ticker) => {
-        try {
-          const today = new Date();
-          const thirtyDaysOut = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
-          const expDate = thirtyDaysOut.toISOString().split('T')[0];
-          
-          const res = await fetch(
-            `https://api.polygon.io/v3/snapshot/options/${ticker}?contract_type=call&expiration_date.lte=${expDate}&limit=50&apiKey=${POLYGON_KEY}`
-          );
-          const data = await res.json();
-          const contracts = data.results || [];
-          
-          // Debug first ticker to verify API is working
-          if (i === 0 && batch.indexOf(ticker) === 0) {
-            console.log(`🔎 Options API check for ${ticker}: ${contracts.length} contracts returned, status: ${data.status || 'unknown'}`);
-          }
-          
-          if (contracts.length === 0) return { ticker, hasUnusual: false };
-          
-          const stock = movers.get(ticker);
-          const stockPrice = stock?.price || 0;
-          
-          let totalCallVolume = 0;
-          let totalOpenInterest = 0;
-          let otmCallVolume = 0;
-          let maxIV = 0;
-          let avgIV = 0;
-          let ivCount = 0;
-          let highVolContracts = [];
-          
-          contracts.forEach(c => {
-            const vol = c.day?.volume || 0;
-            const oi = c.open_interest || 0;
-            const strike = c.details?.strike_price || 0;
-            const iv = c.implied_volatility || 0;
-            const daysToExpiry = c.details?.expiration_date 
-              ? Math.ceil((new Date(c.details.expiration_date) - today) / (1000 * 60 * 60 * 24))
-              : 30;
-            
-            totalCallVolume += vol;
-            totalOpenInterest += oi;
-            
-            if (iv > 0) {
-              if (iv > maxIV) maxIV = iv;
-              avgIV += iv;
-              ivCount++;
-            }
-            
-            if (strike > stockPrice * 1.02) {
-              otmCallVolume += vol;
-            }
-            
-            // Contracts where volume >> open interest = NEW positions
-            if (vol > 0 && oi > 0 && vol >= oi * 3 && vol >= 100) {
-              highVolContracts.push({ strike, daysToExpiry, volume: vol, oi, ratio: (vol / oi).toFixed(1), iv: (iv * 100).toFixed(0) });
-            }
-            // Brand new positions (zero OI)
-            if (vol >= 500 && oi === 0) {
-              highVolContracts.push({ strike, daysToExpiry, volume: vol, oi: 0, ratio: 'NEW', iv: (iv * 100).toFixed(0) });
-            }
-          });
-          
-          if (ivCount > 0) avgIV = avgIV / ivCount;
-          
-          const optionsPatterns = [];
-          const optionsTriggers = [];
-          
-          // A. Call volume >> open interest — aggressive new bullish bets
-          if (totalOpenInterest > 0 && totalCallVolume >= totalOpenInterest * 2 && totalCallVolume >= 1000) {
-            optionsPatterns.push('OPTIONS_UNUSUAL');
-            optionsTriggers.push(`[OPTIONS] Call vol ${(totalCallVolume/totalOpenInterest).toFixed(1)}x open interest`);
-          }
-          
-          // B. Heavy OTM call buying — someone betting on a big move
-          if (otmCallVolume >= 500 && totalCallVolume > 0 && (otmCallVolume / totalCallVolume) >= 0.6) {
-            optionsPatterns.push('OPTIONS_OTM_CALLS');
-            optionsTriggers.push(`[OTM CALLS] ${((otmCallVolume / totalCallVolume) * 100).toFixed(0)}% of call volume is OTM`);
-          }
-          
-          // C. IV spike — market pricing in unannounced catalyst
-          if (avgIV > 0.8) {
-            optionsPatterns.push('OPTIONS_IV_SPIKE');
-            optionsTriggers.push(`[IV SPIKE] Implied volatility ${(avgIV * 100).toFixed(0)}%`);
-          }
-          
-          // D. Specific hot contracts
-          if (highVolContracts.length >= 2) {
-            const top = highVolContracts.sort((a, b) => b.volume - a.volume)[0];
-            optionsTriggers.push(`[HOT] $${top.strike} calls: ${top.volume.toLocaleString()} vol vs ${top.oi.toLocaleString()} OI (${top.daysToExpiry}d exp)`);
-          }
-          
-          return {
-            ticker, hasUnusual: optionsPatterns.length > 0,
-            optionsPatterns, optionsTriggers,
-            totalCallVolume, totalOpenInterest, otmCallVolume, avgIV,
-            highVolContracts: highVolContracts.slice(0, 3)
-          };
-        } catch (e) {
-          return { ticker, hasUnusual: false };
-        }
-      })
-    );
-    
-    batchResults.forEach(result => {
-      if (!result.hasUnusual) return;
-      const stock = movers.get(result.ticker);
-      if (!stock) return;
-      
-      stock.patterns.push(...result.optionsPatterns);
-      stock.trigger += ' • ' + result.optionsTriggers.join(' • ');
-      stock.anomalyScore = scoreAnomaly(stock.patterns);
-      stock.optionsData = {
-        callVolume: result.totalCallVolume,
-        openInterest: result.totalOpenInterest,
-        otmCallVolume: result.otmCallVolume,
-        avgIV: result.avgIV,
-        topContracts: result.highVolContracts
-      };
-      // Rescore sentiment with options data
-      stock.sentiment = scoreSentiment(stock.change, stock.patterns, stock.optionsData);
-      optionsHits++;
-    });
-    
-    if (i + 5 < topForOptions.length) await new Promise(r => setTimeout(r, 100));
-  }
-  
-  console.log(`📞 Options anomalies: ${optionsHits} of ${topForOptions.length} checked`);
-
-  // ========== STEP 2b: OPTIONS-FIRST DISCOVERY (pre-move detection) ==========
-  // Scan FLAT stocks for unusual options activity — catches smart money positioning before price moves
-  setScanStatus('SCANNING QUIET OPTIONS FLOW...');
-  setScanProgress(38);
-  
-  const flatCandidates = allSnapshotTickers
-    .filter(t => {
-      if (isJunk(t.ticker)) return false;
-      if (movers.has(t.ticker)) return false; // Already caught by anomaly scanner
-      const price = t.day?.c || t.prevDay?.c;
-      const volume = t.day?.v || 0;
-      const prevVolume = t.prevDay?.v || 1;
-      const change = Math.abs(t.todaysChangePerc || 0);
-      // Flat price, decent liquidity but NOT mega-caps (they always have high options activity)
-      // prevVolume cap at 5M excludes the top ~50 most-traded stocks (NVDA, AAPL, TSLA, etc.)
-      return price >= priceMin && price <= priceMax && volume >= 100000 && prevVolume >= 50000 && prevVolume < 5000000 && change < 2;
-    })
-    .sort(() => Math.random() - 0.5) // Randomize to get variety across scans
-    .slice(0, 30);
-  
-  let optionsFirstHits = 0;
-  
-  for (let i = 0; i < flatCandidates.length; i += 5) {
-    const batch = flatCandidates.slice(i, i + 5);
-    
-    const batchResults = await Promise.all(
-      batch.map(async (t) => {
-        try {
-          const today = new Date();
-          const thirtyDaysOut = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
-          const expDate = thirtyDaysOut.toISOString().split('T')[0];
-          
-          const res = await fetch(
-            `https://api.polygon.io/v3/snapshot/options/${t.ticker}?contract_type=call&expiration_date.lte=${expDate}&limit=50&apiKey=${POLYGON_KEY}`
-          );
-          const data = await res.json();
-          const contracts = data.results || [];
-          
-          if (contracts.length === 0) return null;
-          
-          const stockPrice = t.day?.c || t.prevDay?.c || 0;
-          let totalCallVolume = 0, totalOpenInterest = 0, otmCallVolume = 0;
-          let maxIV = 0, avgIV = 0, ivCount = 0;
-          let highVolContracts = [];
-          
-          contracts.forEach(c => {
-            const vol = c.day?.volume || 0;
-            const oi = c.open_interest || 0;
-            const strike = c.details?.strike_price || 0;
-            const iv = c.implied_volatility || 0;
-            const daysToExpiry = c.details?.expiration_date 
-              ? Math.ceil((new Date(c.details.expiration_date) - today) / (1000 * 60 * 60 * 24)) : 30;
-            
-            totalCallVolume += vol;
-            totalOpenInterest += oi;
-            if (iv > 0) { if (iv > maxIV) maxIV = iv; avgIV += iv; ivCount++; }
-            if (strike > stockPrice * 1.05) otmCallVolume += vol; // 5%+ OTM (tighter than 2%)
-            
-            // Contracts where volume >> open interest = NEW positions (tighter: 5x instead of 3x)
-            if (vol > 0 && oi > 0 && vol >= oi * 5 && vol >= 200) {
-              highVolContracts.push({ strike, daysToExpiry, volume: vol, oi, ratio: (vol / oi).toFixed(1), iv: (iv * 100).toFixed(0) });
-            }
-            if (vol >= 500 && oi === 0) {
-              highVolContracts.push({ strike, daysToExpiry, volume: vol, oi: 0, ratio: 'NEW', iv: (iv * 100).toFixed(0) });
-            }
-          });
-          
-          if (ivCount > 0) avgIV = avgIV / ivCount;
-          
-          // Tighter thresholds for pre-move — must be genuinely unusual
-          const patterns = [];
-          const triggers = [];
-          
-          // Call volume 3x+ OI (tighter than normal 2x) — aggressive new positioning
-          if (totalOpenInterest > 0 && totalCallVolume >= totalOpenInterest * 3 && totalCallVolume >= 1000) {
-            patterns.push('OPTIONS_UNUSUAL');
-            triggers.push(`[OPTIONS] Call vol ${(totalCallVolume/totalOpenInterest).toFixed(1)}x open interest`);
-          }
-          // Heavy OTM call buying — 5%+ out of the money
-          if (otmCallVolume >= 500 && totalCallVolume > 0 && (otmCallVolume / totalCallVolume) >= 0.6) {
-            patterns.push('OPTIONS_OTM_CALLS');
-            triggers.push(`[OTM CALLS] ${((otmCallVolume / totalCallVolume) * 100).toFixed(0)}% of call volume is OTM`);
-          }
-          // IV spike — higher threshold (1.0 vs 0.8) since we want truly elevated IV
-          if (avgIV > 1.0) {
-            patterns.push('OPTIONS_IV_SPIKE');
-            triggers.push(`[IV SPIKE] Implied volatility ${(avgIV * 100).toFixed(0)}%`);
-          }
-          if (highVolContracts.length >= 2) {
-            const top = highVolContracts.sort((a, b) => b.volume - a.volume)[0];
-            triggers.push(`[HOT] $${top.strike} calls: ${top.volume.toLocaleString()} vol vs ${top.oi.toLocaleString()} OI (${top.daysToExpiry}d exp)`);
-          }
-          
-          if (patterns.length === 0) return null;
-          
-          const price = t.day?.c || t.prevDay?.c;
-          const change = t.todaysChangePerc || 0;
-          const volume = t.day?.v || 0;
-          const prevVolume = t.prevDay?.v || 1;
-          const projectedVol = isMarketHours ? volume / dayFraction : volume;
-          const volumeRatio = projectedVol / prevVolume;
-          
-          return {
-            ticker: t.ticker, price, prevClose: t.prevDay?.c || null,
-            change: change?.toFixed(2), volume, volumeRatio: volumeRatio.toFixed(1),
-            patterns, triggers,
-            optionsData: { callVolume: totalCallVolume, openInterest: totalOpenInterest, otmCallVolume, avgIV, topContracts: highVolContracts.slice(0, 3) }
-          };
-        } catch { return null; }
-      })
-    );
-    
-    batchResults.filter(Boolean).forEach(result => {
-      // Tighten pre-move: require 2+ options patterns OR 1 pattern + hot contract
-      const optPatterns = result.patterns.filter(p => ['OPTIONS_UNUSUAL', 'OPTIONS_OTM_CALLS', 'OPTIONS_IV_SPIKE'].includes(p));
-      const hasHotContract = result.optionsData?.topContracts?.length >= 1;
-      if (optPatterns.length < 2 && !(optPatterns.length >= 1 && hasHotContract)) return;
-      
-      // Add PRE_MOVE tag — this is the key signal: options activity with NO price move
-      result.patterns.unshift('PRE_MOVE');
-      result.triggers.unshift(`[PRE-MOVE] Flat price (${result.change}%) but unusual options positioning`);
-      
-      movers.set(result.ticker, {
-        price: result.price, prevClose: result.prevClose,
-        change: result.change, volume: result.volume, volumeRatio: result.volumeRatio,
-        anomalyScore: scoreAnomaly(result.patterns) + 20, // Bonus for being pre-move
-        near52High: false, patterns: result.patterns,
-        trigger: result.triggers.join(' • '),
-        triggerType: 'options_first',
-        sentiment: scoreSentiment(result.change, result.patterns, result.optionsData),
-        optionsData: result.optionsData,
-        source: 'options_discovery'
-      });
-      optionsFirstHits++;
-    });
-    
-    if (i + 5 < flatCandidates.length) await new Promise(r => setTimeout(r, 100));
-  }
-  
-  console.log(`🎯 Options-first discovery: ${optionsFirstHits} pre-move signals from ${flatCandidates.length} quiet stocks checked (pool excluded mega-caps)`);
-
-  // ========== Grab top gainers to catch big movers ==========
-  try {
-    const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers?apiKey=${POLYGON_KEY}`);
     const data = await res.json();
     data.tickers?.forEach(t => {
       const price = t.day?.c || t.prevDay?.c;
       const change = t.todaysChangePerc || ((t.prevDay?.c - t.prevDay?.o) / t.prevDay?.o * 100);
-      const volume = t.day?.v || 0;
+      
+      if (price >= priceMin && price <= priceMax && !isJunk(t.ticker)) {
+        movers.set(t.ticker, {
+          price,
+          change: change?.toFixed(2),
+          volume: t.day?.v || t.prevDay?.v,
+          trigger: `🚀 Top Gainer: +${change?.toFixed(1)}%`,
+          triggerType: 'gainer',
+          source: 'gainer'
+        });
+      }
+    });
+    console.log(`✓ Gainers: ${movers.size} in price range`);
+  } catch (e) {
+    console.log('Gainers fetch failed:', e.message);
+  }
+  
+  // ========== STEP 2: Get volume spikes + breakouts ==========
+  setScanStatus('SCANNING VOLUME & BREAKOUTS...');
+  try {
+    const res = await fetch(
+      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${POLYGON_KEY}`
+    );
+    const data = await res.json();
+    
+    data.tickers?.forEach(t => {
+      if (movers.has(t.ticker) || isJunk(t.ticker)) return;
+      
+      const price = t.day?.c || t.prevDay?.c;
+      const change = t.todaysChangePerc || ((t.prevDay?.c - t.prevDay?.o) / t.prevDay?.o * 100);
+      const volume = t.day?.v || t.prevDay?.v || 0;
       const prevVolume = t.prevDay?.v || 1;
-      const projectedVol = isMarketHours ? volume / dayFraction : volume;
-      const volumeRatio = projectedVol / prevVolume;
+      const volumeRatio = volume / prevVolume;
+      const high52 = t.max52Week?.high;
       
-      if (price >= priceMin && price <= priceMax && !isJunk(t.ticker) && volume >= volFloor && prevVolume >= 20000) {
-        if (!movers.get(t.ticker)) {
-          const patterns = ['MOMENTUM'];
-          const triggers = [`[GAINER] +${change?.toFixed(1)}% on ${volumeRatio.toFixed(1)}x vol`];
-          if (volumeRatio >= 5) { patterns.push('VOLUME_SPIKE'); triggers.push(`[VOLUME] ${volumeRatio.toFixed(1)}x avg volume`); }
+      if (!price || price < priceMin || price > priceMax) return;
+      if (!change || change <= 0) return;
+      
+      // Volume spike (2x normal)
+      if (volumeRatio > 2) {
+        movers.set(t.ticker, {
+          price,
+          change: change?.toFixed(2),
+          volume,
+          volumeRatio: volumeRatio.toFixed(1),
+          trigger: `Volume Spike: ${volumeRatio.toFixed(1)}x normal`,
+          triggerType: 'volume',
+          source: 'volume'
+        });
+        return;
+      }
+      
+      // Near 52-week high (within 5%)
+      if (high52 && price) {
+        const distanceFromHigh = ((high52 - price) / high52) * 100;
+        if (distanceFromHigh <= 5) {
           movers.set(t.ticker, {
-            price, prevClose: t.prevDay?.c || null, change: change?.toFixed(2), volume, volumeRatio: volumeRatio.toFixed(1),
-            anomalyScore: scoreAnomaly(patterns), near52High: false, patterns, trigger: triggers.join(' • '),
-            triggerType: 'gainer', sentiment: scoreSentiment(change, patterns), source: 'anomaly'
+            price,
+            change: change?.toFixed(2),
+            volume,
+            trigger: `Breakout: ${distanceFromHigh < 1 ? 'At' : 'Near'} 52-week high`,
+            triggerType: 'breakout',
+            source: 'breakout'
           });
+          return;
         }
       }
+      
+      // Just a solid gainer with decent volume
+      if (change > 5 && volume > 100000) {
+        movers.set(t.ticker, {
+          price,
+          change: change?.toFixed(2),
+          volume,
+          trigger: `Strong Move: +${change?.toFixed(1)}% on ${(volume/1000000).toFixed(1)}M vol`,
+          triggerType: 'momentum',
+          source: 'momentum'
+        });
+      }
     });
-    console.log(`✓ Gainers merged, total: ${movers.size}`);
-  } catch (e) { console.log('Gainers failed:', e.message); }
+  } catch (e) {
+    console.log('Snapshot scan failed:', e.message);
+  }
   
-  if (movers.size === 0) return { stocks: [], total: 0 };
+  console.log(`✓ Total movers: ${movers.size}`);
 
-  // ========== STEP 3: CHECK NEWS COVERAGE ==========
-  setScanStatus('CHECKING NEWS COVERAGE...');
-  setScanProgress(48);
+  if (movers.size === 0) {
+    return { stocks: [], total: 0 };
+  }
   
-  const sortedByAnomaly = [...movers.entries()]
-    .sort((a, b) => b[1].anomalyScore - a[1].anomalyScore)
-    .slice(0, 100);
-  
-  console.log(`📊 Top anomalies: ${sortedByAnomaly.slice(0, 8).map(([t, d]) => `${t}(${d.anomalyScore}:${d.patterns.join('+')})`).join(', ')}`);
+// ========== STEP 3: Fetch news and summarize ==========
+setScanStatus('FETCHING NEWS...');
 
-  const withData = [];
-  for (let i = 0; i < sortedByAnomaly.length; i += 10) {
-    const batch = sortedByAnomaly.slice(i, i + 10);
-    const batchResults = await Promise.all(
-      batch.map(async ([ticker, data]) => {
-        try {
-          const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().split('T')[0];
-          const polygonRes = await fetch(
-            `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=5&published_utc.gte=${twoDaysAgo}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`
-          ).then(r => r.json());
-          const recentArticles = polygonRes.results || [];
-          
-          const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-          const olderRes = await fetch(
-            `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=3&published_utc.gte=${thirtyDaysAgo}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`
-          ).then(r => r.json());
-          const olderArticles = olderRes.results || [];
-          
-          return {
-            ticker, ...data,
-            recentNews: recentArticles, olderNews: olderArticles,
-            hasRecentNews: recentArticles.length > 0,
-            headline: recentArticles[0]?.title || null,
-            newsSource: recentArticles[0]?.publisher?.name || null,
-            newsDate: recentArticles[0]?.published_utc ? new Date(recentArticles[0].published_utc).toLocaleDateString() : null,
-            newsCount: recentArticles.length,
-            news: (recentArticles.length > 0 ? recentArticles : olderArticles).slice(0, 3),
-          };
-        } catch (e) {
-          return { ticker, ...data, recentNews: [], olderNews: [], hasRecentNews: false, news: [], newsCount: 0 };
-        }
+const sortedMovers = [...movers.entries()]
+  .sort(() => Math.random() - 0.5)
+  .slice(0, 80);
+
+console.log(`📰 Checking news for top ${sortedMovers.length} movers...`);
+
+// First, fetch all news
+const withData = [];
+for (let i = 0; i < sortedMovers.length; i += 10) {
+  const batch = sortedMovers.slice(i, i + 10);
+  
+  const batchResults = await Promise.all(
+    batch.map(async ([ticker, data]) => {
+      try {
+const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+const polygonRes = await fetch(
+  `https://api.polygon.io/v2/reference/news?ticker=${ticker}&limit=5&published_utc.gte=${thirtyDaysAgo}&order=desc&sort=published_utc&apiKey=${POLYGON_KEY}`
+).then(r => r.json());
+const articles = polygonRes.results || [];
+        
+        return {
+          ticker,
+          ...data,
+          news: articles.slice(0, 3),
+          newsCount: articles.length,
+          headline: articles[0]?.title || null,
+          newsSource: articles[0]?.publisher?.name || null,
+          newsDate: articles[0]?.published_utc 
+            ? new Date(articles[0].published_utc).toLocaleDateString() 
+            : null
+        };
+      } catch (e) {
+        return { ticker, ...data, news: [], newsCount: 0 };
+      }
+    })
+  );
+  
+  withData.push(...batchResults);
+  
+  if (i + 10 < sortedMovers.length) {
+    await new Promise(r => setTimeout(r, 100));
+  }
+}
+
+// ========== STEP 4: AI analyzes catalysts ==========
+setScanStatus('ANALYZING CATALYSTS...');
+
+const stocksWithNews = withData.filter(s => s.headline);
+const stocksWithoutNews = withData.filter(s => !s.headline);
+
+// AI analyzes stocks with news - tell us WHY it matters
+if (stocksWithNews.length > 0) {
+  try {
+    const stocksToAnalyze = stocksWithNews.slice(0, 25);
+    
+    const analysisInput = stocksToAnalyze
+      .map((s, i) => {
+        const newsText = s.news
+          ?.slice(0, 2)
+          .map(n => n.title)
+          .join(' | ') || s.headline;
+        return `${i + 1}. ${s.ticker} (+${s.change}%): "${newsText}"`;
       })
-    );
-    withData.push(...batchResults);
-    if (i + 10 < sortedByAnomaly.length) await new Promise(r => setTimeout(r, 100));
-  }
-
-  // ========== STEP 4: SPLIT INTO TIERS ==========
-  // Pre-move stocks WITHOUT news = true pre-move signal (highest value)
-  // Pre-move stocks WITH news = options just reacting to news (demote to Tier 2)
-  let preMoveSignals = withData
-    .filter(s => s.source === 'options_discovery' && !s.hasRecentNews)
-    .sort((a, b) => b.anomalyScore - a.anomalyScore);
-  
-  // TIER 1: Activity BEFORE news — the money signal (non-pre-move)
-  let earlySignals = withData
-    .filter(s => s.source !== 'options_discovery' && !s.hasRecentNews && s.anomalyScore >= 20)
-    .sort((a, b) => b.anomalyScore - a.anomalyScore);
-  
-  // TIER 2: Activity WITH news — catalyst confirmed (includes demoted pre-move stocks)
-  let catalystStocks = withData
-    .filter(s => s.hasRecentNews)
-    .sort((a, b) => b.anomalyScore - a.anomalyScore);
-  
-  // ========== STEP 4b: VERIFY EARLY SIGNALS VIA FINNHUB ==========
-  // Polygon's ticker tagging misses a lot of news — cross-check with Finnhub
-  // Verify both early signals and pre-move signals
-  const signalsToVerify = [...earlySignals.slice(0, 15), ...preMoveSignals.slice(0, 10)];
-  if (signalsToVerify.length > 0) {
-    setScanStatus('VERIFYING EARLY SIGNALS...');
-    setScanProgress(58);
-    const twoDaysMs = 48 * 60 * 60 * 1000;
-    const promoted = []; // stocks that actually have news → move to Tier 2
+      .join('\n');
     
-    for (let i = 0; i < signalsToVerify.length; i += 5) {
-      const batch = signalsToVerify.slice(i, i + 5);
-      const results = await Promise.all(
-        batch.map(async (stock) => {
-          try {
-            const finnhubArticles = await fetchFinnhubNews(stock.ticker, 5);
-            const recentFinnhub = finnhubArticles.filter(a => {
-              const pubDate = new Date(a.published_utc);
-              return (Date.now() - pubDate.getTime()) < twoDaysMs;
-            });
-            return { ticker: stock.ticker, recentFinnhub };
-          } catch {
-            return { ticker: stock.ticker, recentFinnhub: [] };
-          }
-        })
-      );
-      
-      for (const r of results) {
-        if (r.recentFinnhub.length > 0) {
-          // Check if it's an early signal or pre-move signal
-          let stock = earlySignals.find(s => s.ticker === r.ticker);
-          if (!stock) stock = preMoveSignals.find(s => s.ticker === r.ticker);
-          if (stock) {
-            stock.hasRecentNews = true;
-            stock.headline = r.recentFinnhub[0].title;
-            stock.newsSource = r.recentFinnhub[0].publisher?.name;
-            stock.news = r.recentFinnhub.slice(0, 3);
-            stock.newsCount = r.recentFinnhub.length;
-            promoted.push(stock);
-          }
-        }
+    const analysisResult = await aiModel.generateContent(
+      `You are a stock analyst. For each stock, explain WHY the stock is moving in 6-10 words. Focus on the actionable catalyst - what happened that matters to traders.
+
+Be specific: Include numbers, percentages, drug names, deal values, earnings beats/misses.
+Bad: "Positive news drives shares higher"
+Good: "FDA approves cancer drug, $2B market opportunity"
+Good: "Q4 earnings beat 15%, raised 2024 guidance"
+Good: "Acquired by Microsoft for $50/share"
+Good: "$200M contract with US Army announced"
+
+Stocks:
+${analysisInput}
+
+Return ONLY a numbered list:
+1. [catalyst summary]
+2. [catalyst summary]
+...`
+    );
+    
+    const analysisText = await analysisResult.response.text();
+    const analyses = analysisText.split('\n')
+      .filter(line => /^\d+\./.test(line.trim()))
+      .map(line => line.replace(/^\d+\.\s*/, '').trim());
+    
+    // Apply analyses back to stocks
+    stocksToAnalyze.forEach((stock, i) => {
+      if (analyses[i] && analyses[i].length > 5) {
+        stock.catalyst = analyses[i].replace(/^["']|["']$/g, '');
+      } else {
+        // Fallback
+        stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger;
       }
-      if (i + 5 < signalsToVerify.length) await new Promise(r => setTimeout(r, 600));
-    }
+      stock.catalystType = 'news';
+    });
     
-    if (promoted.length > 0) {
-      console.log(`🔄 Finnhub cross-check: ${promoted.length} stocks had news Polygon missed → moved to Tier 2 (${promoted.map(s => s.ticker).join(', ')})`);
-      earlySignals = earlySignals.filter(s => !s.hasRecentNews);
-      preMoveSignals = preMoveSignals.filter(s => !s.hasRecentNews);
-      catalystStocks = [...catalystStocks, ...promoted].sort((a, b) => b.anomalyScore - a.anomalyScore);
-    }
-  }
-  
-  console.log(`🎯 Pre-Move (no news): ${preMoveSignals.length} — options activity before any news`);
-  console.log(`🔍 Tier 1 (Early Signals): ${earlySignals.length} — activity before news`);
-  console.log(`📰 Tier 2 (Catalysts): ${catalystStocks.length} — activity with news`);
-
-  // ========== STEP 5: FETCH COMPANY CONTEXT + AI ANALYSIS ==========
-  setScanStatus('FETCHING COMPANY CONTEXT...');
-  setScanProgress(65);
-  
-  // Batch fetch company names & industries for AI context
-  const allAIStocks = [...earlySignals.slice(0, 20), ...catalystStocks.slice(0, 25), ...preMoveSignals.slice(0, 15)];
-  const uniqueAITickers = [...new Set(allAIStocks.map(s => s.ticker))];
-  const companyContext = {};
-  
-  for (let i = 0; i < uniqueAITickers.length; i += 15) {
-    const batch = uniqueAITickers.slice(i, i + 15);
-    const results = await Promise.allSettled(
-      batch.map(ticker => 
-        fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`)
-          .then(r => r.json())
-          .then(d => ({ ticker, name: d.results?.name, industry: d.results?.sic_description }))
-      )
-    );
-    results.forEach(r => {
-      if (r.status === 'fulfilled' && r.value) {
-        const { ticker, name, industry } = r.value;
-        companyContext[ticker] = { name: cleanCompanyName(name || ticker), industry: industry || '' };
+// Any remaining stocks with news that weren't analyzed
+    stocksWithNews.slice(25).forEach(stock => {
+      stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger;
+      stock.catalystType = 'news';
+    });
+    
+    // Clean up bad AI responses - if AI couldn't identify a catalyst, use the headline or trigger instead
+    stocksWithNews.forEach(stock => {
+      if (stock.catalyst && (
+        stock.catalyst.toLowerCase().includes('no clear catalyst') ||
+        stock.catalyst.toLowerCase().includes('not identified') ||
+        stock.catalyst.toLowerCase().includes('no specific') ||
+        stock.catalyst.toLowerCase().includes('unclear') ||
+        stock.catalyst.toLowerCase().includes('no catalyst') ||
+        stock.catalyst.toLowerCase().includes('cannot determine') ||
+        stock.catalyst.toLowerCase().includes('no news') ||
+        stock.catalyst.toLowerCase().includes('provided summaries')
+      )) {
+        // Fall back to headline, then trigger
+        stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger;
       }
     });
-    if (i + 15 < uniqueAITickers.length) await new Promise(r => setTimeout(r, 200));
+    
+    console.log(`🤖 AI analyzed ${stocksToAnalyze.length} stocks`);
+    
+  } catch (e) {
+    console.log('AI analysis failed:', e.message);
+    stocksWithNews.forEach(stock => {
+      stock.catalyst = stock.headline?.slice(0, 60) || stock.trigger;
+      stock.catalystType = 'news';
+    });
   }
-  console.log(`🏢 Company context fetched for ${Object.keys(companyContext).length}/${uniqueAITickers.length} tickers`);
+}
+
+// Stocks without news use technical trigger
+stocksWithoutNews.forEach(stock => {
+  stock.catalyst = stock.trigger;
+  stock.catalystType = stock.triggerType;
+});
+
+// ========== STEP 5: Combine and sort ==========
+const allStocks = [...stocksWithNews, ...stocksWithoutNews];
+
+const sorted = allStocks.sort((a, b) => {
+  // News always wins
+  if (a.catalystType === 'news' && b.catalystType !== 'news') return -1;
+  if (b.catalystType === 'news' && a.catalystType !== 'news') return 1;
+  // Then volume spikes
+  if (a.catalystType === 'volume' && b.catalystType !== 'volume') return -1;
+  if (b.catalystType === 'volume' && a.catalystType !== 'volume') return 1;
+  // Then by % change
+  return parseFloat(b.change || 0) - parseFloat(a.change || 0);
+});
+
+const withNews = sorted.filter(s => s.catalystType === 'news').length;
+const withTechnical = sorted.filter(s => s.catalystType !== 'news').length;
+console.log(`✅ Found ${withNews} with news, ${withTechnical} with technical triggers`);
+
+return {
+  stocks: sorted,
+  total: movers.size
+};
   
-  // Attach context to stocks for reuse in verification step
-  [...earlySignals, ...catalystStocks, ...preMoveSignals].forEach(s => {
-    if (companyContext[s.ticker]) s._company = companyContext[s.ticker];
-  });
-  
-  // Helper: build rich stock description for AI
-  const buildStockContext = (s, i) => {
-    const company = companyContext[s.ticker];
-    const parts = [];
-    parts.push(`${s.ticker}${company ? ` (${company.name}${company.industry ? ' — ' + company.industry : ''})` : ''}`);
-    parts.push(`price: ${s.change >= 0 ? '+' : ''}${s.change}%, vol: ${s.volumeRatio}x avg`);
-    const patterns = (s.patterns || []);
-    if (patterns.length > 0) parts.push(`signals: ${patterns.join(', ')}`);
-    if (s.optionsData) {
-      const ratio = (s.optionsData.callVolume / Math.max(s.optionsData.openInterest, 1)).toFixed(1);
-      parts.push(`calls: ${s.optionsData.callVolume.toLocaleString()} vol vs ${s.optionsData.openInterest.toLocaleString()} OI (${ratio}x)`);
-      if (s.optionsData.avgIV > 0) parts.push(`IV: ${(s.optionsData.avgIV * 100).toFixed(0)}%`);
-      if (s.optionsData.topContracts?.[0]) {
-        const tc = s.optionsData.topContracts[0];
-        parts.push(`hottest: $${tc.strike} calls, ${tc.volume} vol, ${tc.daysToExpiry}d out`);
-      }
-    }
-    if (s.sectorETF) parts.push(`sector ${s.sectorETF}: ${s.sectorChange >= 0 ? '+' : ''}${s.sectorChange.toFixed(1)}%`);
-    if (s.near52High) parts.push('near 52w high');
-    if (s.olderNews?.[0]) parts.push(`older news: "${s.olderNews[0].title}"`);
-    return `${i + 1}. ${parts.join(' | ')}`;
-  };
-
-  setScanStatus('ANALYZING ANOMALIES...');
-  setScanProgress(72);
-
-  // Helper: generate human-readable descriptions from raw data when AI doesn't run
-  const buildReadableFallback = (s, type) => {
-    const company = companyContext[s.ticker];
-    const name = company?.name || s.ticker;
-    const industry = company?.industry ? `, a ${company.industry.toLowerCase()}` : '';
-    const volText = s.volumeRatio ? `${s.volumeRatio}x normal volume` : '';
-    const parts = [];
-    if (s.patterns?.includes('INSTITUTIONAL_FOOTPRINT')) parts.push('institutional block buying');
-    if (s.patterns?.includes('QUIET_ACCUMULATION')) parts.push('quiet accumulation');
-    if (s.patterns?.includes('VOLUME_SPIKE')) parts.push(volText || 'volume spike');
-    if (s.patterns?.includes('MOMENTUM')) parts.push(`up ${s.change}%`);
-    if (s.patterns?.includes('SECTOR_DIVERGENCE')) parts.push('diverging from sector');
-    if (s.patterns?.includes('BREAKOUT_52W')) parts.push('near 52-week high');
-    if (s.patterns?.includes('OPTIONS_IV_SPIKE')) parts.push('elevated IV');
-    if (s.patterns?.includes('OPTIONS_OTM_CALLS')) parts.push('heavy OTM call buying');
-    if (s.patterns?.includes('OPTIONS_UNUSUAL')) parts.push('unusual call volume vs open interest');
-    const signals = parts.slice(0, 3).join(', ');
-    if (type === 'options_first') {
-      return `${name}${industry} showing ${signals} — no news yet, options market pricing in an undisclosed catalyst`;
-    } else if (type === 'early_signal') {
-      return `${name}${industry} showing ${signals} — no news yet, something may be developing behind the scenes`;
-    } else {
-      const headline = s.headline || s.recentNews?.[0]?.title || '';
-      return headline ? `${name}${industry}: ${headline.slice(0, 80)}` : `${name}${industry} showing ${signals}`;
-    }
-  };
-  
-  // AI for EARLY SIGNALS — synthesize all signals into a compelling narrative
-  if (earlySignals.length > 0) {
-    try {
-      const toAnalyze = earlySignals.slice(0, 20);
-      const input = toAnalyze.map((s, i) => buildStockContext(s, i)).join('\n');
-      
-      const result = await aiModel.generateContent(
-        `You are a stock market detective writing for active traders. These stocks show unusual activity with NO recent news — something is happening behind the scenes.
-
-For each stock, write a 30-45 word narrative in TWO parts separated by " — ":
-PART 1 (bold hook): What the company does + what's happening in the data (be specific with numbers)
-PART 2 (the theory): What smart money might know — connect the dots between all signals to suggest a plausible catalyst
-
-RULES:
-- Name the company and its business in the first few words
-- Use SPECIFIC numbers from the data (volume multiples, IV %, strike prices, expiry days)
-- Connect multiple signals into a single theory (don't list them separately)
-- The theory should be industry-appropriate (biotech = trial data, bank = M&A, defense = contract, etc.)
-- Never say "unusual activity detected" or "something may be brewing" — BE SPECIFIC about what
-
-Bad: "4x volume with institutional footprint and options IV spike — unusual activity detected"
-Bad: "Showing signs of accumulation with elevated options flow — worth watching"
-Good: "Regional bank quietly accumulating at 4x normal volume with $45 calls loading at 5x open interest, 12 days out — positioning suggests someone expects an acquisition bid or blowout earnings"
-Good: "Biotech sitting flat while $30 OTM calls surge with IV spiking to 140%, diverging +3% from XBI — pattern consistent with insiders front-running Phase 3 data readout"
-Good: "Defense contractor showing institutional block buying at 6x volume on a flat tape, $85 calls stacking 18 days out — likely front-running an unannounced DoD contract award"
-
-Stocks:
-${input}
-
-Return ONLY a numbered list:
-1. [insight]
-...`
-      );
-      
-      const text = await result.response.text();
-      const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
-      
-      toAnalyze.forEach((stock, i) => {
-        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '') : buildReadableFallback(stock, 'early_signal');
-        stock.catalystType = 'early_signal';
-        stock.signalTier = 1;
-      });
-      earlySignals.slice(20).forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'early_signal'); stock.catalystType = 'early_signal'; stock.signalTier = 1; });
-      console.log(`🤖 AI analyzed ${toAnalyze.length} early signals`);
-    } catch (e) {
-      console.log('AI early signal failed:', e.message);
-      earlySignals.forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'early_signal'); stock.catalystType = 'early_signal'; stock.signalTier = 1; });
-    }
-  }
-
-  
-  // AI for CATALYST STOCKS — news + technical context narrative
-  setScanProgress(80);
-  if (catalystStocks.length > 0) {
-    try {
-      const toAnalyze = catalystStocks.slice(0, 25);
-      const input = toAnalyze.map((s, i) => {
-        const company = companyContext[s.ticker];
-        const newsText = s.recentNews?.slice(0, 2).map(n => n.title).join(' | ') || s.headline;
-        const parts = [];
-        parts.push(`${s.ticker}${company ? ` (${company.name}${company.industry ? ' — ' + company.industry : ''})` : ''}`);
-        parts.push(`+${s.change}%, vol: ${s.volumeRatio}x avg`);
-        parts.push(`news: "${newsText}"`);
-        if (s.optionsData) {
-          const ratio = (s.optionsData.callVolume / Math.max(s.optionsData.openInterest, 1)).toFixed(1);
-          parts.push(`options: ${ratio}x call/OI`);
-        }
-        if (s.patterns.includes('SECTOR_DIVERGENCE')) parts.push('diverging from sector');
-        if (s.patterns.includes('INSTITUTIONAL_FOOTPRINT')) parts.push('institutional accumulation');
-        if (s.near52High) parts.push('near 52w high');
-        return `${i + 1}. ${parts.join(' | ')}`;
-      }).join('\n');
-      
-      const result = await aiModel.generateContent(
-        `You are a stock analyst writing for active traders. These stocks have NEWS driving them.
-
-For each stock, write a 30-45 word narrative in TWO parts separated by " — ":
-PART 1 (the catalyst): Lead with SPECIFIC news details — drug names, deal sizes, earnings beats/misses, contract values, regulatory decisions
-PART 2 (the setup): Connect the news to technical confirmation — is smart money piling in? Options surging? Breaking key levels?
-
-RULES:
-- Be specific: "$2.3B acquisition" not "positive deal news"
-- Include numbers: "beat by 22%" not "strong earnings"
-- Use the technical signals to validate the news: "8x volume confirms this isn't just headlines"
-- Never say "positive news" or "shares rise" — tell the trader WHY and WHAT COMES NEXT
-
-Bad: "Positive news drives shares higher on volume"
-Bad: "Company reports strong earnings, stock moves up"
-Good: "FDA fast-tracks cancer immunotherapy into priority review, $45 calls surging 5x open interest — institutional buyers loading suggests multi-day runner ahead"
-Good: "Beat Q4 by 22% and raised FY guidance above consensus, breaking 52-week high on 8x volume — momentum just starting as shorts scramble to cover"
-Good: "$500M DoD drone contract awarded, stock diverging +4% from XLI sector — smart money accumulating with near-term calls stacking"
-
-Stocks:
-${input}
-
-Return ONLY a numbered list:
-1. [insight]
-...`
-      );
-      
-      const text = await result.response.text();
-      const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
-      
-      toAnalyze.forEach((stock, i) => {
-        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '') : buildReadableFallback(stock, 'news');
-        stock.catalystType = 'news';
-        stock.signalTier = 2;
-      });
-      catalystStocks.slice(25).forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'news'); stock.catalystType = 'news'; stock.signalTier = 2; });
-
-      // Clean bad AI responses
-      catalystStocks.forEach(stock => {
-        if (stock.catalyst && (
-          stock.catalyst.toLowerCase().includes('no clear catalyst') || stock.catalyst.toLowerCase().includes('not identified') ||
-          stock.catalyst.toLowerCase().includes('no specific') || stock.catalyst.toLowerCase().includes('unclear') ||
-          stock.catalyst.toLowerCase().includes('no catalyst') || stock.catalyst.toLowerCase().includes('cannot determine') ||
-          stock.catalyst.toLowerCase().includes('no news') || stock.catalyst.toLowerCase().includes('provided summaries')
-        )) { stock.catalyst = stock.headline?.slice(0, 120) || buildReadableFallback(stock, 'news'); }
-      });
-      console.log(`🤖 AI analyzed ${toAnalyze.length} catalyst stocks`);
-    } catch (e) {
-      console.log('AI catalyst failed:', e.message);
-      catalystStocks.forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'news'); stock.catalystType = 'news'; stock.signalTier = 2; });
-    }
-  }
-
-  // ========== STEP 5b: AI ANALYSIS FOR PRE-MOVE OPTIONS ==========
-  setScanStatus('ANALYZING PRE-MOVE OPTIONS...');
-  setScanProgress(88);
-  const preMoveStocksForAI = preMoveSignals; // Already filtered: no news
-  
-  if (preMoveStocksForAI.length > 0) {
-    try {
-      const toAnalyze = preMoveStocksForAI.slice(0, 15);
-      const input = toAnalyze.map((s, i) => buildStockContext(s, i)).join('\n');
-      
-      const result = await aiModel.generateContent(
-        `You are a smart money detective. These stocks have FLAT prices but UNUSUAL options activity and NO news — someone is positioning before a catalyst.
-
-For each stock, write a 30-45 word narrative in TWO parts separated by " — ":
-PART 1: Name the company, its business, and describe the exact options positioning (strikes, expiry timeline, volume vs OI ratios, IV level)
-PART 2: Use the OPTIONS TIMELINE as a clue to the catalyst type:
-  - 7-14 days out = imminent event (data readout, ruling, contract decision)
-  - 30-60 days out = earnings play or scheduled FDA date
-  - 90+ days out = strategic positioning (M&A thesis, sector rotation)
-
-RULES:
-- Industry context MUST inform your theory (biotech ≠ bank ≠ defense)
-- Include specific numbers from the data
-- The theory should explain WHY this timeline makes sense for this company
-- Never say "bullish sentiment" or "aggressive positioning" — say WHAT they're positioning FOR
-
-Bad: "High IV spike and call volume exceeding open interest — aggressive bullish sentiment"
-Good: "Community bank flat while $45 calls load at 5x OI, 12 days out — timeline aligns with Q4 earnings, someone expects a blowout or acquisition announcement"
-Good: "Biotech showing quiet accumulation with $30 OTM calls surging, IV at 140%, expiring in 21 days — positioning consistent with Phase 3 data readout imminent"
-Good: "Defense contractor flat on a green tape, $85 calls 6x OI with 45-day expiry — timeline suggests front-running a major contract award cycle"
-
-Stocks:
-${input}
-
-Return ONLY a numbered list:
-1. [insight]
-...`
-      );
-      
-      const text = await result.response.text();
-      const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
-      
-      toAnalyze.forEach((stock, i) => {
-        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '') : buildReadableFallback(stock, 'options_first');
-        stock.catalystType = 'options_first';
-        stock.signalTier = 1;
-      });
-      preMoveStocksForAI.slice(15).forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'options_first'); stock.catalystType = 'options_first'; stock.signalTier = 1; });
-      console.log(`🎯 AI analyzed ${toAnalyze.length} pre-move options signals`);
-    } catch (e) {
-      console.log('AI pre-move failed:', e.message);
-      preMoveStocksForAI.forEach(stock => { stock.catalyst = buildReadableFallback(stock, 'options_first'); stock.catalystType = 'options_first'; stock.signalTier = 1; });
-    }
-  }
-
-  // ========== STEP 6: COMBINE — PRE-MOVE + EARLY SIGNALS + CATALYSTS ==========
-  const allStocks = [...preMoveStocksForAI, ...earlySignals, ...catalystStocks];
-  
-  const withEarly = allStocks.filter(s => s.signalTier === 1 && s.source !== 'options_discovery').length;
-  const withCatalyst = allStocks.filter(s => s.signalTier === 2).length;
-  const withOptions = allStocks.filter(s => s.optionsData).length;
-  const withPreMove = preMoveStocksForAI.length;
-  console.log(`✅ Final: ${withPreMove} pre-move, ${withEarly} early signals (${withOptions} w/ options), ${withCatalyst} catalyst stocks`);
-
-  return { stocks: allStocks, total: movers.size };
-  
-}, [setScanStatus, setScanProgress, isLikelyETF, aiModel]);
+}, [setScanStatus, isLikelyETF]);
 
 
 
@@ -3200,9 +2927,9 @@ const runScanner = useCallback(async (tickerToSearch = null) => {
       setScanStatus(`ANALYZING: ${tickerToSearch.toUpperCase()}`);
       const ticker = tickerToSearch.toUpperCase().replace(/[^A-Z]/g, "");
       
-      // Fetch data for manual ticker - use snapshot for live data
-const [snapshotRes, profileRes] = await Promise.all([
-  fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${ticker}&apiKey=${POLYGON_KEY}`),
+      // Fetch data for manual ticker
+const [quoteRes, profileRes] = await Promise.all([
+  fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`),
   fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`)
 ]);
 
@@ -3213,8 +2940,8 @@ const newsRes = await fetch(
 const newsData = await newsRes.json();
 const articles = newsData.results || [];
 
-const [snapshotData, profileData] = await Promise.all([
-  snapshotRes.json(),
+const [quoteData, profileData] = await Promise.all([
+  quoteRes.json(),
   profileRes.json()
 ]);
 
@@ -3223,34 +2950,31 @@ const news = dedupeArticles([...articles, ...finnhubNews])
   .sort((a, b) => new Date(b.published_utc) - new Date(a.published_utc))
   .slice(0, 5);
       
-      const tickerData = snapshotData.tickers?.[0];
-      if (!tickerData) {
+      if (!quoteData.results?.[0]) {
         setScanStatus(`NO DATA FOUND FOR ${ticker}`);
         setLoading(false);
         setScanComplete(true);
         return;
       }
       
+      const quote = quoteData.results[0];
       const profile = profileData.results || {};
-      const currentPrice = tickerData.day?.c || tickerData.prevDay?.c;
-      const prevClosePrice = tickerData.prevDay?.c;
-      const change = tickerData.todaysChangePerc || (prevClosePrice ? ((currentPrice - prevClosePrice) / prevClosePrice) * 100 : 0);
+      const change = ((quote.c - quote.o) / quote.o) * 100;
       const earnings = await fetchEarningsDate(ticker);
 
       
       const stock = {
         symbol: ticker,
         name: cleanCompanyName(profile.name) || ticker,
-        price: currentPrice?.toFixed(2) || '0.00',
-        prevClose: prevClosePrice || null,
-        change: change?.toFixed(2) || '0.00',
+        price: quote.c.toFixed(2),
+        change: change.toFixed(2),
         isPositive: change >= 0,
         headline: news[0]?.title || null,
         newsSource: news[0]?.publisher?.name || null,
         newsDate: news[0]?.published_utc ? new Date(news[0].published_utc).toLocaleDateString() : null,
         newsCount: news.length,
         news: news.slice(0, 3),
-        volume: tickerData.day?.v || tickerData.prevDay?.v || 0,
+        volume: quote.v,
         industry: profile.sic_description || '',
         source: 'manual',
         earnings: earnings,
@@ -3271,7 +2995,7 @@ const news = dedupeArticles([...articles, ...finnhubNews])
 const priceMin = scanPriceMin || 2;
 const priceMax = scanPriceMax || 500;
 
-const result = await discoverStocks('all', null, priceMin, priceMax);
+const result = await discoverStocks(scanSector, null, priceMin, priceMax);
 const discoveredStocks = result.stocks || [];
 
 if (discoveredStocks.length === 0) {
@@ -3281,66 +3005,46 @@ if (discoveredStocks.length === 0) {
   return;
 }
 
-// Score-based ordering with tier bonuses (replaces tier-based priority)
-const isLikelySPAC = (name) => {
-  if (!name) return false;
-  const n = name.toLowerCase();
-  return n.includes('acquisition corp') || n.includes('acquisition co') || n.includes('blank check') ||
-    n.includes('merger corp') || n.includes('capital acquisition') || n.includes('equity partners') ||
-    n.includes('growth capital') || n.includes('venture acquisition') || /\bacquisition\b/.test(n) || /\bspac\b/.test(n);
-};
+// Shuffle for variety, but keep news/volume stocks weighted higher
+const newsStocks = discoveredStocks.filter(s => s.catalystType === 'news');
+const volumeStocks = discoveredStocks.filter(s => s.catalystType === 'volume');
+const otherStocks = discoveredStocks.filter(s => !['news', 'volume'].includes(s.catalystType));
 
-const isDebtInstrument = (name) => {
-  if (!name) return false;
-  const n = name.toLowerCase();
-  return n.includes(' bonds') || n.includes(' bond ') || n.includes('debenture') || n.includes('notes due') ||
-    n.includes('% senior') || n.includes('% subordinated') || n.includes('convertible note') ||
-    n.includes('fixed rate') || n.includes('floating rate') || n.includes('capital securities') ||
-    n.includes('debt') || n.includes('warrant');
-};
+// Shuffle each group
+const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
+const prioritized = [
+  ...shuffle(newsStocks),
+  ...shuffle(volumeStocks),
+  ...shuffle(otherStocks)
+];
 
-const recentTickers = getRecentTickers();
-
-// Add tier bonus + SPAC penalty + recently-seen penalty, then sort by total score
-const sortedCandidates = discoveredStocks.map(s => {
-  const tierBonus = s.catalystType === 'options_first' ? 40 : s.catalystType === 'early_signal' ? 30 : 0;
-  const spacPenalty = isLikelySPAC(s._company?.name) ? -80 : 0;
-  const seenPenalty = recentTickers.has(s.ticker) ? -50 : 0;
-  const jitter = Math.floor(Math.random() * 31) - 15;
-  const finalScore = (s.anomalyScore || 0) + tierBonus + spacPenalty + seenPenalty + jitter;
-  return { ...s, finalScore, tierBonus, spacPenalty, seenPenalty };
-}).sort((a, b) => b.finalScore - a.finalScore);
-
-console.log(`📋 Top candidates by score: ${sortedCandidates.slice(0, 10).map(s => 
-  `${s.ticker}(${s.anomalyScore}${s.tierBonus ? '+' + s.tierBonus : ''}${s.seenPenalty ? s.seenPenalty : ''}=${s.finalScore}/${s.catalystType}/${(s.patterns||[]).length}p${s.seenPenalty ? '/seen' : ''})`
-).join(', ')}`);
-
-const candidates = sortedCandidates.slice(0, 25);
+// Take more candidates when filtering by sector
+const candidateCount = scanSector !== 'all' ? 60 : 25;
+const candidates = prioritized.slice(0, candidateCount);
 
 setScanStatus('VERIFYING STOCKS...');
-setScanProgress(92);
+setScanProgress(60);
 
 // Verify each stock
 const verified = [];
+
+const recentTickers = getRecentTickers();
 
 for (const stock of candidates) {
   if (verified.length >= 5) break;
   if (!stock.ticker) continue;
   
+  if (recentTickers.has(stock.ticker)) {
+  console.log(`⏭️ Skipped (scanned recently): ${stock.ticker}`);
+  continue;
+}
+  
   try {
-    // Reuse company context from AI step if available, otherwise fetch
-    let name, industry;
-    if (stock._company) {
-      name = stock._company.name || stock.ticker;
-      industry = stock._company.industry || '';
-    } else {
     const profileRes = await fetch(
       `https://api.polygon.io/v3/reference/tickers/${stock.ticker}?apiKey=${POLYGON_KEY}`
     );
     const profileData = await profileRes.json();
-    name = profileData.results?.name || stock.ticker;
-      industry = profileData.results?.sic_description || '';
-    }
+    const name = profileData.results?.name || stock.ticker;
     const nameLower = name.toLowerCase();
     
     // ETF/Junk filter
@@ -3374,10 +3078,13 @@ for (const stock of candidates) {
       continue;
     }
 
-    // Debt instrument hard filter
-    if (isDebtInstrument(name)) {
-      console.log(`❌ Filtered: ${stock.ticker} (${name}) [debt]`);
-      continue;
+        // Sector filter
+    if (scanSector !== 'all') {
+      const sicDesc = profileData.results?.sic_description || '';
+      if (!matchesSector(sicDesc, scanSector)) {
+        console.log(`❌ Wrong sector: ${stock.ticker} (${sicDesc})`);
+        continue;
+      }
     }
 
   const earnings = await fetchEarningsDate(stock.ticker);
@@ -3388,15 +3095,10 @@ for (const stock of candidates) {
       symbol: stock.ticker,
       name: cleanCompanyName(name),
       price: stock.price?.toFixed ? stock.price.toFixed(2) : String(stock.price || '0.00'),
-      prevClose: stock.prevClose || null,
       change: stock.change || '0.00',
       isPositive: parseFloat(stock.change || 0) >= 0,
       catalyst: stock.catalyst,
       catalystType: stock.catalystType,
-      signalTier: stock.signalTier || 2,
-      anomalyScore: stock.anomalyScore || 0,
-      patterns: stock.patterns || [],
-      optionsData: stock.optionsData || null,
       headline: stock.headline,
       newsSource: stock.newsSource,
       newsDate: stock.newsDate,
@@ -3405,13 +3107,12 @@ for (const stock of candidates) {
       volume: stock.volume,
       volumeRatio: stock.volumeRatio,
       trigger: stock.trigger,
-      sentiment: stock.sentiment || 'NEUTRAL',
       source: stock.source,
-      industry: industry,
+      industry: profileData.results?.sic_description || '',
       earnings: earnings,
     });
     
-    console.log(`✅ Added: ${stock.ticker} - ${stock.catalystType} [${(stock.patterns || []).join('+')}]: ${stock.catalyst?.slice(0, 50)}`);
+    console.log(`✅ Added: ${stock.ticker} - ${stock.catalystType}: ${stock.catalyst?.slice(0, 50)}`);
     
   } catch (e) {
     console.log(`⚠️ Failed: ${stock.ticker}`, e.message);
@@ -3421,7 +3122,7 @@ for (const stock of candidates) {
 if (verified.length === 0) {
   // Fallback: relax filters - allow recently scanned, expand candidates
   setScanStatus('EXPANDING SEARCH...');
-  const fallbackCandidates = sortedCandidates.slice(0, 120);
+  const fallbackCandidates = prioritized.slice(0, 120);
   
   for (const stock of fallbackCandidates) {
     if (verified.length >= 5) break;
@@ -3449,7 +3150,15 @@ if (verified.length === 0) {
         nameLower.includes(' 2x') || nameLower.includes(' 3x') ||
         nameLower.includes('2x ') || nameLower.includes('3x ')
       ) continue;
-      if (isDebtInstrument(name)) continue;
+
+      // Skip sector filter in fallback
+
+if (scanSector !== 'all') {
+  const sic = profileData.results?.sic_description || '';
+  if (!matchesSector(sic, scanSector)) {
+    continue;
+  }
+}
 
       const earnings = await fetchEarningsDate(stock.ticker);
       
@@ -3457,15 +3166,10 @@ if (verified.length === 0) {
         symbol: stock.ticker,
         name: cleanCompanyName(name),
         price: stock.price?.toFixed ? stock.price.toFixed(2) : String(stock.price || '0.00'),
-        prevClose: stock.prevClose || null,
         change: stock.change || '0.00',
         isPositive: parseFloat(stock.change || 0) >= 0,
         catalyst: stock.catalyst,
         catalystType: stock.catalystType,
-        signalTier: stock.signalTier || 2,
-        anomalyScore: stock.anomalyScore || 0,
-        patterns: stock.patterns || [],
-        optionsData: stock.optionsData || null,
         headline: stock.headline,
         newsSource: stock.newsSource,
         newsDate: stock.newsDate,
@@ -3474,7 +3178,6 @@ if (verified.length === 0) {
         volume: stock.volume,
         volumeRatio: stock.volumeRatio,
         trigger: stock.trigger,
-        sentiment: stock.sentiment || 'NEUTRAL',
         source: stock.source,
         industry: profileData.results?.sic_description || '',
         earnings: earnings,
@@ -3504,11 +3207,7 @@ verified.forEach(s => {
 setStocks(verified);
 logScanHistory(verified);
 setScanProgress(100);
-const earlyCount = verified.filter(s => s.signalTier === 1).length;
-const statusMsg = earlyCount > 0 
-  ? `FOUND ${verified.length} STOCKS (${earlyCount} EARLY SIGNAL${earlyCount > 1 ? 'S' : ''})`
-  : `FOUND ${verified.length} STOCKS`;
-setScanStatus(statusMsg);
+setScanStatus(`FOUND ${verified.length} STOCKS`);
 setScanComplete(true);
     
   } catch (err) {
@@ -3517,7 +3216,7 @@ setScanComplete(true);
   } finally {
     setLoading(false);
   }
-}, [discoverStocks, scanPriceMin, scanPriceMax, recentlyScanned]);
+}, [discoverStocks, scanPriceMin, scanPriceMax, scanSector, recentlyScanned]);
 
 
 // Handle clicking a similar stock ticker
@@ -3536,19 +3235,11 @@ const handleScanSimilar = useCallback((ticker) => {
 const getSortedAndFilteredStocks = useCallback((stockList) => {
   let filtered = [...stockList];
   
-  // Filter by catalyst type or sentiment
+  // Filter by catalyst type (replaces old signal filter)
   if (filterSignal !== "all") {
-    if (filterSignal === 'bullish') {
-      filtered = filtered.filter(stock => stock.sentiment === 'BULLISH');
-    } else if (filterSignal === 'bearish') {
-      filtered = filtered.filter(stock => stock.sentiment === 'BEARISH');
-    } else if (filterSignal === 'pre_move') {
-      filtered = filtered.filter(stock => stock.source === 'options_discovery' || stock.patterns?.includes('PRE_MOVE'));
-    } else {
-      filtered = filtered.filter(stock => 
-        stock.catalystType === filterSignal
-      );
-    }
+    filtered = filtered.filter(stock => 
+      stock.catalystType === filterSignal
+    );
   }
   
   // Sort options updated for new data model
@@ -3559,11 +3250,7 @@ const getSortedAndFilteredStocks = useCallback((stockList) => {
     if (sortBy === "price-low") return parseFloat(a.price) - parseFloat(b.price);
     if (sortBy === "volume") return (b.volume || 0) - (a.volume || 0);
     if (sortBy === "news") return (b.newsCount || 0) - (a.newsCount || 0);
-    // Default: pre-move first, then early signals, then news catalysts, then by change
-    if (a.catalystType === 'options_first' && b.catalystType !== 'options_first') return -1;
-    if (b.catalystType === 'options_first' && a.catalystType !== 'options_first') return 1;
-    if (a.catalystType === 'early_signal' && b.catalystType !== 'early_signal') return -1;
-    if (b.catalystType === 'early_signal' && a.catalystType !== 'early_signal') return 1;
+    // Default: news catalysts first, then by change
     if (a.catalystType === 'news' && b.catalystType !== 'news') return -1;
     if (b.catalystType === 'news' && a.catalystType !== 'news') return 1;
     return parseFloat(b.change) - parseFloat(a.change);
@@ -3589,323 +3276,13 @@ const getStableStock = useCallback((stock) => {
   return stock;
 }, []);
 
-// Lock sort order so live price updates don't reorder cards
-const sortOrderRef = useRef([]);
-const prevSortBy = useRef(sortBy);
-const prevFilterSignal = useRef(filterSignal);
-const prevStockCount = useRef(0);
-
-const displayedStocks = useMemo(() => {
-  const sorted = getSortedAndFilteredStocks(stocks);
-  
-  // Re-sort only when sort/filter changes or stock count changes (new scan)
-  const sortChanged = prevSortBy.current !== sortBy;
-  const filterChanged = prevFilterSignal.current !== filterSignal;
-  const countChanged = sorted.length !== prevStockCount.current;
-  
-  if (sortChanged || filterChanged || countChanged || sortOrderRef.current.length === 0) {
-    sortOrderRef.current = sorted.map(s => s.symbol);
-    prevSortBy.current = sortBy;
-    prevFilterSignal.current = filterSignal;
-    prevStockCount.current = sorted.length;
-    return sorted.map(getStableStock);
-  }
-  
-  // Price update only — preserve existing order, just update data
-  const stockMap = {};
-  sorted.forEach(s => { stockMap[s.symbol] = s; });
-  return sortOrderRef.current
-    .filter(sym => stockMap[sym])
-    .map(sym => getStableStock(stockMap[sym]));
-}, [stocks, getSortedAndFilteredStocks, getStableStock, sortBy, filterSignal]);
+// Then change your displayedStocks to use this:
+const displayedStocks = useMemo(() => 
+  getSortedAndFilteredStocks(stocks).map(getStableStock), 
+  [stocks, getSortedAndFilteredStocks, getStableStock]
+);
 
 const displayedWatchlist = getSortedAndFilteredStocks(watchlist);
-
-// Share Scan as Image
-const generateShareImage = useCallback(async () => {
-  const stocksToShare = displayedStocks.slice(0, 6);
-  if (stocksToShare.length === 0) return;
-
-  // Load logo image
-  const logo = new Image();
-  logo.crossOrigin = 'anonymous';
-  logo.src = '/jckrbbt_logo.png';
-  
-  await new Promise((resolve, reject) => {
-    logo.onload = resolve;
-    logo.onerror = reject;
-  }).catch(() => null); // Continue even if logo fails to load
-
-  const scale = 2; // retina
-  const W = 600;
-  const rowH = 80;
-  const headerH = 120;
-  const footerH = 70;
-  const padding = 30;
-  const H = headerH + (stocksToShare.length * rowH) + footerH + 20;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = W * scale;
-  canvas.height = H * scale;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(scale, scale);
-
-  // Background
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, '#0a0a0a');
-  grad.addColorStop(1, '#111111');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-
-  // Subtle border
-  ctx.strokeStyle = 'rgba(0, 255, 78, 0.15)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
-
-  // Top accent line
-  ctx.fillStyle = '#00ff4e';
-  ctx.fillRect(0, 0, W, 2);
-
-  // Header - Logo image
-  let logoEndX = padding;
-  if (logo.complete && logo.naturalWidth > 0) {
-    const logoH = 30;
-    const logoAspect = logo.naturalWidth / logo.naturalHeight;
-    const logoDrawW = logoH * logoAspect;
-    ctx.drawImage(logo, padding, 18, logoDrawW, logoH);
-    logoEndX = padding + logoDrawW + 12;
-  } else {
-    // Fallback to text if logo fails
-    ctx.font = '700 22px "JetBrains Mono", ui-monospace, monospace';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText('jckrbbt_', padding, 42);
-    logoEndX = padding + ctx.measureText('jckrbbt_').width + 12;
-  }
-
-  // Header - "MARKET SCAN" badge
-  const badgeText = 'MARKET SCAN';
-  ctx.font = '800 9px "JetBrains Mono", ui-monospace, monospace';
-  const badgeW = ctx.measureText(badgeText).width + 14;
-  const bx = logoEndX;
-  ctx.fillStyle = 'rgba(0, 255, 78, 0.12)';
-  ctx.beginPath();
-  ctx.roundRect(bx, 28, badgeW, 20, 4);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 255, 78, 0.3)';
-  ctx.lineWidth = 0.5;
-  ctx.stroke();
-  ctx.fillStyle = '#00ff4e';
-  ctx.fillText(badgeText, bx + 7, 42);
-
-  // Header - Username (right-aligned)
-  const handle = user?.username ? `@${user.username}` : '';
-  if (handle) {
-    ctx.font = '700 12px "JetBrains Mono", ui-monospace, monospace';
-    ctx.fillStyle = '#a1a1aa';
-    const handleW = ctx.measureText(handle).width;
-    ctx.fillText(handle, W - padding - handleW, 42);
-  }
-
-  // Header - Date and count
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-  const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  ctx.font = '400 11px "JetBrains Mono", ui-monospace, monospace';
-  ctx.fillStyle = '#52525b';
-  ctx.fillText(`${dateStr} • ${timeStr} • ${stocksToShare.length} stocks`, padding, 68);
-
-  // Divider
-  ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  ctx.fillRect(padding, 85, W - padding * 2, 1);
-
-  // Stock rows
-  stocksToShare.forEach((stock, i) => {
-    const y = headerH + (i * rowH);
-    
-    // Row hover effect - subtle alternating
-    if (i % 2 === 0) {
-      ctx.fillStyle = 'rgba(255,255,255,0.015)';
-      ctx.fillRect(padding - 10, y, W - padding * 2 + 20, rowH);
-    }
-
-    // Symbol
-    ctx.font = '800 18px "JetBrains Mono", ui-monospace, monospace';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(stock.symbol, padding, y + 28);
-
-    // Company name (truncated)
-    ctx.font = '400 10px "JetBrains Mono", ui-monospace, monospace';
-    ctx.fillStyle = '#71717a';
-    let name = stock.name || '';
-    if (name.length > 28) name = name.slice(0, 25) + '...';
-    ctx.fillText(name, padding, y + 44);
-
-    // Price - right aligned
-    const priceStr = stock.price ? `$${parseFloat(stock.price).toFixed(2)}` : '';
-    ctx.font = '600 14px "JetBrains Mono", ui-monospace, monospace';
-    ctx.fillStyle = '#a1a1aa';
-    const priceW = ctx.measureText(priceStr).width;
-    ctx.fillText(priceStr, W - padding - priceW, y + 24);
-
-    // Change % - right aligned, colored
-    const change = parseFloat(stock.change) || 0;
-    const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
-    ctx.font = '800 12px "JetBrains Mono", ui-monospace, monospace';
-    ctx.fillStyle = change >= 0 ? '#00ff4e' : '#ef4444';
-    const changeW = ctx.measureText(changeStr).width;
-    // Change pill background
-    const pillW = changeW + 12;
-    const pillX = W - padding - pillW;
-    ctx.fillStyle = change >= 0 ? 'rgba(0,255,78,0.1)' : 'rgba(239,68,68,0.1)';
-    ctx.beginPath();
-    ctx.roundRect(pillX, y + 32, pillW, 18, 4);
-    ctx.fill();
-    ctx.fillStyle = change >= 0 ? '#00ff4e' : '#ef4444';
-    ctx.fillText(changeStr, pillX + 6, y + 45);
-
-    // Catalyst - below symbol
-    const catalyst = stock.catalyst || stock.trigger || '';
-    const catalystHook = catalyst.includes(' — ') ? catalyst.split(' — ')[0] : catalyst;
-    if (catalyst) {
-      let catX = padding;
-      
-      // Early Signal badge
-      if (stock.catalystType === 'early_signal' || stock.signalTier === 1) {
-        const badgeLabel = 'EARLY SIGNAL';
-        ctx.font = '800 7px "JetBrains Mono", ui-monospace, monospace';
-        const bw = ctx.measureText(badgeLabel).width + 10;
-        ctx.fillStyle = 'rgba(249, 115, 22, 0.15)';
-        ctx.beginPath();
-        ctx.roundRect(padding, y + 50, bw, 16, 3);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(249, 115, 22, 0.4)';
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-        ctx.fillStyle = '#f97316';
-        ctx.fillText(badgeLabel, padding + 5, y + 61);
-        catX = padding + bw + 6;
-      }
-      
-      ctx.font = '400 10px "JetBrains Mono", ui-monospace, monospace';
-      ctx.fillStyle = '#a1a1aa';
-      const maxLen = stock.signalTier === 1 ? 42 : 55;
-      let catText = catalystHook.length > maxLen ? catalystHook.slice(0, maxLen - 3) + '...' : catalystHook;
-      ctx.fillText(`▸ ${catText}`, catX, y + 62);
-    }
-
-    // Row divider
-    if (i < stocksToShare.length - 1) {
-      ctx.fillStyle = 'rgba(255,255,255,0.04)';
-      ctx.fillRect(padding, y + rowH - 1, W - padding * 2, 0.5);
-    }
-  });
-
-  // Footer divider
-  const footerY = headerH + (stocksToShare.length * rowH) + 5;
-  ctx.fillStyle = 'rgba(0, 255, 78, 0.15)';
-  ctx.fillRect(padding, footerY, W - padding * 2, 1);
-
-  // Footer - logo icon + text
-  let footerTextX = padding;
-  if (logo.complete && logo.naturalWidth > 0) {
-    const fLogoH = 20;
-    const fLogoAspect = logo.naturalWidth / logo.naturalHeight;
-    const fLogoW = fLogoH * fLogoAspect;
-    ctx.drawImage(logo, padding, footerY + 14, fLogoW, fLogoH);
-    footerTextX = padding + fLogoW + 8;
-  }
-  
-  ctx.font = '800 15px "JetBrains Mono", ui-monospace, monospace';
-  ctx.fillStyle = '#00ff4e';
-  ctx.fillText('jckrbbt.io', footerTextX, footerY + 30);
-  const jckrbbtW = ctx.measureText('jckrbbt.io').width;
-
-  ctx.font = '400 10px "JetBrains Mono", ui-monospace, monospace';
-  ctx.fillStyle = '#52525b';
-  ctx.fillText('Free AI Stock Scanner', footerTextX + jckrbbtW + 10, footerY + 30);
-
-  // "Not financial advice" tiny text
-  ctx.font = '400 8px "JetBrains Mono", ui-monospace, monospace';
-  ctx.fillStyle = '#27272a';
-  ctx.fillText('Not financial advice. For informational purposes only.', padding, footerY + 52);
-
-  // Convert to blob and download
-  canvas.toBlob((blob) => {
-    // Try native share first (mobile), fall back to download
-    if (navigator.share && navigator.canShare) {
-      const file = new File([blob], `jckrbbt-scan-${now.toISOString().split('T')[0]}.png`, { type: 'image/png' });
-      if (navigator.canShare({ files: [file] })) {
-        navigator.share({
-          files: [file],
-          title: 'JCKRBBT Market Scan',
-          text: `Today's scan on jckrbbt.io — ${stocksToShare.length} stocks with catalysts`
-        }).catch(() => {
-          // User cancelled share, do nothing
-        });
-        return;
-      }
-    }
-    // Fallback: download
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `jckrbbt-scan-${now.toISOString().split('T')[0]}.png`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, 'image/png');
-}, [displayedStocks, user]);
-
-// Copy scan as Reddit markdown
-const copyForReddit = useCallback(() => {
-  const stocksToShare = displayedStocks.slice(0, 8);
-  if (stocksToShare.length === 0) return;
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-  const handle = user?.username ? ` | @${user.username}` : '';
-  
-  let md = `**Stocks I'm watching today** — ${dateStr}\n\n`;
-  md += `|Ticker|Price|Change|Catalyst|\n`;
-  md += `|:-|:-|:-|:-|\n`;
-  stocksToShare.forEach(stock => {
-    const price = stock.price ? `$${parseFloat(stock.price).toFixed(2)}` : '-';
-    const change = parseFloat(stock.change) || 0;
-    const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
-    const catalystHook = (stock.catalyst || stock.trigger || '');
-    const catalyst = (catalystHook.includes(' — ') ? catalystHook.split(' — ')[0] : catalystHook).slice(0, 80);
-    const earlyTag = stock.signalTier === 1 ? '🔍 ' : '';
-    md += `|**${stock.symbol}**|${price}|${changeStr}|${earlyTag}${catalyst}|\n`;
-  });
-  md += `\nScanned with [jckrbbt.io](https://jckrbbt.io)${handle} — free AI stock scanner\n`;
-  md += `\n*Not financial advice. For informational purposes only.*`;
-  
-  navigator.clipboard.writeText(md).then(() => {
-    setCopiedReddit(true);
-    setTimeout(() => setCopiedReddit(false), 2000);
-  });
-}, [displayedStocks, user]);
-
-// Copy scan for Twitter/X
-const copyForTwitter = useCallback(() => {
-  const stocksToShare = displayedStocks.slice(0, 5);
-  if (stocksToShare.length === 0) return;
-  const handle = user?.username ? `\n\n@${user.username} on jckrbbt.io` : '';
-  
-  let text = `Stocks moving on catalysts today:\n\n`;
-  stocksToShare.forEach(stock => {
-    const change = parseFloat(stock.change) || 0;
-    const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
-    const catalystRaw = (stock.catalyst || stock.trigger || '');
-    const catalyst = (catalystRaw.includes(' — ') ? catalystRaw.split(' — ')[0] : catalystRaw).slice(0, 60);
-    text += `$${stock.symbol} ${changeStr} — ${catalyst}\n`;
-  });
-  text += `\nFound with jckrbbt.io`;
-  text += handle;
-  
-  navigator.clipboard.writeText(text).then(() => {
-    setCopiedTwitter(true);
-    setTimeout(() => setCopiedTwitter(false), 2000);
-  });
-}, [displayedStocks, user]);
 
 
 
@@ -3913,244 +3290,6 @@ const copyForTwitter = useCallback(() => {
 
  return (
     <div className="min-h-screen bg-black text-white p-4 md:p-8 pb-20 md:pb-8 font-mono">
-
-{/* WELCOME ONBOARDING SCREEN */}
-<AnimatePresence>
-{showWelcome && (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    transition={{ duration: 0.5 }}
-    className="fixed inset-0 z-[99999] flex items-center justify-center bg-black"
-  >
-    {/* Subtle animated background */}
-    <div className="absolute inset-0 overflow-hidden">
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full opacity-[0.03]" style={{ background: 'radial-gradient(circle, #00ff4e 0%, transparent 70%)' }} />
-    </div>
-
-    <motion.div
-      initial={{ y: 30, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ delay: 0.2, duration: 0.6 }}
-      className="relative z-10 max-w-lg mx-auto px-6 text-center"
-    >
-      {/* Logo */}
-      <motion.div
-        initial={{ scale: 0.8, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: 0.3, duration: 0.5 }}
-        className="mb-8"
-      >
-        <img src="/jckrbbt_logo.png" alt="JCKRBBT" className="h-16 md:h-20 mx-auto" />
-      </motion.div>
-
-      {/* Tagline */}
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5, duration: 0.5 }}
-        className="text-base md:text-lg text-zinc-400 font-bold mb-10 leading-relaxed"
-      >
-        Find stocks with <span className="text-[#00ff4e] font-black">real catalysts</span>
-        <br />before they move.
-      </motion.p>
-
-      {/* Features */}
-      <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.7, duration: 0.5 }}
-        className="space-y-4 mb-10"
-      >
-        {[
-          { Icon: Zap, title: 'AI-Powered Scanner', desc: 'Spots unusual stock activity before the news breaks — volume spikes, price anomalies, and hidden moves' },
-          { Icon: FileText, title: 'Deep Research Reports', desc: 'AI-generated bull/bear cases, technicals, and risk analysis' },
-          { Icon: MessageCircle, title: 'Ask AI Anything', desc: 'Chat with AI about any stock — earnings, targets, risks' },
-        ].map((feature, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.8 + i * 0.15, duration: 0.4 }}
-            className="flex items-start gap-4 text-left p-3 rounded-xl"
-            style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}
-          >
-            <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center mt-0.5" style={{ background: 'rgba(0,255,78,0.1)', border: '1px solid rgba(0,255,78,0.2)' }}>
-              <feature.Icon size={18} className="text-[#00ff4e]" />
-            </div>
-            <div>
-              <p className="text-sm font-black text-white uppercase tracking-wider">{feature.title}</p>
-              <p className="text-xs text-zinc-500 mt-0.5">{feature.desc}</p>
-            </div>
-          </motion.div>
-        ))}
-      </motion.div>
-
-      {/* CTA Buttons */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 1.2, duration: 0.4 }}
-        className="space-y-3"
-      >
-        <button
-          onClick={() => {
-            localStorage.setItem('jckrbbt_onboarded', 'true');
-            setShowWelcome(false);
-            setShowAuthModal(true);
-            setTimeout(() => setTourStep(1), 600);
-          }}
-          className="w-full py-4 rounded-xl text-sm font-black uppercase tracking-wider text-black transition-all active:scale-95 hover:opacity-90"
-          style={{ backgroundColor: '#00ff4e', boxShadow: '0 0 30px rgba(0,255,78,0.3)' }}
-        >
-          Get Started — It's Free
-        </button>
-        <button
-          onClick={() => {
-            localStorage.setItem('jckrbbt_onboarded', 'true');
-            setShowWelcome(false);
-            setTimeout(() => setTourStep(1), 600);
-          }}
-          className="w-full py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-zinc-600 hover:text-zinc-400 transition-colors"
-        >
-          Explore First
-        </button>
-      </motion.div>
-
-      {/* Disclaimer */}
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 1.4, duration: 0.4 }}
-        className="text-[9px] text-zinc-800 mt-8 leading-relaxed"
-      >
-        Not financial advice. For informational purposes only.<br />
-        <a href="/terms" className="text-zinc-700 hover:text-zinc-500 underline">Terms of Service</a>
-        {' · '}
-        <a href="/privacy" className="text-zinc-700 hover:text-zinc-500 underline">Privacy Policy</a>
-      </motion.p>
-    </motion.div>
-  </motion.div>
-)}
-</AnimatePresence>
-
-{/* TOOLTIP TOUR */}
-<AnimatePresence>
-{tourStep > 0 && (() => {
-  const steps = tourSteps.current;
-  const step = steps[tourStep - 1];
-  if (!step) return null;
-  const rect = tourRect;
-
-  return (
-    <motion.div
-      key={`tour-${tourStep}`}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-      className="fixed inset-0 z-[9998]"
-      style={{ pointerEvents: 'auto' }}
-      onClick={() => { 
-        if (tourStep < steps.length) setTourStep(tourStep + 1); 
-        else { setTourStep(0); localStorage.setItem('jckrbbt_tour_done', 'true'); }
-      }}
-    >
-      {/* Single dimming layer - only show when no spotlight rect */}
-      {!rect && <div className="absolute inset-0 bg-black/80" />}
-      
-      {/* Spotlight on target - this creates the dim + cutout in one layer */}
-      {rect && (
-        <div 
-          className="absolute rounded-xl"
-          style={{
-            top: rect.top - 6,
-            left: rect.left - 6,
-            width: rect.width + 12,
-            height: rect.height + 12,
-            boxShadow: '0 0 0 9999px rgba(0,0,0,0.80), 0 0 30px rgba(0,255,78,0.2)',
-            border: '2px solid rgba(0,255,78,0.4)',
-            zIndex: 9999,
-            pointerEvents: 'none',
-          }}
-        />
-      )}
-
-      {/* Tooltip */}
-      <motion.div
-        initial={{ opacity: 0, y: step.position === 'top' ? 10 : -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15, duration: 0.3 }}
-        className="absolute z-[10000] w-72 md:w-80"
-        style={{
-          ...(rect ? (step.position === 'bottom' ? {
-            top: rect.top + rect.height + 22,
-            left: Math.max(16, Math.min(rect.left + rect.width / 2 - 160, window.innerWidth - 336)),
-          } : {
-            bottom: window.innerHeight - rect.top + 22,
-            left: Math.max(16, Math.min(rect.left + rect.width / 2 - 160, window.innerWidth - 336)),
-          }) : {
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-          }),
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        <div 
-          className="p-4 rounded-xl"
-          style={{
-            background: 'linear-gradient(135deg, rgba(40,40,40,0.98) 0%, rgba(15,15,15,0.99) 100%)',
-            border: '1px solid rgba(0,255,78,0.2)',
-            boxShadow: '0 0 40px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.1)',
-          }}
-        >
-          {/* Step indicator */}
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[9px] font-black text-[#00ff4e] uppercase tracking-[0.3em]">
-              Step {tourStep} of {steps.length}
-            </span>
-            <div className="flex gap-1.5">
-              {steps.map((_, i) => (
-                <div 
-                  key={i} 
-                  className="w-1.5 h-1.5 rounded-full transition-colors"
-                  style={{ backgroundColor: i < tourStep ? '#00ff4e' : 'rgba(255,255,255,0.1)' }}
-                />
-              ))}
-            </div>
-          </div>
-
-          <h4 className="text-sm font-black text-white mb-1">{step.title}</h4>
-          <p className="text-xs text-zinc-400 leading-relaxed mb-4">{step.desc}</p>
-
-          <div className="flex items-center justify-between">
-            <button
-              onClick={(e) => { e.stopPropagation(); setTourStep(0); localStorage.setItem('jckrbbt_tour_done', 'true'); }}
-              className="text-[10px] font-bold text-zinc-600 hover:text-zinc-400 uppercase tracking-wider transition-colors"
-            >
-              Skip Tour
-            </button>
-            <button
-              onClick={(e) => { 
-                e.stopPropagation(); 
-                if (tourStep < steps.length) setTourStep(tourStep + 1); 
-                else { setTourStep(0); localStorage.setItem('jckrbbt_tour_done', 'true'); }
-              }}
-              className="px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider text-black transition-all active:scale-95"
-              style={{ backgroundColor: '#00ff4e' }}
-            >
-              {tourStep < steps.length ? 'Next' : 'Got It'}
-            </button>
-          </div>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-})()}
-</AnimatePresence>
-
 <style>{`
   select option {
     background-color: #000 !important;
@@ -4298,7 +3437,7 @@ const copyForTwitter = useCallback(() => {
         transition={{ duration: 0.3 }}
         className="overflow-hidden mt-6"
       >
-       <div className="p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+       <div className="bg-[#111111] border border-zinc-800 p-4 md:p-5 rounded-xl shadow-2xl backdrop-blur-md">
   <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
     Find Users & Watchlists
   </h3>
@@ -4315,7 +3454,7 @@ const copyForTwitter = useCallback(() => {
         }
       }}
       placeholder="Search by username..."
-      className="w-full bg-black/50 border border-zinc-700/50 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-600 focus:border-[#00ff4e]/50"
+      className="w-full bg-black border border-zinc-800 text-white px-4 md:px-5 py-3 rounded-lg outline-none transition-all font-mono text-base placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
       style={{ caretColor: '#00ff4e' }}
     />
   </div>
@@ -4335,7 +3474,7 @@ const copyForTwitter = useCallback(() => {
                       handleViewUserProfile(user.id);
                       setShowSearch(false);
                     }}
-                  className="flex items-center justify-between p-4 bg-black/70 border border-zinc-700 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
+                  className="flex items-center justify-between p-4 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
                     {user.profilePicUrl ? (
@@ -4374,7 +3513,7 @@ const copyForTwitter = useCallback(() => {
                 {publicWatchlists.slice(0, 5).map(list => (
                   <div
                     key={list.id}
-                    className="p-4 bg-black/70 border border-zinc-700 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
+                    className="p-4 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
                     onClick={() => {
                       handleViewUserProfile(list.ownerId);
                       setShowSearch(false);
@@ -4502,7 +3641,6 @@ const copyForTwitter = useCallback(() => {
     return (
       <button
         key={tab.id}
-        data-tour={tab.id === 'MY LISTS' ? 'lists-tab' : tab.id === 'MY POSITIONS' ? 'portfolio-tab' : undefined}
         onClick={() => setActiveTab(tab.id)}
         className={`flex-1 h-20 flex items-center justify-center rounded-xl transition-all ${
           isActive 
@@ -4531,7 +3669,6 @@ const copyForTwitter = useCallback(() => {
       return (
         <button
           key={tab.id}
-          data-tour={tab.id === 'MY LISTS' ? 'lists-tab' : tab.id === 'MY POSITIONS' ? 'portfolio-tab' : undefined}
           onClick={() => setActiveTab(tab.id)}
           className={`flex-1 flex flex-col items-center justify-center py-6 transition-all ${
             isActive 
@@ -4559,7 +3696,7 @@ const copyForTwitter = useCallback(() => {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
   
 {/* MANUAL SEARCH SECTION */}
-  <div data-tour="analyze-stock" className="p-4 md:p-5 rounded-xl overflow-hidden transition-all duration-300" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+  <div className="p-4 md:p-5 rounded-xl overflow-hidden transition-all duration-300" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
     <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
       Analyze Any Stock
     </h3>
@@ -4744,10 +3881,27 @@ searchTimeoutRef.current = setTimeout(async () => {
   />
 </div>
         </div>
+        
+        <CustomDropdown
+          value={scanSector}
+          onChange={setScanSector}
+          label="Sector"
+          options={[
+            { value: 'all', label: 'All Sectors' },
+            { value: 'technology', label: 'Technology' },
+            { value: 'healthcare', label: 'Healthcare' },
+            { value: 'finance', label: 'Finance' },
+            { value: 'energy', label: 'Energy' },
+            { value: 'consumer', label: 'Consumer' },
+            { value: 'industrial', label: 'Industrial' },
+            { value: 'materials', label: 'Materials' },
+            { value: 'realestate', label: 'Real Estate' },
+            { value: 'utilities', label: 'Utilities' }
+          ]}
+        />
       </div>
 
       <button 
-        data-tour="scan-market"
         onClick={() => { 
           setStocks([]);
           setManualSearch(""); 
@@ -4771,27 +3925,6 @@ searchTimeoutRef.current = setTimeout(async () => {
           'SCAN MARKET'
         )}
       </button>
-      {(recentlyScanned.size > 0 || scanHistory.length > 0) && !loading && (
-        <button
-          onClick={async () => {
-            setRecentlyScanned(new Set());
-            localStorage.removeItem('recentlyScanned');
-            setScanHistory([]);
-            if (user?.uid && db) {
-              try {
-                const { doc, setDoc } = await import('firebase/firestore');
-                const histRef = doc(db, 'users', user.uid, 'scanHistory', 'recent');
-                await setDoc(histRef, { scans: [] });
-              } catch (e) {
-                console.error('Failed to clear Firebase scan history:', e);
-              }
-            }
-          }}
-          className="w-full text-zinc-600 hover:text-zinc-400 text-[10px] font-bold tracking-wider uppercase transition-colors py-1"
-        >
-          CLEAR SCAN HISTORY ({recentlyScanned.size + scanHistory.filter(s => new Date(s.timestamp) > new Date(Date.now() - 24*60*60*1000)).length} tickers)
-        </button>
-      )}
     </div>
   </div>
   
@@ -4806,7 +3939,7 @@ searchTimeoutRef.current = setTimeout(async () => {
     >
       <History size={14} className={`md:w-4 md:h-4 ${showScanHistory ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
       <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showScanHistory ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
-        Scan History ({scanHistory.filter(s => new Date(s.timestamp) > new Date(Date.now() - 24*60*60*1000)).length} in 24hr){scanAccuracy.stats ? ` • ${scanAccuracy.stats.hitRate}% hit rate` : ''}
+        Scan History ({scanHistory.filter(s => new Date(s.timestamp) > new Date(Date.now() - 24*60*60*1000)).length} in 24hr)
       </span>
       <motion.span animate={{ rotate: showScanHistory ? 180 : 0 }} className={`text-[10px] ${showScanHistory ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
     </button>
@@ -4823,9 +3956,8 @@ searchTimeoutRef.current = setTimeout(async () => {
           <div className="space-y-2 max-h-[300px] overflow-y-auto">
             {scanHistory.map((scan, i) => {
               const isRecent = new Date(scan.timestamp) > new Date(Date.now() - 24*60*60*1000);
-              const age = Date.now() - new Date(scan.timestamp).getTime();
               const timeAgo = (() => {
-                const diff = age;
+                const diff = Date.now() - new Date(scan.timestamp).getTime();
                 const mins = Math.floor(diff / 60000);
                 if (mins < 60) return `${mins}m ago`;
                 const hrs = Math.floor(mins / 60);
@@ -4833,8 +3965,6 @@ searchTimeoutRef.current = setTimeout(async () => {
                 return `${Math.floor(hrs / 24)}d ago`;
               })();
               const change = parseFloat(scan.change);
-              const acc = scanAccuracy.byTicker[scan.symbol];
-              const hasResult = acc && age > 60 * 60 * 1000; // 1h+ old
               
               return (
                 <button
@@ -4849,43 +3979,26 @@ searchTimeoutRef.current = setTimeout(async () => {
                   className="w-full flex items-center justify-between p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 transition-all text-left"
                 >
                   <div className="flex items-center gap-3">
-                    {/* Accuracy dot */}
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                      hasResult 
-                        ? (Math.abs(acc.pctChange) >= 2 
-                          ? (acc.hit ? 'bg-[#00ff4e]' : 'bg-yellow-500') 
-                          : 'bg-zinc-700')
-                        : 'bg-zinc-800'
-                    }`} title={hasResult ? `${acc.pctChange >= 0 ? '+' : ''}${acc.pctChange.toFixed(1)}% since detected` : 'Pending'} />
                     <div className="flex flex-col">
                       <span className="text-sm font-black text-white">{scan.symbol}</span>
                       <span className="text-[10px] text-zinc-500 truncate max-w-[120px]">{scan.name}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-4">
                     <div className="text-right">
                       <span className="text-sm font-black text-white">${scan.price}</span>
                       <span className={`text-xs font-bold ml-2 ${change >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
                         {change >= 0 ? '+' : ''}{change.toFixed(2)}%
                       </span>
                     </div>
-                    {hasResult ? (
-                      <div className="flex flex-col items-end min-w-[52px]">
-                        <span className={`text-[10px] font-black ${acc.pctChange >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
-                          {acc.pctChange >= 0 ? '+' : ''}{acc.pctChange.toFixed(1)}%
-                        </span>
-                        <span className="text-[8px] text-zinc-600">{timeAgo}</span>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-end min-w-[52px]">
-                        <span className={`text-[9px] font-bold ${isRecent ? 'text-[#00ff4e]' : 'text-zinc-600'}`}>
-                          {timeAgo}
-                        </span>
-                        {age < 60 * 60 * 1000 && (
-                          <span className="text-[8px] text-zinc-700 uppercase">tracking</span>
-                        )}
-                      </div>
-                    )}
+                    <div className="flex flex-col items-end">
+                      <span className={`text-[9px] font-bold ${isRecent ? 'text-[#00ff4e]' : 'text-zinc-600'}`}>
+                        {timeAgo}
+                      </span>
+                      {isRecent && (
+                        <span className="text-[8px] text-zinc-600 uppercase">24hr lock</span>
+                      )}
+                    </div>
                   </div>
                 </button>
               );
@@ -4958,11 +4071,7 @@ searchTimeoutRef.current = setTimeout(async () => {
               label="Trigger"
               options={[
                 { value: 'all', label: 'All Types' },
-                { value: 'early_signal', label: 'Early Signal' },
-                { value: 'pre_move', label: '🎯 Pre-Move' },
                 { value: 'news', label: 'News' },
-                { value: 'bullish', label: '▲ Bullish' },
-                { value: 'bearish', label: '▼ Bearish' },
                 { value: 'volume', label: 'Volume' },
                 { value: 'breakout', label: 'Breakout' },
                 { value: 'momentum', label: 'Momentum' },
@@ -4983,32 +4092,6 @@ setFilterSignal("all");
               Reset
             </button>
           )}
-          <div className="sm:ml-auto flex items-center gap-1.5">
-            <button
-              onClick={generateShareImage}
-              title="Download as image"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00ff4e]/10 border border-[#00ff4e]/30 hover:bg-[#00ff4e]/20 rounded-md text-[#00ff4e] text-[10px] md:text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap"
-            >
-              <Share2 size={12} />
-              <span className="hidden sm:inline">Image</span>
-            </button>
-            <button
-              onClick={copyForReddit}
-              title="Copy for Reddit"
-              className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-[10px] md:text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap ${copiedReddit ? 'bg-[#00ff4e]/20 border-[#00ff4e]/50 text-[#00ff4e]' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white'}`}
-            >
-              {copiedReddit ? <Check size={12} /> : <Copy size={12} />}
-              <span className="hidden sm:inline">{copiedReddit ? 'Copied!' : 'Reddit'}</span>
-            </button>
-            <button
-              onClick={copyForTwitter}
-              title="Copy for X/Twitter"
-              className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-[10px] md:text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap ${copiedTwitter ? 'bg-[#00ff4e]/20 border-[#00ff4e]/50 text-[#00ff4e]' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white'}`}
-            >
-              {copiedTwitter ? <Check size={12} /> : <Copy size={12} />}
-              <span className="hidden sm:inline">{copiedTwitter ? 'Copied!' : '𝕏'}</span>
-            </button>
-          </div>
         </div>
       )}
 
@@ -5110,79 +4193,9 @@ setFilterSignal("all");
   </div>
 )}
 
-{/* ACCURACY BANNER */}
-{!isManualResult && !loading && scanComplete && stocks.length > 0 && scanAccuracy.stats && (
-  <div className="mb-4 px-4 py-3 rounded-lg border" style={{ 
-    background: 'linear-gradient(135deg, rgba(0,255,78,0.03) 0%, rgba(0,0,0,0.4) 100%)',
-    borderColor: 'rgba(0,255,78,0.15)'
-  }}>
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-[#00ff4e] animate-pulse" />
-        <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-zinc-400">
-          Scanner Accuracy
-        </span>
-      </div>
-      <span className="text-[9px] text-zinc-600">
-        Last {scanAccuracy.stats.totalChecked} picks (4h+ old)
-      </span>
-    </div>
-    <div className="flex items-center gap-4 mt-2">
-      <div className="flex items-center gap-2">
-        <span className="text-xl md:text-2xl font-black text-[#00ff4e]">
-          {scanAccuracy.stats.hitRate}%
-        </span>
-        <span className="text-[10px] text-zinc-500 leading-tight">
-          moved 2%+<br/>after detection
-        </span>
-      </div>
-      <div className="w-px h-8 bg-zinc-800" />
-      <div className="flex items-center gap-2">
-        <span className="text-xl md:text-2xl font-black text-white">
-          {scanAccuracy.stats.hit2pct}/{scanAccuracy.stats.totalChecked}
-        </span>
-        <span className="text-[10px] text-zinc-500 leading-tight">
-          picks hit<br/>2%+ move
-        </span>
-      </div>
-      {scanAccuracy.stats.directionalRate > 0 && (
-        <>
-          <div className="w-px h-8 bg-zinc-800 hidden md:block" />
-          <div className="items-center gap-2 hidden md:flex">
-            <span className="text-xl md:text-2xl font-black text-white">
-              {scanAccuracy.stats.directionalRate}%
-            </span>
-            <span className="text-[10px] text-zinc-500 leading-tight">
-              correct<br/>direction
-            </span>
-          </div>
-        </>
-      )}
-    </div>
-  </div>
-)}
-
-{!isManualResult && displayedStocks.map((stock, index) => {
-  const acc = scanAccuracy.byTicker[stock.symbol];
-  return (
-    <div key={stock.symbol}>
-      {acc && (
-        <div className="flex items-center gap-2 mb-2 px-3">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-600">Since detected</span>
-          <span className={`text-xs font-black ${acc.pctChange >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
-            {acc.pctChange >= 0 ? '↑' : '↓'} {acc.pctChange >= 0 ? '+' : ''}{acc.pctChange.toFixed(2)}%
-          </span>
-          <span className="text-[9px] text-zinc-700">
-            from ${acc.entryPrice.toFixed(2)} → ${acc.currentPrice.toFixed(2)}
-          </span>
-          {Math.abs(acc.pctChange) >= 2 && (
-            <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${acc.hit ? 'bg-[#00ff4e]/10 text-[#00ff4e] border border-[#00ff4e]/20' : 'bg-[#FF4B2B]/10 text-[#FF4B2B] border border-[#FF4B2B]/20'}`}>
-              {acc.hit ? '✓ Hit' : 'Moved'}
-            </span>
-          )}
-        </div>
-      )}
+{!isManualResult && displayedStocks.map((stock, index) => (
     <MetricCard 
+      key={stock.symbol}
       stock={getStableStock(stock)}
       isMarketOpen={isMarketOpen}
       livePrices={livePrices} 
@@ -5201,9 +4214,7 @@ setFilterSignal("all");
   db={db}
   connectedBrokerages={connectedBrokerages}
     />
-    </div>
-  );
-})}
+  ))}
 
   {/* Scan Complete Indicator */}
   {!loading && scanComplete && stocks.length > 0 && !isManualResult && (
@@ -5222,32 +4233,6 @@ setFilterSignal("all");
       <p className="text-xs text-zinc-600 mt-3 px-4">
         Run another scan or adjust<br />filters to discover more
       </p>
-      <div className="mt-4 flex items-center justify-center gap-2">
-        <button
-          onClick={generateShareImage}
-          title="Download as image"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-[#00ff4e]/10 border border-[#00ff4e]/30 hover:bg-[#00ff4e]/20 rounded-lg text-[#00ff4e] text-xs font-bold uppercase tracking-wider transition-all"
-        >
-          <Share2 size={13} />
-          Image
-        </button>
-        <button
-          onClick={copyForReddit}
-          title="Copy for Reddit"
-          className={`inline-flex items-center gap-2 px-4 py-2 border rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${copiedReddit ? 'bg-[#00ff4e]/20 border-[#00ff4e]/50 text-[#00ff4e]' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white'}`}
-        >
-          {copiedReddit ? <Check size={13} /> : <Copy size={13} />}
-          {copiedReddit ? 'Copied!' : 'Reddit'}
-        </button>
-        <button
-          onClick={copyForTwitter}
-          title="Copy for X/Twitter"
-          className={`inline-flex items-center gap-2 px-4 py-2 border rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${copiedTwitter ? 'bg-[#00ff4e]/20 border-[#00ff4e]/50 text-[#00ff4e]' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white'}`}
-        >
-          {copiedTwitter ? <Check size={13} /> : <Copy size={13} />}
-          {copiedTwitter ? 'Copied!' : '𝕏'}
-        </button>
-      </div>
     </div>
   )}
     {/* MARKET NEWS - Bottom Section */}
@@ -5287,7 +4272,7 @@ setFilterSignal("all");
             )}
             <div className="space-y-3">
               {newsArticles.slice(0, 10).map(article => (
-                <NewsCard key={article.id} article={article} aiModel={aiModel} />
+                <NewsCard key={article.id} article={article} />
               ))}
             </div>
             {newsArticles.length > 10 && (
@@ -5307,7 +4292,7 @@ setFilterSignal("all");
                   className="space-y-3 mt-3 overflow-hidden"
                 >
                   {newsArticles.slice(10).map(article => (
-                    <NewsCard key={article.id} article={article} aiModel={aiModel} />
+                    <NewsCard key={article.id} article={article} />
                   ))}
                 </motion.div>
               )}
@@ -5332,7 +4317,7 @@ setFilterSignal("all");
           placeholder="Search by username..."
           value={userSearchTerm}
           onChange={(e) => handleSearchUsers(e.target.value)}
-          className="w-full bg-black/50 border border-zinc-700/50 text-white px-4 py-3 rounded-lg outline-none transition-all font-mono text-sm placeholder:text-zinc-600 focus:border-[#00ff4e]/50"
+          className="w-full bg-black border border-zinc-800 text-white px-4 py-3 rounded-lg outline-none transition-all font-mono text-sm placeholder:text-zinc-700 focus:border-[#00ff4e]/50"
         />
         
         {/* Search Results */}
@@ -5341,7 +4326,7 @@ setFilterSignal("all");
             {searchResults.map(searchUser => (
               <div
                 key={searchUser.id}
-                className="flex items-center justify-between p-3 bg-black/70 border border-zinc-700 rounded-lg hover:border-[#00ff4e]/50 transition-all cursor-pointer"
+                className="flex items-center justify-between p-3 bg-zinc-900 rounded-lg hover:bg-zinc-800 transition-all cursor-pointer"
                 onClick={() => handleViewUserProfile(searchUser.id)}
               >
                 <div className="flex items-center gap-3">
@@ -5422,7 +4407,7 @@ setFilterSignal("all");
                   {list.stocks.slice(0, 5).map((stock) => (
                     <span
                       key={stock.symbol}
-                      className="text-xs font-black bg-black/70 text-[#00ff4e] px-3 py-1 rounded border border-zinc-700 uppercase"
+                      className="text-xs font-black bg-zinc-900 text-[#00ff4e] px-3 py-1 rounded border border-zinc-800 uppercase"
                     >
                       {stock.symbol}
                     </span>
@@ -5661,106 +4646,29 @@ setFilterSignal("all");
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
-                   <div className="space-y-2 mt-3">
-                    {list.stocks.map((stock) => {
-                      const wsData = livePrices?.[stock.symbol];
-                      const snapData = watchlistPrices?.[stock.symbol];
-                      const currentPrice = wsData?.price ?? snapData?.price ?? parseFloat(stock.price);
-                      const prevClose = snapData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
-                      const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
-                      const addedPrice = parseFloat(stock.addedPrice || stock.price);
-                      const sinceAdded = addedPrice > 0 ? ((currentPrice - addedPrice) / addedPrice) * 100 : null;
-                      const addedAgo = stock.addedAt ? (() => {
-                        const diff = Date.now() - new Date(stock.addedAt).getTime();
-                        const mins = Math.floor(diff / 60000);
-                        if (mins < 60) return `${mins}m`;
-                        const hrs = Math.floor(mins / 60);
-                        if (hrs < 24) return `${hrs}h`;
-                        const days = Math.floor(hrs / 24);
-                        if (days < 30) return `${days}d`;
-                        return `${Math.floor(days / 30)}mo`;
-                      })() : null;
-                      const chartKey = `${list.id}-${stock.symbol}`;
-                      const showListChart = expandedListCharts.has(chartKey);
-                      const toggleChart = () => {
-                        setExpandedListCharts(prev => {
-                          const next = new Set(prev);
-                          if (next.has(chartKey)) next.delete(chartKey);
-                          else next.add(chartKey);
-                          return next;
-                        });
-                      };
-                      
-                      return (
-                        <div key={stock.symbol}>
-                          <div
-                            className="w-full p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 transition-all"
-                          >
-                            <div 
-                              className="flex items-center justify-between cursor-pointer"
-                              onClick={() => {
-                                setManualSearch(stock.symbol);
-                                setIsManualResult(true);
-                                setStocks([]);
-                                runScanner(stock.symbol);
-                              }}
-                            >
-                              <div className="flex items-baseline gap-2">
-                                <span className="text-sm font-black text-white">{stock.symbol}</span>
-                                <span className="text-sm font-black text-white">${currentPrice.toFixed(2)}</span>
-                                <span className={`text-xs font-bold ${dayChange >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
-                                  {dayChange >= 0 ? '+' : ''}{dayChange.toFixed(2)}%
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {sinceAdded !== null && (
-                                  <div className="text-right">
-                                    <span className={`text-[10px] font-black ${sinceAdded >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
-                                      {sinceAdded >= 0 ? '+' : ''}{sinceAdded.toFixed(1)}%
-                                    </span>
-                                    <p className="text-[8px] text-zinc-600 uppercase">
-                                      {addedAgo ? `since ${addedAgo}` : 'since add'}
-                                    </p>
-                                  </div>
-                                )}
-                                <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    onClick={toggleChart}
-                                    className="text-zinc-600 hover:text-[#00ff4e] transition-colors p-1"
-                                    title="Toggle chart"
-                                  >
-                                    <BarChart3 size={14} />
-                                  </button>
-                                  <button
-                                    onClick={() => removeStockFromList(list.id, stock.symbol)}
-                                    className="text-zinc-600 hover:text-red-500 transition-colors p-1"
-                                    title="Remove"
-                                  >
-                                    <X size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                            <span className="text-[10px] text-zinc-500 truncate block mt-0.5">{stock.name}</span>
-                          </div>
-                          <AnimatePresence>
-                            {showListChart && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="overflow-hidden"
-                              >
-                                <div className="px-2 py-3 bg-zinc-900/30 rounded-b-lg border-x border-b border-zinc-800">
-                                  <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} livePrice={livePrices?.[stock.symbol]?.price} />
-                                </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      );
-                    })}
+                   <div className="space-y-6 md:space-y-8">
+                    {list.stocks.map((stock) => (
+                      <MetricCard 
+                        key={stock.symbol}
+                        stock={getStableStock(stock)}
+                        isMarketOpen={isMarketOpen} 
+                        livePrices={livePrices}
+                        onAction={(stock) => setShowAddToListMenu(stock)}
+                        removeFromWatchlist={(symbol) => removeStockFromList(list.id, symbol)}
+                        actionType="REMOVE"
+                        watchlist={flattenedWatchlist}
+                        showAddToListMenu={showAddToListMenu}
+                        onCloseMenu={() => setShowAddToListMenu(null)}
+                        watchlists={watchlists}
+                        onAddToList={addStockToList}
+                        user={user}
+                        onOpenChat={(stock) => setShowStockChat(stock)}
+                        onScanSimilar={handleScanSimilar}
+                         aiModel={aiModel}
+                        db={db}
+                        connectedBrokerages={connectedBrokerages}
+                      />
+                    ))}
                   </div>
                   </motion.div>
                 )}
@@ -5843,77 +4751,28 @@ setFilterSignal("all");
                       exit={{ height: 0, opacity: 0 }}
                       className="overflow-hidden"
                     >
-                      <div className="space-y-2 mt-4">
-                        {list.stocks?.map((stock) => {
-                          const wsData = livePrices?.[stock.symbol];
-                          const snapData = watchlistPrices?.[stock.symbol];
-                          const currentPrice = wsData?.price ?? snapData?.price ?? parseFloat(stock.price || 0);
-                          const prevClose = snapData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
-                          const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
-                          const chartKey = `followed-${list.id}-${stock.symbol}`;
-                          const showListChart = expandedListCharts.has(chartKey);
-                          const toggleChart = () => {
-                            setExpandedListCharts(prev => {
-                              const next = new Set(prev);
-                              if (next.has(chartKey)) next.delete(chartKey);
-                              else next.add(chartKey);
-                              return next;
-                            });
-                          };
-                          
-                          return (
-                            <div key={stock.symbol}>
-                              <div
-                                className="w-full flex items-center justify-between p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 transition-all"
-                              >
-                                <div 
-                                  className="flex items-center gap-3 flex-1 cursor-pointer"
-                                  onClick={() => {
-                                    setManualSearch(stock.symbol);
-                                    setIsManualResult(true);
-                                    setStocks([]);
-                                    runScanner(stock.symbol);
-                                  }}
-                                >
-                                  <div className="flex flex-col">
-                                    <span className="text-sm font-black text-white">{stock.symbol}</span>
-                                    <span className="text-[10px] text-zinc-500 truncate max-w-[100px]">{stock.name}</span>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <div className="text-right">
-                                    <span className="text-sm font-black text-white">${currentPrice.toFixed(2)}</span>
-                                    <span className={`text-xs font-bold ml-2 ${dayChange >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
-                                      {dayChange >= 0 ? '+' : ''}{dayChange.toFixed(2)}%
-                                    </span>
-                                  </div>
-                                  <button
-                                    onClick={toggleChart}
-                                    className="text-zinc-600 hover:text-[#00ff4e] transition-colors p-1"
-                                    title="Toggle chart"
-                                  >
-                                    <BarChart3 size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                              <AnimatePresence>
-                                {showListChart && (
-                                  <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: 'auto', opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.2 }}
-                                    className="overflow-hidden"
-                                  >
-                                    <div className="px-2 py-3 bg-zinc-900/30 rounded-b-lg border-x border-b border-zinc-800">
-                                      <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} livePrice={livePrices?.[stock.symbol]?.price} />
-                                    </div>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </div>
-                          );
-                        })}
+                      <div className="space-y-6 md:space-y-8 mt-4">
+                        {list.stocks?.map((stock) => (
+                          <MetricCard
+                            key={stock.symbol}
+                            stock={getStableStock(stock)}
+                            isMarketOpen={isMarketOpen}
+                            livePrices={livePrices}
+                            onAction={(stock) => setShowAddToListMenu(stock)}
+                            actionType="ADD"
+                            watchlist={flattenedWatchlist}
+                            showAddToListMenu={showAddToListMenu}
+                            onCloseMenu={() => setShowAddToListMenu(null)}
+                            watchlists={watchlists}
+                            onAddToList={addStockToList}
+                            user={user}
+                            onOpenChat={(stock) => setShowStockChat(stock)}
+                            onScanSimilar={handleScanSimilar}
+                            aiModel={aiModel}
+                            db={db}
+                            connectedBrokerages={connectedBrokerages}
+                          />
+                        ))}
                       </div>
                     </motion.div>
                   )}
@@ -6387,7 +5246,7 @@ setFilterSignal("all");
         </div>
       )}
       {newsArticles.map(article => (
-        <NewsCard key={article.id} article={article} aiModel={aiModel} />
+        <NewsCard key={article.id} article={article} />
       ))}
     </>
   )}
@@ -6505,19 +5364,12 @@ onUnfollowList={async (listId) => {
 />
 
 {/* Footer */}
-<footer className="mt-16 pt-8 border-t-2 border-zinc-900 text-center flex items-center justify-center gap-4 md:gap-6">
+<footer className="mt-16 pt-8 border-t-2 border-zinc-900 text-center">
   <a 
     href="/privacy"
     className="text-zinc-600 hover:text-[#00ff4e] text-xs font-bold uppercase tracking-wider transition-colors"
   >
     Privacy Policy
-  </a>
-  <span className="text-zinc-800">•</span>
-  <a 
-    href="/terms"
-    className="text-zinc-600 hover:text-[#00ff4e] text-xs font-bold uppercase tracking-wider transition-colors"
-  >
-    Terms of Service
   </a>
 </footer>
 
@@ -6525,4 +5377,2725 @@ onUnfollowList={async (listId) => {
   );
 }
 
+function CustomDropdown({ value, onChange, options, label }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const buttonRef = useRef(null);
+  const [buttonRect, setButtonRect] = useState(null);
+  
+  useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setButtonRect({
+        top: rect.bottom,
+        left: rect.left,
+        width: rect.width
+      });
+    }
+  }, [isOpen]);
+  
+  // Close dropdown on scroll
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const handleScroll = () => {
+      setIsOpen(false);
+    };
+    
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [isOpen]);
+  
+  const handleToggle = () => {
+    setIsOpen(!isOpen);
+  };
+  
+  const handleSelect = (optionValue) => {
+    onChange(optionValue);
+    setIsOpen(false);
+  };
+  
+  return (
+    <div className="relative flex-1 sm:flex-none min-w-[120px]">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={handleToggle}
+        className="w-full bg-black border border-zinc-800 text-white px-3 md:px-5 py-3 md:py-4 rounded-lg text-[10px] md:text-xs font-bold uppercase tracking-wider cursor-pointer hover:border-[#00ff4e]/50 focus:border-[#00ff4e]/50 focus:outline-none transition-all text-left flex items-center justify-between"
+      >
+        <span className="truncate">{options.find(opt => opt.value === value)?.label || label}</span>
+        <span className="text-[#00ff4e] ml-2 flex-shrink-0">▼</span>
+      </button>
+      
+      {isOpen && buttonRect && ReactDOM.createPortal(
+        <>
+          <div 
+            className="fixed inset-0 bg-transparent" 
+            style={{ zIndex: 99998 }}
+            onClick={handleToggle}
+          />
+          
+          <div 
+            className="fixed bg-black border-2 border-zinc-800 rounded-lg overflow-hidden shadow-2xl max-h-60 overflow-y-auto"
+            style={{ 
+              zIndex: 99999,
+              top: `${Math.min(buttonRect.top + 4, window.innerHeight - 250)}px`,
+              left: `${buttonRect.left}px`,
+              width: `${buttonRect.width}px`
+            }}
+          >
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleSelect(option.value)}
+                className={`w-full text-left px-3 md:px-4 py-2 text-[10px] md:text-xs font-bold uppercase tracking-wider transition-all ${
+                  value === option.value
+                    ? 'bg-[#00ff4e] text-black'
+                    : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
+    </div>
+  );
+}
 
+
+const StockChart = ({ symbol, polygonKey, isMarketOpen }) => {
+  const [chartData, setChartData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState('1D');
+  const [showVolume, setShowVolume] = useState(false);
+  const [priceChange, setPriceChange] = useState(null);
+  const [hoverData, setHoverData] = useState(null);
+  
+
+  const TIME_RANGES = [
+    { label: '1D', multiplier: 5, timespan: 'minute', days: 1 },
+    { label: '1W', multiplier: 15, timespan: 'minute', days: 7 },
+    { label: '1M', multiplier: 1, timespan: 'hour', days: 30 },
+    { label: '3M', multiplier: 1, timespan: 'day', days: 90 },
+    { label: '6M', multiplier: 1, timespan: 'day', days: 180 },
+    { label: '1Y', multiplier: 1, timespan: 'day', days: 365 },
+    { label: 'ALL', multiplier: 1, timespan: 'week', days: 1825 },
+  ];
+
+  const fetchChartData = useCallback(async (range) => {
+    if (!symbol) return;
+    setLoading(true);
+
+    const config = TIME_RANGES.find(r => r.label === range);
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - config.days);
+
+    // For 1D, if it's a weekend/holiday, go back to last trading day
+    if (range === '1D') {
+      const day = to.getDay();
+      if (day === 0) from.setDate(from.getDate() - 2); // Sunday -> Friday
+      if (day === 6) from.setDate(from.getDate() - 1); // Saturday -> Friday
+    }
+
+    const fromStr = from.toISOString().split('T')[0];
+    const toStr = to.toISOString().split('T')[0];
+
+    try {
+      const res = await fetch(
+        `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${config.multiplier}/${config.timespan}/${fromStr}/${toStr}?adjusted=true&sort=asc&limit=5000&apiKey=${polygonKey}`
+      );
+      const data = await res.json();
+
+      if (!data.results || data.results.length === 0) {
+        setChartData([]);
+        setLoading(false);
+        return;
+      }
+
+      const formatted = data.results.map((bar) => {
+        const date = new Date(bar.t);
+        let label;
+
+        if (range === '1D') {
+          label = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else if (range === '1W') {
+          label = date.toLocaleDateString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+        } else if (range === '1M' || range === '3M') {
+          label = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        } else {
+          label = date.toLocaleDateString([], { month: 'short', year: '2-digit' });
+        }
+
+        return {
+          time: label,
+          timestamp: bar.t,
+          price: bar.c,
+          open: bar.o,
+          high: bar.h,
+          low: bar.l,
+          volume: bar.v,
+        };
+      });
+
+      setChartData(formatted);
+
+      // Calculate price change for the period
+      if (formatted.length >= 2) {
+        const first = formatted[0].price;
+        const last = formatted[formatted.length - 1].price;
+        const change = ((last - first) / first) * 100;
+        setPriceChange(change);
+      }
+    } catch (error) {
+      console.error('Chart data fetch error:', error);
+      setChartData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [symbol, polygonKey]);
+
+  useEffect(() => {
+    fetchChartData(timeRange);
+  }, [timeRange, fetchChartData]);
+
+  const isPositive = priceChange === null ? true : priceChange >= 0;
+  const chartColor = isPositive ? '#00ff4e' : '#FF4B2B';
+  const gradientId = `gradient-${symbol}-${timeRange}`;
+  const volumeGradientId = `vol-gradient-${symbol}`;
+
+  // Display price from hover or latest
+  const displayPrice = hoverData?.price ?? chartData[chartData.length - 1]?.price;
+  const displayTime = hoverData?.time ?? null;
+
+  // Format volume for tooltip
+  const formatVol = (v) => {
+    if (!v) return '0';
+    if (v >= 1000000000) return (v / 1000000000).toFixed(1) + 'B';
+    if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+    if (v >= 1000) return (v / 1000).toFixed(0) + 'K';
+    return v.toString();
+  };
+
+  // Custom tooltip
+  const CustomTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      // Update hover state
+      if (!hoverData || hoverData.timestamp !== data.timestamp) {
+        setTimeout(() => setHoverData(data), 0);
+      }
+      return null; // We display in the header instead
+    }
+    return null;
+  };
+
+  // Calculate Y-axis domain with padding
+  const prices = chartData.map(d => d.price).filter(Boolean);
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const pricePadding = (maxPrice - minPrice) * 0.1 || 1;
+
+  return (
+<div className="bg-zinc-950/50 rounded-xl p-3 md:p-4">     
+ {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 md:mb-4">
+        <div className="flex items-center gap-3">
+          <h4 className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-zinc-500">
+            {symbol}
+          </h4>
+          {displayPrice && (
+            <span className="text-sm md:text-base font-black text-white tabular-nums">
+              ${displayPrice.toFixed(2)}
+            </span>
+          )}
+          {priceChange !== null && !hoverData && (
+            <span 
+              className="text-[10px] md:text-xs font-black tabular-nums"
+              style={{ color: chartColor }}
+            >
+              {isPositive ? '+' : ''}{priceChange.toFixed(2)}%
+            </span>
+          )}
+          {displayTime && (
+            <span className="text-[10px] text-zinc-600 font-mono">{displayTime}</span>
+          )}
+                  {/* Live indicator */}
+        <span className={`text-[8px] md:text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 ${
+          isMarketOpen ? 'text-[#00ff4e]' : 'text-zinc-600'
+        }`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${
+            isMarketOpen 
+              ? 'bg-[#00ff4e] shadow-[0_0_6px_#00ff4e] animate-pulse' 
+              : 'bg-zinc-700'
+          }`} />
+          {isMarketOpen ? 'LIVE' : 'CLOSED'}
+        </span>
+        </div>
+
+        {/* Volume Toggle */}
+        <button
+          onClick={() => setShowVolume(!showVolume)}
+          className={`text-[8px] md:text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded border transition-all ${
+            showVolume 
+              ? 'bg-[#00ff4e]/10 text-[#00ff4e] border-[#00ff4e]/30' 
+              : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'
+          }`}
+        >
+          Vol {showVolume ? 'On' : 'Off'}
+        </button>
+      </div>
+
+      {/* Time Range Tabs */}
+      <div className="flex gap-1 mb-3 md:mb-4">
+        {TIME_RANGES.map(({ label }) => (
+          <button
+            key={label}
+            onClick={() => {
+              setTimeRange(label);
+              setHoverData(null);
+            }}
+            className={`flex-1 text-[9px] md:text-[10px] font-black uppercase tracking-wider py-1.5 md:py-2 rounded-md transition-all ${
+              timeRange === label
+                ? 'text-black'
+                : 'bg-transparent text-zinc-600 hover:text-zinc-400 hover:bg-zinc-900'
+            }`}
+            style={timeRange === label ? { backgroundColor: chartColor } : {}}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Chart */}
+      {loading ? (
+        <div className="h-[200px] md:h-[260px] flex items-center justify-center">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
+            <span className="text-xs text-zinc-600 font-bold">Loading chart...</span>
+          </div>
+        </div>
+      ) : chartData.length === 0 ? (
+        <div className="h-[200px] md:h-[260px] flex items-center justify-center">
+          <span className="text-xs text-zinc-600 font-bold uppercase tracking-wider">No data available</span>
+        </div>
+      ) : (
+        <div 
+          className="h-[200px] md:h-[260px]"
+          onMouseLeave={() => setHoverData(null)}
+        >
+         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+            <ComposedChart 
+              data={chartData} 
+              margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
+            >
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={chartColor} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={chartColor} stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id={volumeGradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={chartColor} stopOpacity={0.4} />
+                  <stop offset="100%" stopColor={chartColor} stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+
+              <XAxis 
+                dataKey="time" 
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#52525b', fontSize: 9, fontFamily: 'monospace' }}
+                interval="preserveStartEnd"
+                minTickGap={50}
+              />
+
+              <YAxis 
+                domain={[minPrice - pricePadding, maxPrice + pricePadding]}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#52525b', fontSize: 9, fontFamily: 'monospace' }}
+                tickFormatter={(v) => `$${v.toFixed(v >= 100 ? 0 : 2)}`}
+                width={55}
+                yAxisId="price"
+              />
+
+              {showVolume && (
+                <YAxis 
+                  yAxisId="volume"
+                  orientation="right"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={false}
+                  width={0}
+                />
+              )}
+
+              {showVolume && (
+                <Bar 
+                  dataKey="volume" 
+                  yAxisId="volume"
+                  fill={`url(#${volumeGradientId})`}
+                  radius={[1, 1, 0, 0]}
+                  isAnimationActive={false}
+                />
+              )}
+
+              <Area
+                type="monotone"
+                dataKey="price"
+                stroke={chartColor}
+                strokeWidth={2}
+                fill={`url(#${gradientId})`}
+                yAxisId="price"
+                isAnimationActive={true}
+                animationDuration={800}
+                dot={false}
+                activeDot={{ 
+                  r: 4, 
+                  fill: chartColor, 
+                  stroke: '#000', 
+                  strokeWidth: 2,
+                  style: { filter: `drop-shadow(0 0 6px ${chartColor})` }
+                }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Footer Stats */}
+      {chartData.length > 0 && (
+        <div className="flex items-center justify-between mt-2 pt-2 border-t border-zinc-800/50">
+          <div className="flex gap-4">
+            <div>
+              <span className="text-[8px] text-zinc-600 font-black uppercase">High</span>
+              <p className="text-[10px] md:text-xs font-black text-white tabular-nums">${Math.max(...prices).toFixed(2)}</p>
+            </div>
+            <div>
+              <span className="text-[8px] text-zinc-600 font-black uppercase">Low</span>
+              <p className="text-[10px] md:text-xs font-black text-white tabular-nums">${Math.min(...prices).toFixed(2)}</p>
+            </div>
+            {showVolume && (
+              <div>
+                <span className="text-[8px] text-zinc-600 font-black uppercase">Avg Vol</span>
+                <p className="text-[10px] md:text-xs font-black text-white tabular-nums">
+                  {formatVol(chartData.reduce((sum, d) => sum + (d.volume || 0), 0) / chartData.length)}
+                </p>
+              </div>
+            )}
+          </div>
+          <span className="text-[8px] text-zinc-700 font-mono">{timeRange} · {chartData.length} bars</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TradeButton = ({ symbol, connectedBrokerages = [] }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  const brokeragesWithUrls = connectedBrokerages
+    .map(b => ({ ...b, url: getTradeUrl(b.name, symbol) }))
+    .filter(b => b.url);
+
+
+  if (brokeragesWithUrls.length === 0) return null;
+
+  // Single brokerage — just link directly
+  if (brokeragesWithUrls.length === 1) {
+    return (
+      <a
+        href={brokeragesWithUrls[0].url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg border border-[#00ff4e]/30 bg-[#00ff4e]/5 hover:bg-[#00ff4e]/15 hover:border-[#00ff4e] transition-all active:scale-95"
+      >
+        <Briefcase size={12} className="text-[#00ff4e]" />
+        <span className="text-[9px] md:text-[10px] font-black uppercase tracking-wider text-[#00ff4e]">
+          Trade on {brokeragesWithUrls[0].name}
+        </span>
+      </a>
+    );
+  }
+
+  // Multiple brokerages — dropdown
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg border border-[#00ff4e]/30 bg-[#00ff4e]/5 hover:bg-[#00ff4e]/15 hover:border-[#00ff4e] transition-all active:scale-95"
+      >
+        <Briefcase size={12} className="text-[#00ff4e]" />
+        <span className="text-[9px] md:text-[10px] font-black uppercase tracking-wider text-[#00ff4e]">
+          Trade
+        </span>
+        <ChevronDown size={12} className={`text-[#00ff4e] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="absolute top-full mt-2 right-0 bg-black border-2 border-zinc-800 rounded-lg shadow-2xl overflow-hidden z-50 min-w-[200px]"
+          >
+            {brokeragesWithUrls.map((b) => (
+              <a
+                key={b.id}
+                href={b.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-900 transition-colors border-b border-zinc-900 last:border-0"
+              >
+                <Briefcase size={14} className="text-[#00ff4e]" />
+                <span className="text-xs font-black text-white uppercase tracking-wider">
+                  {b.name}
+                </span>
+                <span className="ml-auto text-zinc-600 text-[10px]">→</span>
+              </a>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// =============================================
+// REPLACE: MetricCard Component (v3 - Inline AI Chat)
+// =============================================
+// Find: const MetricCard = React.memo(function MetricCard
+// Replace everything through the closing });
+// (the one right before "const PositionCard = React.memo")
+
+const MetricCard = React.memo(function MetricCard({ 
+  stock, isMarketOpen, onAction, actionType, watchlist = [], 
+  removeFromWatchlist, showAddToListMenu, onCloseMenu, 
+  watchlists = [], onAddToList, user, onOpenChat, onScanSimilar,
+  aiModel, db, connectedBrokerages
+}) {
+  const [showChart, setShowChart] = useState(false);
+  const [showNews, setShowNews] = useState(false);
+  const [isHoveringButton, setIsHoveringButton] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const cardRef = useRef(null);
+const chatContainerRef = useRef(null);
+const chatInputRef = useRef(null);
+  const prevPrice = useRef(null);
+  const prevChange = useRef(null);
+  const hasAnimatedRef = useRef(false);
+  
+  const isPositive = parseFloat(stock.change) >= 0;
+  const accent = isPositive ? '#00ff4e' : '#FF4B2B';
+  const trendColor = isPositive ? '#00ff4e' : '#FF4B2B';
+  const Triangle = isPositive ? '▲' : '▼';
+  const prefix = isPositive ? '+' : '';
+  const isAlreadyAdded = watchlist.some(s => s.symbol === stock.symbol);
+  
+  const shouldAnimate = !hasAnimatedRef.current || 
+    (prevPrice.current !== null && prevPrice.current !== stock.price) ||
+    (prevChange.current !== null && prevChange.current !== stock.change);
+
+    const [chatLoaded, setChatLoaded] = useState(false);
+  const [hasSavedChat, setHasSavedChat] = useState(false);
+  const [showBio, setShowBio] = useState(false);
+const [bioText, setBioText] = useState(null);
+const [bioLoading, setBioLoading] = useState(false);
+const [showRatings, setShowRatings] = useState(false);
+const [ratingsData, setRatingsData] = useState(null);
+const [ratingsLoading, setRatingsLoading] = useState(false);
+
+  // Load saved chat history on mount
+  useEffect(() => {
+    if (!user?.uid || !db || !stock.symbol || chatLoaded) return;
+    
+    const loadChat = async () => {
+      try {
+        const { doc, getDoc } = await import('firebase/firestore');
+        const chatDoc = await getDoc(doc(db, 'users', user.uid, 'stockChats', stock.symbol));
+        if (chatDoc.exists()) {
+          const data = chatDoc.data();
+          if (data.messages && data.messages.length > 0) {
+            setChatMessages(data.messages);
+            setHasSavedChat(true);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load chat:', e);
+      }
+      setChatLoaded(true);
+    };
+    
+    loadChat();
+  }, [user, db, stock.symbol, chatLoaded]);
+
+  // Save chat to Firestore
+  const saveChat = async (messages) => {
+    if (!user?.uid || !db || !stock.symbol || messages.length === 0) return;
+    try {
+      const { doc, setDoc } = await import('firebase/firestore');
+      await setDoc(doc(db, 'users', user.uid, 'stockChats', stock.symbol), {
+        messages: messages.slice(-50), // Keep last 50 messages
+        symbol: stock.symbol,
+        name: stock.name,
+        updatedAt: new Date().toISOString()
+      });
+      setHasSavedChat(true);
+    } catch (e) {
+      console.error('Failed to save chat:', e);
+    }
+  };
+
+  useEffect(() => {
+    prevPrice.current = stock.price;
+    prevChange.current = stock.change;
+    hasAnimatedRef.current = true;
+  }, [stock.price, stock.change]);
+
+const fetchBio = async () => {
+    if (bioText) { setShowBio(!showBio); return; }
+    setBioLoading(true);
+    setShowBio(true);
+    
+    // Check Firestore cache first
+    if (db) {
+      try {
+        const { doc, getDoc } = await import('firebase/firestore');
+        const cached = await getDoc(doc(db, 'stockBios', stock.symbol));
+        if (cached.exists() && cached.data().bio) {
+          setBioText(cached.data().bio);
+          setBioLoading(false);
+          return;
+        }
+      } catch (e) {}
+    }
+
+    try {
+      const response = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: `Give a 2-3 sentence company overview of ${stock.name} (${stock.symbol}). Include what the company does, its sector, and what makes it notable. Be concise and factual. No disclaimers.` }] }]
+      });
+      const text = await response.response.text();
+      setBioText(text);
+      
+      // Cache in Firestore
+      if (db) {
+        try {
+          const { doc, setDoc } = await import('firebase/firestore');
+          await setDoc(doc(db, 'stockBios', stock.symbol), {
+            bio: text,
+            name: stock.name,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (e) {}
+      }
+    } catch (e) {
+      setBioText('Unable to load company bio.');
+    } finally {
+      setBioLoading(false);
+    }
+  };
+
+const fetchRatings = async () => {
+    if (ratingsData) { setShowRatings(!showRatings); return; }
+    setRatingsLoading(true);
+    setShowRatings(true);
+
+    try {
+      const res = await fetch(
+        `https://api.polygon.io/v3/reference/tickers/${stock.symbol}?apiKey=${process.env.REACT_APP_POLYGON_KEY}`
+      );
+      const tickerData = await res.json();
+      console.log('Polygon ticker data:', tickerData);
+
+      const recRes = await fetch(
+        `https://finnhub.io/api/v1/stock/recommendation?symbol=${stock.symbol}&token=${process.env.REACT_APP_FINNHUB_KEY}`
+      );
+      const recommendations = await recRes.json();
+      console.log('Finnhub recommendations:', recommendations);
+
+      let priceTarget = null;
+      try {
+        const ptResponse = await aiModel.generateContent({
+          contents: [{ role: "user", parts: [{ text: `What is the current 12-month analyst consensus price target for ${stock.symbol}? Return ONLY a JSON object like {"targetLow": 10.00, "targetMean": 15.00, "targetHigh": 20.00}. If unavailable, return {"unavailable": true}. No other text, no markdown, no backticks.` }] }],
+          tools: [{ googleSearch: {} }]
+        });
+        const ptText = await ptResponse.response.text();
+        console.log('AI price target raw:', ptText);
+        const jsonMatch = ptText.match(/\{[^}]+\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (!parsed.unavailable && parsed.targetMean) {
+            priceTarget = parsed;
+          }
+        }
+      } catch (e) {
+        console.log('Price target error:', e.message);
+      }
+
+      console.log('Final ratingsData:', {
+        marketCap: tickerData.results?.market_cap,
+        recommendations: recommendations?.slice(0, 3),
+        priceTarget
+      });
+
+      setRatingsData({
+        description: tickerData.results?.description,
+        marketCap: tickerData.results?.market_cap,
+        recommendations: recommendations?.slice(0, 3) || [],
+        priceTarget: priceTarget || null
+      });
+    } catch (e) {
+      console.error('Ratings fetch error:', e);
+      setRatingsData({ error: true });
+    } finally {
+      setRatingsLoading(false);
+    }
+  };
+
+useEffect(() => {
+    if (!showAddToListMenu) return;
+    const handleScroll = () => onCloseMenu();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [showAddToListMenu, onCloseMenu]);
+
+  // Auto-collapse everything when card scrolls out of view
+  useEffect(() => {
+    if (!showChart && !showNews && !chatOpen) return;
+    
+    const handleScroll = () => {
+      if (!cardRef.current) return;
+      const rect = cardRef.current.getBoundingClientRect();
+      const windowHeight = window.innerHeight;
+      
+      // If less than 20% of the card is visible, collapse everything
+      if (rect.bottom < windowHeight * 0.1 || rect.top > windowHeight * 0.9) {
+        setShowChart(false);
+        setShowNews(false);
+        setChatOpen(false);
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [showChart, showNews, chatOpen]);
+
+// Auto-scroll chat container only (not the page)
+useEffect(() => {
+    if (chatOpen && chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+}, [chatMessages, chatOpen]);
+
+  // Focus input when chat opens
+  useEffect(() => {
+    if (chatOpen && chatInputRef.current) {
+      setTimeout(() => chatInputRef.current?.focus(), 300);
+    }
+  }, [chatOpen]);
+
+  // Catalyst type badge styling
+  const getCatalystStyle = (type) => {
+    switch (type) {
+      case 'news':
+        return { icon: Newspaper, color: '#00ff4e', label: 'NEWS CATALYST' };
+      case 'volume':
+        return { icon: BarChart3, color: '#f59e0b', label: 'VOLUME SPIKE' };
+      case 'breakout':
+        return { icon: TrendingUp, color: '#3b82f6', label: 'BREAKOUT' };
+      case 'momentum':
+        return { icon: Zap, color: '#8b5cf6', label: 'MOMENTUM' };
+      case 'gainer':
+        return { icon: TrendingUp, color: '#10b981', label: 'TOP GAINER' };
+      default:
+        return { icon: Target, color: '#71717a', label: 'SIGNAL' };
+    }
+  };
+
+  const getEarningsLabel = (earnings) => {
+  if (!earnings?.date) return null;
+  const today = new Date();
+  const earningsDate = new Date(earnings.date + 'T00:00:00');
+  const diffDays = Math.ceil((earningsDate - today) / (1000 * 60 * 60 * 24));
+  
+  if (diffDays < 0) return null;
+  if (diffDays === 0) return 'TODAY';
+  if (diffDays === 1) return 'TOMORROW';
+  if (diffDays <= 7) return `IN ${diffDays} DAYS`;
+  if (diffDays <= 30) return new Date(earnings.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return null; // Don't show if more than 30 days out
+};
+
+  const catalystStyle = getCatalystStyle(stock.catalystType);
+  const CatalystIcon = catalystStyle.icon;
+
+  const formatVolume = (vol) => {
+    if (!vol) return null;
+    if (vol >= 1000000000) return (vol / 1000000000).toFixed(1) + 'B';
+    if (vol >= 1000000) return (vol / 1000000).toFixed(1) + 'M';
+    if (vol >= 1000) return (vol / 1000).toFixed(0) + 'K';
+    return vol.toString();
+  };
+
+  // --- AI CHAT LOGIC (inline) ---
+  const buildContext = (userQuestion) => {
+    const dataPoints = [];
+    dataPoints.push(`Price: $${stock.price}`);
+    dataPoints.push(`Change: ${parseFloat(stock.change) >= 0 ? '+' : ''}${stock.change}%`);
+    if (stock.catalyst) dataPoints.push(`Catalyst: ${stock.catalyst}`);
+    if (stock.catalystType) dataPoints.push(`Trigger Type: ${stock.catalystType}`);
+    if (stock.volume) dataPoints.push(`Volume: ${stock.volume.toLocaleString()}`);
+    if (stock.volumeRatio) dataPoints.push(`Volume vs Average: ${stock.volumeRatio}x`);
+    if (stock.industry) dataPoints.push(`Industry: ${stock.industry}`);
+    if (stock.newsCount) dataPoints.push(`Recent articles: ${stock.newsCount}`);
+    if (stock.headline) dataPoints.push(`Latest headline: "${stock.headline}"`);
+    if (stock.newsSource) dataPoints.push(`Source: ${stock.newsSource}`);
+    
+    let newsContext = '';
+    if (stock.news && stock.news.length > 0) {
+      newsContext = '\n\nRECENT NEWS ARTICLES:\n' + stock.news.map((n, i) => 
+        `${i + 1}. "${n.title}" (${n.publisher?.name || 'Unknown'}, ${n.published_utc ? new Date(n.published_utc).toLocaleDateString() : 'Recent'})`
+      ).join('\n');
+    }
+
+    return `You are an expert stock analyst helping a trader research ${stock.symbol} (${stock.name}). You have access to web search to find any information not provided below.
+
+CURRENT DATA:
+${dataPoints.join('\n')}
+${newsContext}
+
+User question: ${userQuestion}
+
+INSTRUCTIONS:
+- Be direct and actionable (2-5 sentences unless the question warrants more detail)
+- If the question requires information NOT in the data above (earnings dates, financials, analyst ratings, company background, etc.), use web search
+- When using web search, search for "${stock.symbol} [relevant query]"
+- Always cite sources when using search results
+- Frame insights in terms of actionable trading decisions
+- Be honest about uncertainty
+- Never give direct buy/sell recommendations, but DO give the information needed to decide`;
+  };
+
+  
+
+const sendChatMessage = async (messageText) => {
+    const text = messageText || chatInput;
+    console.log('sendChat:', { text, chatLoading, aiModel: !!aiModel, user: !!user, db: !!db });
+    if (!text.trim() || chatLoading || !aiModel) return;
+    
+    const userMessage = { role: 'user', text: text.trim() };
+    setChatMessages(prev => [...prev, userMessage]);
+    setChatInput('');
+    setChatLoading(true);
+
+    // Open chat if not already open
+    if (!chatOpen) setChatOpen(true);
+
+    try {
+      const context = buildContext(text.trim());
+      const response = await aiModel.generateContent({
+        contents: [{ role: "user", parts: [{ text: context }] }],
+        tools: [{ googleSearch: {} }]
+      });
+      const aiText = await response.response.text();
+      setChatMessages(prev => {
+        const updated = [...prev, { role: 'assistant', text: aiText }];
+        saveChat(updated);
+        return updated;
+      });
+    } catch (error) {
+      console.error('AI chat error:', error);
+      setChatMessages(prev => {
+        const updated = [...prev, { 
+          role: 'assistant', 
+          text: 'Sorry, I encountered an error. Please try again.' 
+        }];
+        saveChat(updated);
+        return updated;
+      });
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const quickPrompts = [
+    "Why is this moving?",
+    "Bull case?",
+    "Key risks?",
+    "Good entry?",
+    "Analyst targets?",
+    "Upcoming catalysts?"
+  ];
+
+return (
+    <div 
+ref={cardRef}
+      className="rounded-xl p-4 md:p-8 relative transition-all duration-300 overflow-hidden group"
+     style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', borderTop: '1px solid rgba(0,255,78,0.2)'}}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 30px rgba(0,0,0,0.5), 0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.09)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.15)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.3)'; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.2)'; }}
+    >
+
+      {/* ACTION BUTTONS - Top Right */}
+      <div className="absolute top-3 right-3 md:top-4 md:right-8 z-10 flex gap-2">
+        {/* Add/Remove Button */}
+        {actionType === "REMOVE" ? (
+          <button 
+            onMouseEnter={() => setIsHoveringButton(true)}
+            onMouseLeave={() => setIsHoveringButton(false)}
+            onClick={(e) => {
+              e.stopPropagation();
+              removeFromWatchlist(stock.symbol);
+            }}
+            className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 rounded-lg border transition-all active:scale-95 border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
+          >
+            <span className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.2em] leading-none hidden sm:inline">Remove</span>
+            <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
+          </button>
+        ) : (
+          <>
+            <button 
+              data-add-button="true"
+              onMouseEnter={() => setIsHoveringButton(true)}
+              onMouseLeave={() => setIsHoveringButton(false)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!user) {
+                  alert('Please sign in to add stocks to lists');
+                  return;
+                }
+                if (isAlreadyAdded && isHoveringButton) {
+                  const listWithStock = watchlists.find(list => 
+                    list.stocks.some(s => s.symbol === stock.symbol)
+                  );
+                  if (listWithStock) {
+                    removeFromWatchlist(listWithStock.id, stock.symbol);
+                  }
+                } else if (!isAlreadyAdded) {
+                  onAction(stock);
+                }
+              }}
+              className={`flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 rounded-lg border transition-all active:scale-95 ${
+                isAlreadyAdded 
+                  ? isHoveringButton
+                    ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                    : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]"
+                  : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
+              }`}
+            >
+              <span className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.2em] leading-none hidden sm:inline">
+                {isAlreadyAdded ? (isHoveringButton ? "Remove" : "Added") : "Add"}
+              </span>
+              {isAlreadyAdded && isHoveringButton ? (
+                <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
+              ) : (
+                <Plus size={12} className="md:w-3.5 md:h-3.5" />
+              )}
+            </button>
+
+            {/* Add to List Dropdown */}
+            {showAddToListMenu?.symbol === stock.symbol && (() => {
+              const buttonElement = cardRef.current?.querySelector('button[data-add-button="true"]');
+              const rect = buttonElement?.getBoundingClientRect();
+              
+              return ReactDOM.createPortal(
+                <>
+                  <div className="fixed inset-0 bg-transparent z-[99998]" onClick={() => onCloseMenu()} />
+                  <div 
+                    className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
+                    style={{
+                      top: rect ? `${rect.bottom + 8}px` : '100px',
+                      right: rect ? `${window.innerWidth - rect.right}px` : '20px',
+                      width: '280px'
+                    }}
+                  >
+                    <div className="p-3 border-b border-zinc-800">
+                      <p className="text-xs font-black text-white uppercase">Add to List</p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCloseMenu();
+                        window.dispatchEvent(new CustomEvent('openWatchlistModal'));
+                      }}
+                      className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Plus size={14} />
+                        <span className="uppercase tracking-wider">Create New List</span>
+                      </div>
+                    </button>
+                    {watchlists.length === 0 ? (
+                      <div className="p-4 text-center">
+                        <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
+                      </div>
+                    ) : (
+                      watchlists.map((list) => {
+                        const isInList = list.stocks.some(s => s.symbol === stock.symbol);
+                        return (
+                          <button
+                            key={list.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!isInList) onAddToList(stock, list.id);
+                            }}
+                            disabled={isInList}
+                            className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
+                              isInList
+                                ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
+                                : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="uppercase tracking-wider">{list.name}</span>
+                              {isInList && (
+                                <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </div>
+                            <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </>,
+                document.body
+              );
+            })()}
+          </>
+        )}
+      </div>
+
+      {/* HEADER: Name + Symbol + Price */}
+      <div className="mb-6 md:mb-8">
+        <p className="text-[8px] md:text-[10px] text-[#ffffff] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 flex items-start gap-2 pr-24 md:pr-0">
+          <span 
+            className={`h-1.5 w-1.5 md:h-2 md:w-2 rounded-full flex-shrink-0 mt-1 ${isMarketOpen ? 'animate-pulse' : ''}`} 
+            style={{ backgroundColor: accent, boxShadow: isMarketOpen ? `0 0 15px ${accent}` : 'none' }} 
+          />
+          <span className="break-words leading-relaxed">{stock.name}</span>
+        </p>
+        
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3 md:gap-8">
+          <h2 className="text-4xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">{stock.symbol}</h2>
+          
+          <div className="flex items-baseline gap-2 md:gap-3">
+            <span className="text-3xl md:text-5xl font-black text-white tabular-nums leading-none">
+              ${shouldAnimate ? (
+                <CountUp end={parseFloat(stock.price)} decimals={2} duration={1200} />
+              ) : (
+                parseFloat(stock.price).toFixed(2)
+              )}
+            </span>
+            <span className="text-xl md:text-3xl font-black tabular-nums leading-none" style={{ color: trendColor }}>
+              {prefix}{shouldAnimate ? (
+                <CountUp end={Math.abs(parseFloat(stock.change))} decimals={2} duration={1200} />
+              ) : (
+                Math.abs(parseFloat(stock.change)).toFixed(2)
+              )}% <span className="text-lg md:text-2xl ml-1 md:ml-2 align-middle">{Triangle}</span>
+            </span>
+            
+          </div>
+                  {/* Trade Button */}
+        <TradeButton symbol={stock.symbol} connectedBrokerages={connectedBrokerages} />
+        </div>
+      </div>
+
+      
+
+      {/* QUICK STATS ROW */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 mb-6 md:mb-8 border-t border-zinc-700/50 pt-4 md:pt-6">
+        {stock.volume && (
+          <div>
+            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">Volume</p>
+            <p className="text-base md:text-xl font-black text-white">{formatVolume(stock.volume)}</p>
+          </div>
+        )}
+        {stock.volumeRatio && parseFloat(stock.volumeRatio) > 1 && (
+          <div>
+            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">vs Avg Volume</p>
+            <p className="text-base md:text-xl font-black text-amber-400">{stock.volumeRatio}x</p>
+          </div>
+        )}
+        {stock.industry && (
+          <div>
+            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">Sector</p>
+            <p className="text-xs md:text-sm font-black text-zinc-300 uppercase leading-tight">{stock.industry}</p>
+          </div>
+        )}
+      </div>
+
+      {/* TRIGGER TAGS */}
+      <div className="mb-6 md:mb-8">
+        <div className="flex flex-wrap gap-2">
+          <div 
+            className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
+            style={{ 
+              color: catalystStyle.color, 
+              backgroundColor: `${catalystStyle.color}15`,
+              borderColor: `${catalystStyle.color}40`
+            }}
+          >
+            <CatalystIcon size={14} className="md:w-4 md:h-4" />
+            <span>{catalystStyle.label}</span>
+          </div>
+          {/* Earnings Badge */}
+          {getEarningsLabel(stock.earnings) && (
+            <div 
+              className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
+              style={{ 
+                color: '#f59e0b', 
+                backgroundColor: 'rgba(245,158,11,0.08)',
+                borderColor: 'rgba(245,158,11,0.25)'
+              }}
+            >
+              <BarChart3 size={14} className="md:w-4 md:h-4" style={{ color: '#f59e0b' }} />
+              <span>EARNINGS {getEarningsLabel(stock.earnings)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* WHY IT'S MOVING + SOURCE LINK */}
+      <div className="mb-6 md:mb-8">
+        <div className="flex items-start gap-3 md:gap-4">
+          <div 
+            className="flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center mt-0.5"
+            style={{ backgroundColor: `${catalystStyle.color}15`, border: `1px solid ${catalystStyle.color}40` }}
+          >
+            <CatalystIcon size={18} className="md:w-5 md:h-5" style={{ color: catalystStyle.color }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">
+              Why It's Moving
+            </p>
+            <p className="text-lg md:text-2xl font-black text-white leading-tight">
+              {(() => {
+                const c = stock.catalyst || '';
+                const isUseless = c.toLowerCase().includes('no clear') || 
+                                  c.toLowerCase().includes('not identified') || 
+                                  c.toLowerCase().includes('provided summaries') ||
+                                  c.toLowerCase().includes('no catalyst');
+                if (c && !isUseless) return c;
+                return stock.headline?.slice(0, 80) || stock.trigger || 'Unusual activity detected';
+              })()}
+            </p>
+          </div>
+        </div>
+
+        {/* Source Attribution Link */}
+        {stock.newsSource && (
+          <a 
+            href={stock.news?.[0]?.article_url || stock.news?.[0]?.url || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 mt-4 px-4 py-3 bg-zinc-900/50 rounded-lg border border-[#00ff4e]/30 hover:border-[#00ff4e] hover:bg-[#00ff4e]/5 transition-all cursor-pointer group/headline"
+          >
+            <Newspaper size={14} className="text-[#00ff4e]/50 group-hover/headline:text-[#00ff4e] flex-shrink-0 transition-colors" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs md:text-sm text-zinc-300 group-hover/headline:text-white truncate transition-colors">{stock.headline}</p>
+              <p className="text-[10px] text-zinc-600">
+                {stock.newsSource}{stock.newsDate ? ` · ${stock.newsDate}` : ''}
+              </p>
+            </div>
+            <span className="text-zinc-700 group-hover/headline:text-[#00ff4e] transition-colors flex-shrink-0 hidden md:block">→</span>
+          </a>
+        )}
+      </div>
+
+            {/* ASK AI HEADER */}
+      <div className="border-t border-zinc-700/50 pt-4 md:pt-6 mb-3">
+        <div className="flex items-center gap-2 md:gap-3">
+          <Lightbulb size={14} className="md:w-4 md:h-4 text-[#00ff4e]" />
+          <span className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-white">
+            Ask AI
+          </span>
+        </div>
+      </div>
+
+      {/* CHAT SECTION */}
+      {chatMessages.length > 0 && (
+        <div className="mb-0">
+          <AnimatePresence>
+            {chatOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="bg-black/70 border border-zinc-700 rounded-xl p-3 md:p-4 mb-4">
+                  {/* Chat Header */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <MessageCircle size={12} className="text-[#00ff4e]" />
+                      <span className="text-[8px] md:text-[10px] font-black text-zinc-500 uppercase tracking-widest">
+                        AI Research · {stock.symbol}
+                      </span>
+                      {hasSavedChat && (
+                        <span className="text-[8px] font-bold text-[#00ff4e]/50 uppercase">· Saved</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={async () => {
+                          setChatMessages([]);
+                          setHasSavedChat(false);
+                          if (user?.uid && db) {
+                            try {
+                              const { doc, deleteDoc } = await import('firebase/firestore');
+                              await deleteDoc(doc(db, 'users', user.uid, 'stockChats', stock.symbol));
+                            } catch (e) {}
+                          }
+                          setChatOpen(false);
+                        }}
+                        className="text-zinc-700 hover:text-red-500 transition-colors text-[10px] font-bold uppercase"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        onClick={() => setChatOpen(false)}
+                        className="text-zinc-600 hover:text-zinc-400 transition-colors text-xs font-bold uppercase"
+                      >
+                        Collapse ▲
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Messages */}
+                  <div ref={chatContainerRef} className="space-y-3 max-h-[400px] overflow-y-auto">
+                    {chatMessages.map((msg, i) => (
+                      <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[90%] px-3 md:px-4 py-2.5 rounded-lg ${
+                          msg.role === 'user' 
+                            ? 'bg-[#00ff4e]/10 text-white border border-[#00ff4e]/20' 
+                            : 'bg-black text-zinc-300 border border-zinc-800'
+                        }`}>
+                          <p className="text-xs md:text-sm whitespace-pre-wrap leading-relaxed">
+                            {msg.text.split(/(\*\*[^*]+\*\*)/).map((part, j) => {
+                              if (part.startsWith('**') && part.endsWith('**')) {
+                                return <strong key={j} className="text-white font-black">{part.slice(2, -2)}</strong>;
+                              }
+                              return part;
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {chatLoading && (
+                      <div className="flex justify-start">
+                        <div className="bg-black border border-zinc-800 px-4 py-2.5 rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <div className="flex gap-1">
+                              <span className="w-1.5 h-1.5 bg-[#00ff4e] rounded-full animate-[pulse_1s_ease-in-out_infinite]" />
+                              <span className="w-1.5 h-1.5 bg-[#00ff4e] rounded-full animate-[pulse_1s_ease-in-out_0.2s_infinite]" />
+                              <span className="w-1.5 h-1.5 bg-[#00ff4e] rounded-full animate-[pulse_1s_ease-in-out_0.4s_infinite]" />
+                            </div>
+                            <span className="text-xs text-zinc-500">Researching...</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Disclaimer */}
+                  <p className="text-[9px] text-zinc-700 mt-3 text-center">
+                    AI-powered research · Not financial advice
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Collapsed chat indicator */}
+          {!chatOpen && (
+            <button 
+              onClick={() => setChatOpen(true)}
+              className="w-full flex items-center justify-center gap-2 py-2 text-[10px] font-black text-zinc-500 uppercase tracking-wider hover:text-[#00ff4e] transition-colors"
+            >
+              <MessageCircle size={12} />
+              <span>{chatMessages.length} messages · Click to expand</span>
+              <span>▼</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* PROMPTS + INPUT */}
+      <div className="pt-0 md:pt-0 mb-2 md:mb-3">
+        {/* Quick Prompt Pills */}
+        <div className="flex flex-wrap gap-1.5 md:gap-2 mb-3">
+          {quickPrompts.map((prompt, i) => (
+            <button
+              key={i}
+              onClick={(e) => {
+                e.stopPropagation();
+                sendChatMessage(prompt);
+              }}
+              disabled={chatLoading}
+className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounded-lg bg-black border border-zinc-700 text-zinc-400 hover:text-[#00ff4e] hover:border-[#00ff4e]/30 hover:bg-[#00ff4e]/5 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+
+        {/* Chat Input Bar */}
+        <div className="flex gap-2">
+          <div className="flex-1 relative">
+            <input
+              ref={chatInputRef}
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendChatMessage();
+                }
+              }}
+              onFocus={() => { if (!chatOpen && chatMessages.length > 0) setChatOpen(true); }}
+              placeholder={`Ask anything about ${stock.symbol}...`}
+              disabled={chatLoading}
+              className="w-full bg-zinc-900 border-2 border-zinc-800 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-[#00ff4e]/50 transition-colors disabled:opacity-50 font-mono placeholder:text-zinc-600"
+              style={{ caretColor: '#00ff4e' }}
+            />
+            {!chatInput && chatMessages.length === 0 && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+                <MessageCircle size={14} className="text-zinc-600" />
+                <span className="text-[10px] font-black text-zinc-600 uppercase tracking-wider hidden sm:inline">Ask AI</span>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => sendChatMessage()}
+            disabled={!chatInput.trim() || chatLoading}
+            className="px-4 py-3 bg-[#00ff4e] hover:opacity-90 disabled:opacity-20 text-black rounded-lg font-black text-sm transition-all active:scale-95 flex items-center gap-2 flex-shrink-0"
+          >
+            <Send size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* CHART TOGGLE */}
+      <div className="border-t border-zinc-700/50 pt-4 md:pt-6 pb-4 md:pb-6">
+        <button onClick={() => setShowChart(!showChart)} className="flex items-center gap-2 md:gap-3 transition-all">
+          <TrendingUp size={14} className={`md:w-4 md:h-4 ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+          <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+            {showChart ? "Hide Chart" : "View Chart"}
+          </span>
+          <motion.span animate={{ rotate: showChart ? 180 : 0 }} className={`text-[10px] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+        </button>
+
+        <AnimatePresence>
+          {showChart && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
+              exit={{ height: 0, opacity: 0 }}
+              className="mt-4 md:mt-6 overflow-hidden"
+            >
+              <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* COMPANY BIO TOGGLE */}
+      <div className="border-t border-zinc-700/50 pt-4 md:pt-6 pb-4 md:pb-6">
+        <button onClick={fetchBio} className="flex items-center gap-2 md:gap-3 transition-all">
+          <Building2 size={14} className={`md:w-4 md:h-4 ${showBio ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+          <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showBio ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+            {showBio ? "Hide Bio" : "Company Bio"}
+          </span>
+          <motion.span animate={{ rotate: showBio ? 180 : 0 }} className={`text-[10px] ${showBio ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+        </button>
+
+        <AnimatePresence>
+          {showBio && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
+              exit={{ height: 0, opacity: 0 }}
+              className="mt-4 overflow-hidden"
+            >
+              <div className="bg-black/70 border border-zinc-700 rounded-xl p-4">
+                {bioLoading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
+                    <span className="text-xs text-zinc-500 font-bold">Loading company info...</span>
+                  </div>
+                ) : (
+                  <p className="text-sm text-zinc-300 leading-relaxed">{bioText}</p>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* ANALYST RATINGS TOGGLE */}
+<div className="border-t border-zinc-700/50 pt-4 md:pt-6">
+          <button onClick={fetchRatings} className="flex items-center gap-2 md:gap-3 transition-all">
+          <Target size={14} className={`md:w-4 md:h-4 ${showRatings ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+          <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showRatings ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+            {showRatings ? "Hide Ratings" : "Analyst Ratings"}
+          </span>
+          <motion.span animate={{ rotate: showRatings ? 180 : 0 }} className={`text-[10px] ${showRatings ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+        </button>
+
+        <AnimatePresence>
+          {showRatings && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
+              exit={{ height: 0, opacity: 0 }}
+              className="mt-4 overflow-hidden"
+            >
+              <div className="bg-black/70 border border-zinc-700 rounded-xl p-4">
+                {ratingsLoading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
+                    <span className="text-xs text-zinc-500 font-bold">Loading analyst data...</span>
+                  </div>
+                ) : ratingsData?.error ? (
+                  <p className="text-xs text-zinc-500">Unable to load analyst data.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Price Target */}
+                    {ratingsData?.priceTarget?.targetMean && (
+                      <div>
+<p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">12-Month Price Target</p>                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <p className="text-[9px] text-zinc-600 uppercase font-bold">Low</p>
+                            <p className="text-sm font-black text-red-400">${ratingsData.priceTarget.targetLow?.toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] text-zinc-600 uppercase font-bold">Average</p>
+                            <p className="text-sm font-black text-white">${ratingsData.priceTarget.targetMean?.toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] text-zinc-600 uppercase font-bold">High</p>
+                            <p className="text-sm font-black text-[#00ff4e]">${ratingsData.priceTarget.targetHigh?.toFixed(2)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recommendations */}
+                    {ratingsData?.recommendations?.length > 0 && (
+                      <div>
+                        <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Recent Consensus</p>
+                        <div className="space-y-2">
+                          {ratingsData.recommendations.map((rec, i) => {
+                            const total = (rec.buy || 0) + (rec.hold || 0) + (rec.sell || 0) + (rec.strongBuy || 0) + (rec.strongSell || 0);
+                            const bullish = ((rec.buy || 0) + (rec.strongBuy || 0)) / (total || 1) * 100;
+                            return (
+                              <div key={i} className="flex items-center gap-3">
+                                <span className="text-[10px] text-zinc-600 font-mono w-20 flex-shrink-0">
+                                  {new Date(rec.period).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
+                                </span>
+                                <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full rounded-full transition-all"
+                                    style={{ 
+                                      width: `${bullish}%`,
+                                      backgroundColor: bullish > 60 ? '#00ff4e' : bullish > 40 ? '#f59e0b' : '#ef4444'
+                                    }} 
+                                  />
+                                </div>
+                                <span className="text-[10px] font-black w-12 text-right" style={{ 
+                                  color: bullish > 60 ? '#00ff4e' : bullish > 40 ? '#f59e0b' : '#ef4444'
+                                }}>
+                                  {bullish.toFixed(0)}% Buy
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Market Cap */}
+                    {ratingsData?.marketCap && (
+                      <div>
+                        <p className="text-[8px] text-zinc-500 font-black uppercase tracking-widest mb-1">Market Cap</p>
+                        <p className="text-sm font-black text-white">
+                          ${ratingsData.marketCap >= 1e12 ? (ratingsData.marketCap / 1e12).toFixed(2) + 'T' :
+                            ratingsData.marketCap >= 1e9 ? (ratingsData.marketCap / 1e9).toFixed(2) + 'B' :
+                            ratingsData.marketCap >= 1e6 ? (ratingsData.marketCap / 1e6).toFixed(2) + 'M' :
+                            ratingsData.marketCap.toLocaleString()}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+
+      {/* NEWS ARTICLES TOGGLE */}
+      {stock.news && stock.news.length > 0 && (
+        <div className="border-t border-zinc-700/50 mt-4 md:mt-6 pt-4 md:pt-6">
+          <button onClick={() => setShowNews(!showNews)} className="flex items-center gap-2 md:gap-3 transition-all">
+            <Newspaper size={14} className={`md:w-4 md:h-4 ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
+            <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
+              {showNews ? "Hide News" : `View ${stock.news.length} Related ${stock.news.length === 1 ? 'Article' : 'Articles'}`}
+            </span>
+            <motion.span animate={{ rotate: showNews ? 180 : 0 }} className={`text-[10px] ${showNews ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
+          </button>
+
+          <AnimatePresence>
+            {showNews && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
+                exit={{ height: 0, opacity: 0 }}
+                className="mt-4 md:mt-6 space-y-3 overflow-hidden"
+              >
+                {stock.news.map((article, i) => (
+                  <a 
+                    key={i}
+                    href={article.article_url || article.url || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block p-3 md:p-4 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 hover:bg-zinc-900 transition-all group/article"
+                  >
+                    <div className="flex items-start gap-3">
+                      {article.image_url && (
+                        <img 
+                          src={article.image_url} 
+                          alt="" 
+                          className="w-16 h-16 md:w-20 md:h-20 rounded-lg object-cover flex-shrink-0"
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm md:text-base font-black text-white leading-tight mb-1 group-hover/article:text-[#00ff4e] transition-colors">
+                          {article.title}
+                        </p>
+                        {article.description && (
+                          <p className="text-xs text-zinc-500 line-clamp-2 mb-1">{article.description}</p>
+                        )}
+                        <p className="text-[10px] text-zinc-600">
+                          {article.publisher?.name || article.source || 'Unknown source'}
+                          {article.published_utc ? ` · ${new Date(article.published_utc).toLocaleDateString()}` : ''}
+                        </p>
+                      </div>
+                      <span className="text-zinc-700 group-hover/article:text-[#00ff4e] transition-colors flex-shrink-0 hidden md:block">→</span>
+                    </div>
+                  </a>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+      <div className="pb-2 md:pb-4" />
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.stock.price === nextProps.stock.price &&
+    prevProps.stock.change === nextProps.stock.change &&
+    prevProps.stock.symbol === nextProps.stock.symbol &&
+    prevProps.isMarketOpen === nextProps.isMarketOpen &&
+    prevProps.showAddToListMenu?.symbol === nextProps.showAddToListMenu?.symbol &&
+    prevProps.watchlist.length === nextProps.watchlist.length &&
+    prevProps.aiModel === nextProps.aiModel &&
+    prevProps.db === nextProps.db
+  );
+});
+
+// =============================================
+// PORTFOLIO PERFORMANCE CHART
+// =============================================
+
+const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart({ positions, polygonKey, user, db, livePrices, brokerageName, onRefresh, refreshing }) {
+
+  const totalCost = positions.reduce((sum, p) => sum + (p.costBasis ?? 0), 0);
+  
+  // Live total value using WebSocket prices when available
+  const totalValue = positions.reduce((sum, p) => {
+    const live = livePrices?.[p.symbol];
+    const price = live?.price ?? p.price ?? 0;
+    return sum + (price * (p.quantity ?? 0));
+  }, 0);
+
+  // Save daily snapshot to Firestore
+  useEffect(() => {
+    if (!user?.uid || !db || positions.length === 0 || totalValue === 0) return;
+    
+    const saveSnapshot = async () => {
+      try {
+        const { doc, setDoc } = await import('firebase/firestore');
+        const today = new Date().toISOString().split('T')[0];
+        await setDoc(doc(db, 'users', user.uid, 'portfolioSnapshots', today), {
+          date: today,
+          totalValue,
+          totalCost,
+          positionCount: positions.length,
+          positions: positions.map(p => ({ 
+            symbol: p.symbol, 
+            quantity: p.quantity, 
+            price: livePrices?.[p.symbol]?.price || p.price 
+          })),
+          timestamp: Date.now()
+        }, { merge: true });
+      } catch (e) {
+        console.error('Failed to save portfolio snapshot:', e);
+      }
+    };
+    
+    saveSnapshot();
+  }, [user, db, totalValue]);
+
+  if (positions.length === 0) return null;
+
+  const totalGain = positions.reduce((sum, p) => sum + (p.gain ?? 0), 0);
+  const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
+
+  return (
+    <div className="rounded-xl p-4 md:p-6 mb-4" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+      {/* Header with brokerage name + refresh */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500">
+            {brokerageName} Summary
+          </h3>
+          <p className="text-[9px] text-zinc-700 mt-0.5">Positions sync daily via Plaid · Recent trades may take up to 24 hours</p>
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2 text-xs text-zinc-500 hover:text-[#00ff4e] transition-colors"
+        >
+          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Main Value */}
+      <div className="mb-4">
+        <p className="text-3xl md:text-4xl font-black text-white tabular-nums leading-none">
+          ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </p>
+      </div>
+
+      {/* Summary Stats Row */}
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Total Gain/Loss</p>
+          <p className={`text-lg md:text-xl font-black tabular-nums ${totalGain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+            {totalGain >= 0 ? '+' : ''}${Math.abs(totalGain).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+          <p className="text-[10px] text-zinc-600 tabular-nums">
+            {totalGainPercent >= 0 ? '+' : ''}{totalGainPercent.toFixed(1)}%
+          </p>
+        </div>
+        <div>
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Cost Basis</p>
+          <p className="text-lg md:text-xl font-black text-white tabular-nums">
+            ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+        </div>
+        <div>
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Positions</p>
+          <p className="text-lg md:text-xl font-black text-white">{positions.length}</p>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// =============================================
+// PORTFOLIO ANALYTICS COMPONENT (Premium v2)
+// =============================================
+const PortfolioAnalytics = React.memo(function PortfolioAnalytics({ positions, polygonKey }) {
+  const [sectorData, setSectorData] = useState({});
+  const [loadingSectors, setLoadingSectors] = useState(true);
+  const [activeChart, setActiveChart] = useState('allocation');
+  const [activeIndex, setActiveIndex] = useState(null);
+
+
+  // Fetch sector data for all positions
+  useEffect(() => {
+    if (!positions || positions.length === 0) return;
+
+    
+    const fetchSectors = async () => {
+      setLoadingSectors(true);
+      const sectors = {};
+      
+      await Promise.all(
+        positions.filter(p => p.symbol && p.symbol !== 'N/A' && !p.symbol.includes(':')).map(async (position) => {
+          try {
+            const res = await fetch(
+              `https://api.polygon.io/v3/reference/tickers/${position.symbol}?apiKey=${polygonKey}`
+            );
+            const data = await res.json();
+            const sic = data.results?.sic_description || 'Unknown';
+            
+            let sector = 'Other';
+            const sicLower = sic.toLowerCase();
+            if (sicLower.includes('software') || sicLower.includes('computer') || sicLower.includes('semiconductor') || sicLower.includes('electronic')) sector = 'Technology';
+            else if (sicLower.includes('pharma') || sicLower.includes('biological') || sicLower.includes('medical') || sicLower.includes('surgical') || sicLower.includes('health')) sector = 'Healthcare';
+            else if (sicLower.includes('bank') || sicLower.includes('insurance') || sicLower.includes('investment') || sicLower.includes('finance') || sicLower.includes('security broker')) sector = 'Finance';
+            else if (sicLower.includes('petroleum') || sicLower.includes('oil') || sicLower.includes('gas') || sicLower.includes('electric service') || sicLower.includes('energy')) sector = 'Energy';
+            else if (sicLower.includes('retail') || sicLower.includes('food') || sicLower.includes('beverage') || sicLower.includes('apparel') || sicLower.includes('restaurant')) sector = 'Consumer';
+            else if (sicLower.includes('aircraft') || sicLower.includes('motor vehicle') || sicLower.includes('machinery') || sicLower.includes('trucking') || sicLower.includes('railroad')) sector = 'Industrial';
+            else if (sicLower.includes('mining') || sicLower.includes('chemical') || sicLower.includes('steel') || sicLower.includes('metal') || sicLower.includes('paper')) sector = 'Materials';
+            else if (sicLower.includes('real estate')) sector = 'Real Estate';
+            else if (sicLower.includes('telephone') || sicLower.includes('broadcasting') || sicLower.includes('cable') || sicLower.includes('advertising') || sicLower.includes('motion picture')) sector = 'Communications';
+            else if (sicLower.includes('utility') || sicLower.includes('water supply') || sicLower.includes('sanitary')) sector = 'Utilities';
+            else if (sic !== 'Unknown') sector = 'Other';
+            
+            sectors[position.symbol] = { sector, sicDescription: sic };
+          } catch (e) {
+            sectors[position.symbol] = { sector: 'Unknown', sicDescription: '' };
+          }
+        })
+      );
+      
+      setSectorData(sectors);
+      setLoadingSectors(false);
+    };
+    
+    fetchSectors();
+  }, [positions, polygonKey]);
+
+  // --- Calculations ---
+  const totalValue = positions.reduce((sum, p) => sum + (p.value ?? 0), 0);
+  const totalGain = positions.reduce((sum, p) => sum + (p.gain ?? 0), 0);
+  const totalCost = positions.reduce((sum, p) => sum + (p.costBasis ?? 0), 0);
+  const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
+  const winners = positions.filter(p => (p.gain ?? 0) >= 0);
+  const losers = positions.filter(p => (p.gain ?? 0) < 0);
+  const winRate = positions.length > 0 ? (winners.length / positions.length) * 100 : 0;
+  
+const validPositions = positions.filter(p => p.costBasis > 0 && isFinite(p.gainPercent));
+const sortedByGain = [...validPositions].sort((a, b) => (b.gainPercent ?? 0) - (a.gainPercent ?? 0));
+const bestStock = sortedByGain[0];
+const worstStock = sortedByGain[sortedByGain.length - 1];
+  
+  const avgGainPercent = positions.length > 0 
+    ? positions.reduce((sum, p) => sum + (p.gainPercent ?? 0), 0) / positions.length 
+    : 0;
+
+  const largestPosition = [...positions].sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0];
+
+  // --- Chart Data ---
+  const CHART_COLORS = [
+    '#00ff4e', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', 
+    '#ec4899', '#10b981', '#06b6d4', '#f97316', '#6366f1', 
+    '#84cc16', '#14b8a6'
+  ];
+
+  // Allocation data
+  const allocationData = (() => {
+    const sorted = [...positions].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+    const top = sorted.slice(0, 8).map(p => ({
+      name: p.symbol,
+      value: p.value ?? 0,
+      percent: totalValue > 0 ? ((p.value ?? 0) / totalValue * 100) : 0,
+      gain: p.gainPercent ?? 0
+    }));
+    
+    if (sorted.length > 8) {
+      const others = sorted.slice(8);
+      const otherValue = others.reduce((sum, p) => sum + (p.value ?? 0), 0);
+      top.push({
+        name: `+${others.length} more`,
+        value: otherValue,
+        percent: totalValue > 0 ? (otherValue / totalValue * 100) : 0,
+        gain: 0
+      });
+    }
+    return top;
+  })();
+
+  // Sector data
+  const sectorChartData = (() => {
+    if (loadingSectors) return [];
+    const sectorValues = {};
+    positions.forEach(p => {
+      const sector = sectorData[p.symbol]?.sector || 'Unknown';
+      sectorValues[sector] = (sectorValues[sector] || 0) + (p.value ?? 0);
+    });
+    return Object.entries(sectorValues)
+      .map(([name, value]) => ({ 
+        name, 
+        value, 
+        percent: totalValue > 0 ? (value / totalValue * 100) : 0 
+      }))
+      .sort((a, b) => b.value - a.value);
+  })();
+
+  // Performers data
+  const performersData = sortedByGain
+    .filter(p => p.symbol && p.symbol !== 'N/A')
+    .map(p => ({
+      symbol: p.symbol,
+      gain: parseFloat((p.gainPercent ?? 0).toFixed(2)),
+      value: p.value ?? 0,
+      fill: (p.gainPercent ?? 0) >= 0 ? '#00ff4e' : '#FF4B2B'
+    }));
+
+  // Format currency
+  const fmtCurrency = (val) => {
+    if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`;
+    if (val >= 1000) return `$${(val / 1000).toFixed(1)}K`;
+    return `$${val.toFixed(2)}`;
+  };
+
+  // Hover handlers for pie
+  const onPieEnter = (_, index) => setActiveIndex(index);
+  const onPieLeave = () => {
+  // Small delay so tap doesn't immediately clear
+  setTimeout(() => setActiveIndex(null), 2000);
+};
+
+  // Custom active shape renderer for hover effect
+  const renderActiveShape = (props) => {
+    const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
+    return (
+      <g>
+        <defs>
+          <filter id={`glow-${props.index}`} x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
+        </defs>
+        <Sector
+          cx={cx}
+          cy={cy}
+          innerRadius={innerRadius - 3}
+          outerRadius={outerRadius + 8}
+          startAngle={startAngle}
+          endAngle={endAngle}
+          fill={fill}
+          opacity={1}
+          filter={`url(#glow-${props.index})`}
+        />
+      </g>
+    );
+  };
+
+  // Pie tooltip
+  const PieTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <div className="bg-black/95 backdrop-blur-sm border border-zinc-700 rounded-xl px-4 py-3 shadow-2xl">
+          <p className="text-sm font-black text-white mb-1">{data.name}</p>
+          <p className="text-xs text-zinc-300 tabular-nums">
+            {fmtCurrency(data.value)}
+          </p>
+          <p className="text-xs font-black tabular-nums mt-0.5" style={{ color: '#00ff4e' }}>
+            {data.percent.toFixed(1)}% of portfolio
+          </p>
+          {data.gain !== undefined && data.gain !== 0 && (
+            <p className="text-[10px] font-bold tabular-nums mt-0.5" style={{ color: data.gain >= 0 ? '#00ff4e' : '#FF4B2B' }}>
+              {data.gain >= 0 ? '+' : ''}{data.gain.toFixed(1)}% return
+            </p>
+          )}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Bar tooltip
+  const BarTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+        <div className="bg-black/95 backdrop-blur-sm border border-zinc-700 rounded-xl px-4 py-3 shadow-2xl">
+          <p className="text-sm font-black text-white">{data.symbol}</p>
+          <p className="text-xs font-bold tabular-nums" style={{ color: data.gain >= 0 ? '#00ff4e' : '#FF4B2B' }}>
+            {data.gain >= 0 ? '+' : ''}{data.gain}%
+          </p>
+          <p className="text-[10px] text-zinc-400 tabular-nums">{fmtCurrency(data.value)}</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Get the current pie data based on active chart
+  const currentPieData = activeChart === 'allocation' ? allocationData : sectorChartData;
+  const currentHovered = activeIndex !== null && currentPieData[activeIndex] ? currentPieData[activeIndex] : null;
+
+  if (positions.length === 0) return null;
+
+  return (
+    <div className="space-y-4 mb-6">
+      
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+        {/* Win Rate */}
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
+          <div className="absolute top-0 left-0 h-1 transition-all duration-500" style={{ 
+            width: `${winRate}%`,
+            backgroundColor: winRate >= 50 ? '#00ff4e' : '#FF4B2B',
+            boxShadow: `0 0 15px ${winRate >= 50 ? 'rgba(0,255,78,0.4)' : 'rgba(255,75,43,0.4)'}`
+          }} />
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-2">Win Rate</p>
+          <p className="text-3xl md:text-4xl font-black tabular-nums leading-none mb-1" style={{ color: winRate >= 50 ? '#00ff4e' : '#FF4B2B' }}>
+            {winRate.toFixed(0)}%
+          </p>
+          <p className="text-[10px] text-zinc-600 font-bold">
+            <span className="text-[#00ff4e]">{winners.length}W</span>
+            {' / '}
+            <span className="text-red-500">{losers.length}L</span>
+          </p>
+        </div>
+
+        {/* Total Return */}
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
+          <div className="absolute top-0 left-0 h-1 w-full" style={{ 
+            backgroundColor: totalGainPercent >= 0 ? '#00ff4e' : '#FF4B2B',
+            opacity: 0.3
+          }} />
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-2">Total Return</p>
+          <p className="text-3xl md:text-4xl font-black tabular-nums leading-none mb-1" style={{ color: totalGainPercent >= 0 ? '#00ff4e' : '#FF4B2B' }}>
+            {totalGainPercent >= 0 ? '+' : ''}{totalGainPercent.toFixed(1)}%
+          </p>
+          <p className="text-[10px] text-zinc-600 font-bold tabular-nums">
+            {totalGain >= 0 ? '+' : '-'}${Math.abs(totalGain).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          </p>
+        </div>
+
+        {/* Best */}
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
+          <div className="absolute top-0 left-0 h-1 w-full bg-[#00ff4e] opacity-30" />
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-2">Best Position</p>
+          {bestStock ? (
+            <>
+              <p className="text-3xl md:text-4xl font-black text-[#00ff4e] tabular-nums leading-none mb-1">
+                +{(bestStock.gainPercent ?? 0).toFixed(1)}%
+              </p>
+              <p className="text-[10px] text-zinc-500 font-black uppercase tracking-wider">{bestStock.symbol}</p>
+            </>
+          ) : (
+            <p className="text-2xl font-black text-zinc-700">—</p>
+          )}
+        </div>
+
+        {/* Worst */}
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
+          <div className="absolute top-0 left-0 h-1 w-full bg-red-500 opacity-30" />
+          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-2">Worst Position</p>
+          {worstStock ? (
+            <>
+              <p className="text-3xl md:text-4xl font-black tabular-nums leading-none mb-1" style={{ color: (worstStock.gainPercent ?? 0) >= 0 ? '#00ff4e' : '#FF4B2B' }}>
+                {(worstStock.gainPercent ?? 0) >= 0 ? '+' : ''}{(worstStock.gainPercent ?? 0).toFixed(1)}%
+              </p>
+              <p className="text-[10px] text-zinc-500 font-black uppercase tracking-wider">{worstStock.symbol}</p>
+            </>
+          ) : (
+            <p className="text-2xl font-black text-zinc-700">—</p>
+          )}
+        </div>
+      </div>
+
+      {/* Secondary Stats Bar */}
+      <div className="rounded-xl p-4 md:p-5" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-[#00ff4e]/10 flex items-center justify-center flex-shrink-0">
+              <Wallet size={18} className="text-[#00ff4e]" />
+            </div>
+            <div>
+              <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider">Portfolio</p>
+              <p className="text-base md:text-lg font-black text-white tabular-nums">{fmtCurrency(totalValue)}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
+              <Target size={18} className="text-zinc-400" />
+            </div>
+            <div>
+              <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider">Cost Basis</p>
+              <p className="text-base md:text-lg font-black text-white tabular-nums">{fmtCurrency(totalCost)}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
+              <BarChart3 size={18} className="text-zinc-400" />
+            </div>
+            <div>
+              <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider">Avg Return</p>
+              <p className="text-base md:text-lg font-black tabular-nums" style={{ color: avgGainPercent >= 0 ? '#00ff4e' : '#FF4B2B' }}>
+                {avgGainPercent >= 0 ? '+' : ''}{avgGainPercent.toFixed(1)}%
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
+              <TrendingUp size={18} className="text-zinc-400" />
+            </div>
+            <div>
+              <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider">Largest</p>
+              <p className="text-base md:text-lg font-black text-white">{largestPosition?.symbol || '—'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Section */}
+      <div className="rounded-xl p-4 md:p-6 overflow-hidden" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+        {/* Chart Tabs */}
+        <div className="flex gap-1.5 mb-6">
+          {[
+            { id: 'allocation', label: 'Allocation', icon: '◉' },
+            { id: 'sector', label: 'Sectors', icon: '◎' },
+            { id: 'performers', label: 'Performance', icon: '◆' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => { setActiveChart(tab.id); setActiveIndex(null); }}
+              className={`flex-1 py-2.5 md:py-3 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wider transition-all ${
+                activeChart === tab.id
+                  ? 'bg-[#00ff4e] text-black shadow-[0_0_20px_rgba(0,255,78,0.3)]'
+                  : 'bg-zinc-900/80 text-zinc-500 hover:text-white hover:bg-zinc-800 border border-zinc-800'
+              }`}
+            >
+              <span className="mr-1.5">{tab.icon}</span>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ============ ALLOCATION PIE ============ */}
+        {activeChart === 'allocation' && (
+          <div>
+            <div className="relative h-[320px] md:h-[380px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <defs>
+                    {CHART_COLORS.map((color, i) => (
+                      <linearGradient key={`grad-alloc-${i}`} id={`grad-alloc-${i}`} x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor={color} stopOpacity={0.9} />
+                        <stop offset="100%" stopColor={color} stopOpacity={0.6} />
+                      </linearGradient>
+                    ))}
+                  </defs>
+                  <Pie
+                    data={allocationData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={75}
+                    outerRadius={activeIndex !== null ? 120 : 120}
+                    paddingAngle={1.5}
+                    dataKey="value"
+                    stroke="none"
+                    isAnimationActive={true}
+                    animationDuration={1000}
+                    animationBegin={0}
+                    onMouseEnter={onPieEnter}
+                    onMouseLeave={onPieLeave}
+                  >
+                    {allocationData.map((entry, index) => (
+                      <Cell 
+                        key={entry.name} 
+                        fill={`url(#grad-alloc-${index % CHART_COLORS.length})`}
+                        opacity={activeIndex === null || activeIndex === index ? 1 : 0.35}
+                        style={{
+                          filter: activeIndex === index ? `drop-shadow(0 0 12px ${CHART_COLORS[index % CHART_COLORS.length]}80)` : 'none',
+                          transform: activeIndex === index ? 'scale(1.04)' : 'scale(1)',
+                          transformOrigin: '50% 50%',
+                          transition: 'all 0.3s ease',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+
+              {/* Center Label */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center">
+                  {currentHovered && activeChart === 'allocation' ? (
+                    <>
+                      <p className="text-xl md:text-2xl font-black text-white leading-none mb-0.5">{currentHovered.name}</p>
+                      <p className="text-sm md:text-base font-black tabular-nums" style={{ color: '#00ff4e' }}>
+                        {currentHovered.percent.toFixed(1)}%
+                      </p>
+                      <p className="text-[10px] text-zinc-500 tabular-nums">{fmtCurrency(currentHovered.value)}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-1">Total Value</p>
+                      <p className="text-xl md:text-2xl font-black text-white leading-none tabular-nums">
+                        {fmtCurrency(totalValue)}
+                      </p>
+                      <p className="text-[10px] font-bold tabular-nums mt-0.5" style={{ color: totalGainPercent >= 0 ? '#00ff4e' : '#FF4B2B' }}>
+                        {totalGainPercent >= 0 ? '↑' : '↓'} {Math.abs(totalGainPercent).toFixed(1)}%
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {/* Legend - Visual bars */}
+            <div className="mt-6 space-y-2">
+              {allocationData.map((entry, i) => (
+                <div 
+                  key={entry.name} 
+                  className="group flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-900/50 transition-all cursor-default"
+                 onMouseEnter={() => setActiveIndex(i)}
+onMouseLeave={() => setActiveIndex(null)}
+onClick={() => setActiveIndex(prev => prev === i ? null : i)}
+                >
+                  <div 
+                    className="w-3 h-3 rounded-full flex-shrink-0 transition-all group-hover:scale-125"
+                    style={{ 
+                      backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+                      boxShadow: activeIndex === i ? `0 0 10px ${CHART_COLORS[i % CHART_COLORS.length]}` : 'none'
+                    }} 
+                  />
+                  <span className="text-xs font-black text-zinc-300 w-16 flex-shrink-0">{entry.name}</span>
+                  <div className="flex-1 h-2 bg-zinc-900 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ 
+                        width: `${entry.percent}%`, 
+                        backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+                        opacity: activeIndex === null || activeIndex === i ? 1 : 0.3,
+                        boxShadow: activeIndex === i ? `0 0 8px ${CHART_COLORS[i % CHART_COLORS.length]}60` : 'none'
+                      }} 
+                    />
+                  </div>
+                  <span className="text-[10px] font-black text-zinc-400 tabular-nums w-12 text-right">{entry.percent.toFixed(1)}%</span>
+                  <span className="text-[10px] text-zinc-600 tabular-nums w-16 text-right hidden md:block">{fmtCurrency(entry.value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ============ SECTOR PIE ============ */}
+        {activeChart === 'sector' && (
+          <div>
+            {loadingSectors ? (
+              <div className="h-[320px] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-10 h-10 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
+                  <span className="text-xs text-zinc-600 font-bold uppercase tracking-wider">Analyzing sectors...</span>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="relative h-[320px] md:h-[380px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <defs>
+                        {CHART_COLORS.map((color, i) => (
+                          <linearGradient key={`grad-sec-${i}`} id={`grad-sec-${i}`} x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor={color} stopOpacity={0.9} />
+                            <stop offset="100%" stopColor={color} stopOpacity={0.6} />
+                          </linearGradient>
+                        ))}
+                      </defs>
+                      <Pie
+                        data={sectorChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={75}
+                        outerRadius={120}
+                        paddingAngle={1.5}
+                        dataKey="value"
+                        stroke="none"
+                        isAnimationActive={true}
+                        animationDuration={1000}
+                        onMouseEnter={onPieEnter}
+                        onMouseLeave={onPieLeave}
+                      >
+                        {sectorChartData.map((entry, index) => (
+                          <Cell 
+                            key={entry.name} 
+                            fill={`url(#grad-sec-${index % CHART_COLORS.length})`}
+                            opacity={activeIndex === null || activeIndex === index ? 1 : 0.35}
+                            style={{
+                              filter: activeIndex === index ? `drop-shadow(0 0 12px ${CHART_COLORS[index % CHART_COLORS.length]}80)` : 'none',
+                              transform: activeIndex === index ? 'scale(1.04)' : 'scale(1)',
+                              transformOrigin: '50% 50%',
+                              transition: 'all 0.3s ease',
+                              cursor: 'pointer'
+                            }}
+                          />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+
+                  {/* Center Label */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="text-center">
+                      {currentHovered && activeChart === 'sector' ? (
+                        <>
+                          <p className="text-lg md:text-xl font-black text-white leading-none mb-0.5">{currentHovered.name}</p>
+                          <p className="text-sm md:text-base font-black tabular-nums" style={{ color: '#00ff4e' }}>
+                            {currentHovered.percent.toFixed(1)}%
+                          </p>
+                          <p className="text-[10px] text-zinc-500 tabular-nums">{fmtCurrency(currentHovered.value)}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-3xl md:text-4xl font-black text-white leading-none">{sectorChartData.length}</p>
+                          <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mt-1">Sectors</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Legend */}
+                <div className="mt-6 space-y-2">
+                  {sectorChartData.map((entry, i) => (
+                    <div 
+                      key={entry.name} 
+                      className="group flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-900/50 transition-all cursor-default"
+                      onMouseEnter={() => setActiveIndex(i)}
+onMouseLeave={() => setActiveIndex(null)}
+onClick={() => setActiveIndex(prev => prev === i ? null : i)}
+                    >
+                      <div 
+                        className="w-3 h-3 rounded-full flex-shrink-0 transition-all group-hover:scale-125"
+                        style={{ 
+                          backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+                          boxShadow: activeIndex === i ? `0 0 10px ${CHART_COLORS[i % CHART_COLORS.length]}` : 'none'
+                        }} 
+                      />
+                      <span className="text-xs font-black text-zinc-300 w-24 flex-shrink-0">{entry.name}</span>
+                      <div className="flex-1 h-2 bg-zinc-900 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{ 
+                            width: `${entry.percent}%`, 
+                            backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+                            opacity: activeIndex === null || activeIndex === i ? 1 : 0.3,
+                            boxShadow: activeIndex === i ? `0 0 8px ${CHART_COLORS[i % CHART_COLORS.length]}60` : 'none'
+                          }} 
+                        />
+                      </div>
+                      <span className="text-[10px] font-black text-zinc-400 tabular-nums w-12 text-right">{entry.percent.toFixed(1)}%</span>
+                      <span className="text-[10px] text-zinc-600 tabular-nums w-16 text-right hidden md:block">{fmtCurrency(entry.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ============ PERFORMANCE BAR ============ */}
+        {activeChart === 'performers' && (
+          <div>
+            <h4 className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-4">
+              Return by Position
+            </h4>
+            <div style={{ height: Math.max(performersData.length * 40, 200) }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={performersData}
+                  layout="vertical"
+                  margin={{ top: 5, right: 40, left: 55, bottom: 5 }}
+                  barGap={2}
+                >
+                  <defs>
+                    <linearGradient id="bar-green" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#00ff4e" stopOpacity={0.6} />
+                      <stop offset="100%" stopColor="#00ff4e" stopOpacity={1} />
+                    </linearGradient>
+                    <linearGradient id="bar-red" x1="1" y1="0" x2="0" y2="0">
+                      <stop offset="0%" stopColor="#FF4B2B" stopOpacity={0.6} />
+                      <stop offset="100%" stopColor="#FF4B2B" stopOpacity={1} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis 
+                    type="number" 
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#52525b', fontSize: 10, fontFamily: 'monospace' }}
+                    tickFormatter={(v) => `${v}%`}
+                  />
+                  <YAxis 
+                    type="category" 
+                    dataKey="symbol" 
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#a1a1aa', fontSize: 11, fontWeight: 'bold', fontFamily: 'monospace' }}
+                    width={50}
+                  />
+                
+                  <Bar 
+                    dataKey="gain" 
+                    radius={[0, 6, 6, 0]}
+                    isAnimationActive={true}
+                    animationDuration={1000}
+                    barSize={20}
+                  >
+                    {performersData.map((entry, index) => (
+                      <Cell 
+                        key={index} 
+                        fill={entry.gain >= 0 ? 'url(#bar-green)' : 'url(#bar-red)'}
+                        style={{ 
+                          filter: `drop-shadow(0 0 4px ${entry.gain >= 0 ? 'rgba(0,255,78,0.3)' : 'rgba(255,75,43,0.3)'})`,
+                          cursor: 'pointer'
+                        }}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
+// POSITION CARD COMPONENT WITH CHART TOGGLE
+const PositionCard = React.memo(function PositionCard({
+  position,
+  index,
+  livePrices,
+  isMarketOpen,
+  isPositionAdded,
+  isHoveringThisPosition,
+  setHoveringPositionSymbol,
+  user,
+  watchlists,
+  flattenedWatchlist,
+  showAddToListMenu,
+  setShowAddToListMenu,
+  addStockToList,
+  removeStockFromList,
+  setManualSearch,
+  setActiveTab,
+  runScanner,
+  editingCostBasis,
+  setEditingCostBasis,
+  costBasisInput,
+  setCostBasisInput,
+  saveCostBasisOverride,
+  connectedBrokerages,
+}) {
+  const [showChart, setShowChart] = useState(false);
+
+  // Inside PositionCard or wherever you render position price
+const live = livePrices?.[position.symbol];
+const displayPrice = live ? live.price : position.currentPrice;
+const flashClass = live?.direction === 'up' ? 'price-flash-up' : live?.direction === 'down' ? 'price-flash-down' : '';
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05, duration: 0.3 }}
+      className="rounded-xl p-6 transition-all duration-300 relative"
+      style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
+    >
+      {/* Add to List Button */}
+      <div className="absolute top-4 right-4 z-10">
+        <button 
+          data-add-button={`position-${position.symbol}`}
+          onMouseEnter={() => setHoveringPositionSymbol(position.symbol)}
+          onMouseLeave={() => setHoveringPositionSymbol(null)}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!user) {
+              alert('Please sign in to add stocks to lists');
+              return;
+            }
+            
+            if (isPositionAdded && isHoveringThisPosition) {
+              const listWithStock = watchlists.find(list => 
+                list.stocks.some(s => s.symbol === position.symbol)
+              );
+              if (listWithStock) {
+                removeStockFromList(listWithStock.id, position.symbol);
+              }
+            } else if (!isPositionAdded) {
+              const stockObj = {
+                symbol: position.symbol,
+                name: position.name,
+                price: position.price?.toFixed(2) || '0.00',
+                change: position.gainPercent?.toFixed(2) || '0.00',
+                isPositive: position.gain >= 0,
+                range: 'N/A',
+                confidence: 0,
+                volatility: 0,
+                rating: 'N/A',
+                momentum: 'N/A',
+                catalyst: 'Portfolio Position',
+                insights: []
+              };
+              setShowAddToListMenu(stockObj);
+            }
+          }}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all active:scale-95 ${
+            isPositionAdded
+              ? isHoveringThisPosition
+                ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                : "border-[#00ff4e]/50 bg-[#00ff4e]/10 text-[#00ff4e]"
+              : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
+          }`}
+        >
+          <span className="text-xs font-black uppercase tracking-wider hidden sm:inline">
+            {isPositionAdded
+              ? isHoveringThisPosition ? "Remove" : "Added"
+              : "Add"
+            }
+          </span>
+          {isPositionAdded && isHoveringThisPosition ? (
+            <Trash2 size={14} />
+          ) : (
+            <Plus size={14} />
+          )}
+        </button>
+
+        {/* Add to List Dropdown for Positions */}
+        {showAddToListMenu?.symbol === position.symbol && (() => {
+          const buttonElement = document.querySelector(`button[data-add-button="position-${position.symbol}"]`);
+          const rect = buttonElement?.getBoundingClientRect();
+          
+          return ReactDOM.createPortal(
+            <>
+              <div 
+                className="fixed inset-0 bg-transparent z-[99998]"
+                onClick={() => setShowAddToListMenu(null)}
+              />
+              <div 
+                className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
+                style={{
+                  top: rect ? `${rect.bottom + 8}px` : '100px',
+                  right: rect ? `${window.innerWidth - rect.right}px` : '20px',
+                  width: '280px'
+                }}
+              >
+                <div className="p-3 border-b border-zinc-800">
+                  <p className="text-xs font-black text-white uppercase">Add to List</p>
+                </div>
+                
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAddToListMenu(null);
+                    window.dispatchEvent(new CustomEvent('openWatchlistModal'));
+                  }}
+                  className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
+                >
+                  <div className="flex items-center gap-2">
+                    <Plus size={14} />
+                    <span className="uppercase tracking-wider">Create New List</span>
+                  </div>
+                </button>
+                
+                {watchlists.length === 0 ? (
+                  <div className="p-4 text-center">
+                    <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
+                  </div>
+                ) : (
+                  watchlists.map((list) => {
+                    const isInList = list.stocks.some(s => s.symbol === position.symbol);
+                    return (
+                      <button
+                        key={list.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isInList) {
+                            addStockToList(showAddToListMenu, list.id);
+                          }
+                        }}
+                        disabled={isInList}
+                        className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
+                          isInList
+                            ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
+                            : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="uppercase tracking-wider">{list.name}</span>
+                          {isInList && (
+                            <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </>,
+            document.body
+          );
+        })()}
+      </div>
+
+      <div 
+        className="cursor-pointer"
+        onClick={() => {
+          setManualSearch(position.symbol);
+          setActiveTab("DASHBOARD");
+          runScanner(position.symbol);
+        }}
+      >
+        {/* Header */}
+        <div className="mb-6">
+          <p className="text-xs text-zinc-500 font-black uppercase tracking-widest mb-2">{position.name}</p>
+          
+          <div className="flex flex-col md:flex-row md:items-baseline gap-3 md:gap-6">
+            <h3 className="text-4xl md:text-5xl font-black text-white uppercase tracking-tighter leading-none">{position.symbol}</h3>
+            <div className="flex items-baseline gap-3">
+              <p className="text-2xl md:text-3xl font-black text-white tabular-nums leading-none">
+                ${position.price?.toFixed(2) ?? '0.00'}
+              </p>
+              <p className={`text-lg md:text-xl font-black tabular-nums leading-none ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+                {position.gain >= 0 ? '+' : ''}{position.gainPercent?.toFixed(2) ?? '0.00'}%
+                <span className="ml-2 align-middle">{position.gain >= 0 ? '▲' : '▼'}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-zinc-700/50">
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Shares</p>
+            <p className="text-lg font-black text-white">{position.quantity ?? '0'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Market Value</p>
+            <p className="text-lg font-black text-white">${position.value?.toLocaleString() ?? '0'}</p>
+          </div>
+<div>
+            <p className="text-xs text-zinc-600 mb-1">Cost Basis</p>
+            <div className="flex items-center gap-2">
+              {editingCostBasis === position.symbol ? (
+                <div className="flex items-center gap-1">
+                  <span className="text-zinc-500">$</span>
+                  <input
+                    type="number"
+                    value={costBasisInput}
+                    onChange={(e) => setCostBasisInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveCostBasisOverride(position.symbol, costBasisInput);
+                      if (e.key === 'Escape') setEditingCostBasis(null);
+                    }}
+                    autoFocus
+                    className="w-24 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-white text-sm font-mono focus:outline-none focus:border-[#00ff4e]/50"
+                  />
+                  <button
+                    onClick={() => saveCostBasisOverride(position.symbol, costBasisInput)}
+                    className="text-[#00ff4e] text-xs font-black px-2 py-1 hover:bg-[#00ff4e]/10 rounded"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    onClick={() => setEditingCostBasis(null)}
+                    className="text-zinc-500 text-xs font-black px-2 py-1 hover:bg-zinc-800 rounded"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-lg font-black text-white">${position.costBasis?.toLocaleString() ?? '0'}</p>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCostBasisInput(position.costBasis?.toFixed(2) ?? '0');
+                      setEditingCostBasis(position.symbol);
+                    }}
+                    className="text-zinc-700 hover:text-[#00ff4e] transition-colors"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-600 mb-1">Gain/Loss</p>
+            <p className={`text-lg font-black ${position.gain >= 0 ? 'text-[#00ff4e]' : 'text-red-500'}`}>
+              {position.gain >= 0 ? '+' : ''}${Math.abs(position.gain ?? 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4">
+          <TradeButton symbol={position.symbol} connectedBrokerages={connectedBrokerages} />
+        </div>
+
+      {/* Chart Toggle Section */}
+      <div className="mt-6 pt-4 border-t border-zinc-700/50">
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowChart(!showChart);
+          }}
+          className="group flex items-center gap-2 md:gap-3 transition-all"
+        >
+          <span className={`h-1 w-1 md:h-1.5 md:w-1.5 rounded-full ${showChart ? 'bg-[#00ff4e] shadow-[0_0_8px_#00ff4e]' : 'bg-zinc-700'}`} />
+          <span className={`text-[8px] md:text-[10px] font-black uppercase tracking-[0.25em] md:tracking-[0.3em] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+            {showChart ? "Hide Chart" : "Show Chart"}
+          </span>
+          <motion.span 
+            animate={{ rotate: showChart ? 180 : 0 }} 
+            className={`text-[8px] md:text-[10px] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500'}`}
+          >
+            ▼
+          </motion.span>
+        </button>
+
+        <AnimatePresence>
+          {showChart && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="overflow-hidden mt-4"
+            >
+              <div className="bg-zinc-950/50 border border-zinc-800 rounded-xl p-3 md:p-4">
+<StockChart symbol={position.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} />              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </motion.div>
+  );
+});
+
+
+// NEWS CARD COMPONENT
+function NewsCard({ article }) {
+  const categoryColors = {
+    'Markets': '#00ff4e',
+    'Stocks': '#3b82f6',
+    'Crypto': '#f59e0b',
+    'Tech': '#8b5cf6',
+    'Economy': '#ef4444',
+    'Policy': '#ec4899',
+    'Earnings': '#10b981'
+  };
+
+  const categoryColor = categoryColors[article.category] || '#00ff4e';
+  const timeAgo = new Date(article.datetime * 1000).toLocaleString();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-xl p-4 md:p-6 transition-all duration-300 cursor-pointer group"
+      style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
+      onClick={() => window.open(article.url, '_blank')}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
+    >
+      <div className="flex flex-col md:flex-row gap-4 md:gap-6">
+        {/* Article Image */}
+        {article.image && (
+          <div className="w-full md:w-48 h-40 md:h-32 flex-shrink-0 rounded-lg overflow-hidden bg-zinc-900">
+            <img 
+              src={article.image} 
+              alt={article.headline}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          </div>
+        )}
+        
+        {/* Article Content */}
+        <div className="flex-1 min-w-0">
+          {/* Header */}
+          <div className="flex items-center gap-2 md:gap-3 mb-2 md:mb-3 flex-wrap">
+            <span 
+              className="text-[8px] md:text-[9px] font-black uppercase tracking-[0.25em] md:tracking-[0.3em] px-2 md:px-3 py-1 rounded-full"
+              style={{ 
+                backgroundColor: `${categoryColor}20`, 
+                color: categoryColor,
+                border: `1px solid ${categoryColor}40`
+              }}
+            >
+              {article.category}
+            </span>
+            <span className="text-zinc-600 text-[10px] md:text-xs font-bold uppercase tracking-wider">
+              {article.source}
+            </span>
+            <span className="text-zinc-700 text-xs hidden sm:inline">•</span>
+            <span className="text-zinc-600 text-[10px] md:text-xs hidden sm:inline">{timeAgo}</span>
+          </div>
+
+          {/* Headline */}
+          <h3 className="text-base md:text-xl font-black text-white mb-2 md:mb-3 leading-tight group-hover:text-[#00ff4e] transition-colors">
+            {article.headline}
+          </h3>
+
+          {/* Summary */}
+          <p className="text-zinc-400 text-xs md:text-sm leading-relaxed mb-3 md:mb-4 line-clamp-2">
+            {article.summary}
+          </p>
+
+          {/* Ticker Tags */}
+          {article.tickers && article.tickers.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[8px] md:text-[9px] text-zinc-600 font-black uppercase tracking-widest">
+                Mentioned:
+              </span>
+              {article.tickers.map((ticker, idx) => (
+                <span 
+                  key={idx}
+                  className="text-[9px] md:text-[10px] font-black bg-zinc-900 text-[#00ff4e] px-2 py-1 rounded border border-zinc-800 uppercase tracking-wider"
+                >
+                  ${ticker}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Arrow indicator - hidden on mobile */}
+        <div className="hidden md:flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+          <span className="text-[#00ff4e] text-2xl">→</span>
+        </div>
+      </div>
+    </motion.div>
+  );
+  
+}
