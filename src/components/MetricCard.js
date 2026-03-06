@@ -1,110 +1,315 @@
 // components/MetricCard.js
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+// 1:1 web port of StockCard.js
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import ReactDOM from 'react-dom';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import TradeButton from './TradeButton';
-import StockChart from './StockChart';
-import { Activity, Target, TrendingUp, BarChart3, Lightbulb, Newspaper, MessageCircle, Send, Plus, Trash2, Search, FileText, Zap, List, X, Check, Building2 } from 'lucide-react';
-import CountUp from '../CountUp';
+import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import MiniChart from './MiniChart';
-import { POLYGON_KEY, REPUTABLE_SOURCES, NEWS_SOURCES, cleanCompanyName, getTradeUrl, getBrokerageLogo, getBrokerageIcon } from '../config/constants';
+import {
+  Activity, Target, TrendingUp, BarChart3, Zap, Search,
+  Newspaper, MessageCircle, Send, Plus, Trash2, Bell,
+  Briefcase, FileText, ChevronDown, ChevronUp, ArrowUpRight,
+  Share2, Pin, Cpu,
+} from 'lucide-react';
+import CountUp from '../CountUp';
+import { POLYGON_KEY, cleanCompanyName, getTradeUrl } from '../config/constants';
 
-const MetricCard = React.memo(function MetricCard({ 
-  stock, isMarketOpen, onAction, actionType, watchlist = [], 
-  removeFromWatchlist, showAddToListMenu, onCloseMenu, 
-  watchlists = [], onAddToList, user, onOpenChat, onScanSimilar,
-  aiModel, db, connectedBrokerages, livePrices
+// ─── Catalyst badge config (mirrors StockCard getCatalystStyle) ──────────────
+const getCatalystStyle = (type) => {
+  switch (type) {
+    case 'early_signal':   return { Icon: Search,     color: '#f97316', label: 'EARLY SIGNAL' };
+    case 'options_first':  return { Icon: Target,     color: '#ec4899', label: 'PRE-MOVE OPTIONS' };
+    case 'news':           return { Icon: TrendingUp, color: '#00ff4e', label: 'NEWS CATALYST' };
+    case 'volume':         return { Icon: BarChart3,  color: '#f59e0b', label: 'VOLUME SPIKE' };
+    case 'breakout':       return { Icon: TrendingUp, color: '#3b82f6', label: 'BREAKOUT' };
+    case 'momentum':       return { Icon: Zap,        color: '#8b5cf6', label: 'MOMENTUM' };
+    case 'gainer':         return { Icon: TrendingUp, color: '#10b981', label: 'TOP GAINER' };
+    default:               return { Icon: Target,     color: '#71717a', label: 'SIGNAL' };
+  }
+};
+
+const PATTERN_COLORS = {
+  PRE_MOVE: '#ec4899', INSTITUTIONAL_FOOTPRINT: '#818cf8', QUIET_ACCUMULATION: '#6366f1',
+  VOLUME_SPIKE: '#f59e0b', SECTOR_DIVERGENCE: '#ec4899', OPTIONS_UNUSUAL: '#a855f7',
+  OPTIONS_IV_SPIKE: '#c084fc', OPTIONS_OTM_CALLS: '#d946ef', BREAKOUT_52W: '#00ff4e', MOMENTUM: '#22d3ee',
+};
+
+// ─── Brokerage trade URLs (mirrors StockCard) ────────────────────────────────
+const BROKERAGE_TRADE_URLS = {
+  'robinhood':           (s) => `https://robinhood.com/stocks/${s}`,
+  'webull':              (s) => `https://www.webull.com/quote/${s.toLowerCase()}`,
+  'fidelity':            (s) => `https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=${s}`,
+  'schwab':              (s) => `https://www.schwab.com/research/stocks/quotes/summary/${s}`,
+  'charles schwab':      (s) => `https://www.schwab.com/research/stocks/quotes/summary/${s}`,
+  'e*trade':             (s) => `https://us.etrade.com/etx/mkt/quotes?symbol=${s}`,
+  'etrade':              (s) => `https://us.etrade.com/etx/mkt/quotes?symbol=${s}`,
+  'td ameritrade':       (s) => `https://research.tdameritrade.com/grid/public/research/stocks/summary?symbol=${s}`,
+  'interactive brokers': (s) => `https://www.interactivebrokers.com/en/index.php?f=46777&symbology=IB&symbol=${s}`,
+  'sofi':                (s) => `https://www.sofi.com/invest/stocks/${s.toLowerCase()}`,
+  'public':              (s) => `https://public.com/stocks/${s}`,
+  'vanguard':            (s) => `https://investor.vanguard.com/investment-products/stocks/profile/${s.toLowerCase()}`,
+  'ally':                (s) => `https://www.ally.com/invest/stocks/${s}`,
+  'm1 finance':          (s) => `https://m1.com/invest/stocks/${s}`,
+  'm1':                  (s) => `https://m1.com/invest/stocks/${s}`,
+};
+
+const getBrokerageTradeUrl = (brokerageName, sym) => {
+  const lower = brokerageName?.toLowerCase() || '';
+  for (const [key, fn] of Object.entries(BROKERAGE_TRADE_URLS)) {
+    if (lower.includes(key)) return fn(sym);
+  }
+  return null;
+};
+
+const formatVolume = (vol) => {
+  if (!vol) return null;
+  if (vol >= 1e9) return (vol / 1e9).toFixed(1) + 'B';
+  if (vol >= 1e6) return (vol / 1e6).toFixed(1) + 'M';
+  if (vol >= 1e3) return (vol / 1e3).toFixed(0) + 'K';
+  return vol.toString();
+};
+
+const getEarningsLabel = (earnings) => {
+  if (!earnings?.date) return null;
+  const today = new Date();
+  const earningsDate = new Date(earnings.date + 'T00:00:00');
+  const diffDays = Math.ceil((earningsDate - today) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return null;
+  if (diffDays === 0) return 'TODAY';
+  if (diffDays === 1) return 'TOMORROW';
+  if (diffDays <= 7) return `IN ${diffDays} DAYS`;
+  if (diffDays <= 30) return earningsDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return null;
+};
+
+const QUICK_PROMPTS = [
+  'Why is this moving?', 'Bull case?', 'Key risks?',
+  'Good entry?', 'Analyst targets?', 'Upcoming catalysts?',
+];
+
+// ─── ExpandableSection (mirrors StockCard ExpandableSection) ─────────────────
+function ExpandableSection({ title, iconName, isOpen, onToggle, loading, children }) {
+  const IconMap = {
+    'trending-up': TrendingUp,
+    'briefcase':   Briefcase,
+    'target':      Target,
+    'file-text':   FileText,
+  };
+  const Icon = IconMap[iconName] || Target;
+  return (
+    <div style={{ borderTop: '1px solid rgba(113,113,122,0.18)', paddingTop: 14, paddingBottom: 14 }}>
+      <button
+        onClick={onToggle}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+          background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+        }}
+      >
+        <Icon size={14} color={isOpen ? '#00ff4e' : '#fff'} />
+        <span style={{
+          fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+          textTransform: 'uppercase', letterSpacing: 2,
+          color: isOpen ? '#00ff4e' : '#fff', flex: 1, textAlign: 'left',
+        }}>
+          {title}
+        </span>
+        <span style={{ fontSize: 10, color: isOpen ? '#00ff4e' : '#8a8a8a' }}>
+          {isOpen ? '▲' : '▼'}
+        </span>
+      </button>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1, transition: { duration: 0.3 } }}
+            exit={{ height: 0, opacity: 0 }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div style={{ marginTop: 14 }}>
+              {loading ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={S.spinner} />
+                  <span style={{ fontSize: 12, color: '#8a8a8a', fontFamily: 'JetBrainsMono-Light, monospace' }}>
+                    Loading...
+                  </span>
+                </div>
+              ) : children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── TradeDropdown (mirrors StockCard TradeDropdown) ─────────────────────────
+function TradeDropdown({ brokerages, onTrade }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 12, flex: 1 }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{ ...S.tradeBtn, width: '100%', justifyContent: 'center' }}
+      >
+        <Briefcase size={12} color="#00ff4e" />
+        <span style={S.tradeBtnText}>Trade</span>
+        {open ? <ChevronUp size={12} color="#00ff4e" /> : <ChevronDown size={12} color="#00ff4e" />}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            style={{
+              marginTop: 4, borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)',
+              backgroundColor: 'rgba(0,0,0,0.7)', overflow: 'hidden',
+            }}
+          >
+            {brokerages.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => { setOpen(false); onTrade(b.url); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '11px 14px', width: '100%', background: 'none',
+                  border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  cursor: 'pointer',
+                }}
+              >
+                <Briefcase size={13} color="#00ff4e" />
+                <span style={{
+                  fontSize: 11, fontFamily: 'JetBrainsMono-Medium, monospace',
+                  color: '#fff', letterSpacing: 0.5, textTransform: 'uppercase', flex: 1, textAlign: 'left',
+                }}>
+                  {b.name}
+                </span>
+                <span style={{ color: '#555', fontSize: 14 }}>→</span>
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Main MetricCard ──────────────────────────────────────────────────────────
+const MetricCard = React.memo(function MetricCard({
+  stock,
+  isExpanded: controlledExpanded,
+  onToggleExpand,
+  onAISummary,
+  onAddToList,
+  connectedBrokerages = [],
+  onPin,
+  isPinned,
+  isMarketOpen,
+  aiModel,
+  db,
+  user,
+  livePrices,
+  onSetAlert,       // (stock) => void  — opens PriceAlertModal in App
+  // legacy MetricCard props kept for backwards compat
+  watchlist = [],
+  removeFromWatchlist,
+  showAddToListMenu,
+  onCloseMenu,
+  watchlists = [],
+  onOpenChat,
+  onScanSimilar,
 }) {
+  const cardRef = useRef(null);
+  const chatScrollRef = useRef(null);
+  const chatInputRef = useRef(null);
+
+  const [internalExpanded, setInternalExpanded] = useState(false);
+  const expanded = controlledExpanded !== undefined ? controlledExpanded : internalExpanded;
+
+  const [showAlertModal, setShowAlertModal] = useState(false); // placeholder — no web alert modal
   const [showChart, setShowChart] = useState(false);
+  const [showBio, setShowBio] = useState(false);
+  const [bioText, setBioText] = useState(null);
+  const [bioLoading, setBioLoading] = useState(false);
+  const [showRatings, setShowRatings] = useState(false);
+  const [ratingsData, setRatingsData] = useState(null);
+  const [ratingsLoading, setRatingsLoading] = useState(false);
   const [showNews, setShowNews] = useState(false);
-  const [isHoveringButton, setIsHoveringButton] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
-  const cardRef = useRef(null);
-const chatContainerRef = useRef(null);
-const chatInputRef = useRef(null);
-  const prevPrice = useRef(null);
-  const prevChange = useRef(null);
-  const hasAnimatedRef = useRef(false);
+  const [chatLoaded, setChatLoaded] = useState(false);
+  const [hasSavedChat, setHasSavedChat] = useState(false);
+  const [tradeDropdownOpen, setTradeDropdownOpen] = useState(false);
 
-  // Use actual previous close from Polygon snapshot when available
+  const symbol = stock.symbol || stock.ticker;
+  const price  = parseFloat(stock.price)  || 0;
+  const change = parseFloat(stock.change) || 0;
+
+  // Live price — prefer WebSocket feed, fall back to prop
+  const wsData      = livePrices?.[symbol];
   const prevCloseRef = useRef(null);
   if (prevCloseRef.current === null && stock.prevClose) {
     prevCloseRef.current = parseFloat(stock.prevClose);
   } else if (prevCloseRef.current === null && stock.price && stock.change) {
-    // Fallback: derive from price/change (manual search, etc.)
-    const changePercent = parseFloat(stock.change);
-    prevCloseRef.current = parseFloat(stock.price) / (1 + changePercent / 100);
+    const cp = parseFloat(stock.change);
+    prevCloseRef.current = parseFloat(stock.price) / (1 + cp / 100);
   }
+  const displayPrice  = wsData?.price ?? price;
+  const prevClose     = prevCloseRef.current || price;
+  const displayChange = prevClose > 0 ? ((displayPrice - prevClose) / prevClose) * 100 : change;
 
-  // Use WebSocket price when available, fall back to stock prop
-  const wsData = livePrices?.[stock.symbol];
-  const livePrice = wsData?.price ?? parseFloat(stock.price);
-  const prevClose = prevCloseRef.current || parseFloat(stock.price);
-  const liveChange = prevClose > 0 ? ((livePrice - prevClose) / prevClose) * 100 : parseFloat(stock.change);
-  
-  const isPositive = liveChange >= 0;
-  const accent = isPositive ? '#00ff4e' : '#FF4B2B';
-  const trendColor = isPositive ? '#00ff4e' : '#FF4B2B';
-  const Triangle = isPositive ? '▲' : '▼';
-  const prefix = isPositive ? '+' : '';
-  const isAlreadyAdded = watchlist.some(s => s.symbol === stock.symbol);
-  
-  const shouldAnimate = !hasAnimatedRef.current || 
-    (prevPrice.current !== null && prevPrice.current !== livePrice) ||
-    (prevChange.current !== null && prevChange.current !== liveChange);
+  const isPositive  = displayChange >= 0;
+  const accent      = isPositive ? '#00ff4e' : '#FF4B2B';
+  const cs          = getCatalystStyle(stock.catalystType);
+  const CatalystIcon = cs.Icon;
+  const earningsLabel = getEarningsLabel(stock.earnings);
+  const companyName   = stock._company?.name || stock.name || stock.companyName || symbol;
 
-    const [chatLoaded, setChatLoaded] = useState(false);
-  const [hasSavedChat, setHasSavedChat] = useState(false);
-  const [showBio, setShowBio] = useState(false);
-const [bioText, setBioText] = useState(null);
-const [bioLoading, setBioLoading] = useState(false);
-const [showRatings, setShowRatings] = useState(false);
-const [ratingsData, setRatingsData] = useState(null);
-const [ratingsLoading, setRatingsLoading] = useState(false);
-const [showReport, setShowReport] = useState(false);
-const [reportData, setReportData] = useState(null);
-const [reportLoading, setReportLoading] = useState(false);
+  // Catalyst text (same logic as StockCard)
+  const rawCatalyst = stock.catalyst || '';
+  const isUseless = rawCatalyst.toLowerCase().includes('no clear') ||
+                    rawCatalyst.toLowerCase().includes('not identified') ||
+                    rawCatalyst.toLowerCase().includes('provided summaries') ||
+                    rawCatalyst.toLowerCase().includes('no catalyst') ||
+                    rawCatalyst.toLowerCase().includes('manual lookup') ||
+                    rawCatalyst.toLowerCase().includes('manual_lookup');
+  const catalystText = ((rawCatalyst && !isUseless)
+    ? rawCatalyst
+    : (stock.headline?.slice(0, 120) || stock.trigger || 'Unusual activity detected')).replace(/\*\*/g, '').trim();
+  const dashIdx = catalystText.indexOf(' — ');
+  const hook   = (dashIdx > 15 && dashIdx < catalystText.length - 4) ? catalystText.slice(0, dashIdx)     : catalystText;
+  const detail = (dashIdx > 15 && dashIdx < catalystText.length - 4) ? catalystText.slice(dashIdx + 3) : null;
 
-  // Lock body scroll when report modal is open
+  const closeAllSections = useCallback(() => {
+    setShowChart(false);
+    setShowBio(false);
+    setShowRatings(false);
+    setShowNews(false);
+    setChatOpen(false);
+  }, []);
+
+  // Auto-close sections when card collapses
   useEffect(() => {
-    if (showReport) {
-      document.body.style.overflow = 'hidden';
-      return () => { document.body.style.overflow = ''; };
-    }
-  }, [showReport]);
+    if (!expanded) closeAllSections();
+  }, [expanded, closeAllSections]);
 
-  // Load saved chat history on mount
-  // Close all expanded sections when card scrolls out of view
+  // Auto-collapse when scrolled out of view
   useEffect(() => {
     if (!cardRef.current) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry.isIntersecting) {
-          const hasOpenSection = showChart || showBio || showRatings || showNews || chatOpen;
-          if (!hasOpenSection) return;
-          
-          // Only adjust scroll if card is above viewport (scrolled past going down)
+          const hasOpen = showChart || showBio || showRatings || showNews || chatOpen;
+          if (!hasOpen) return;
           const isAbove = entry.boundingClientRect.top < 0;
-          const prevHeight = cardRef.current?.offsetHeight || 0;
-          
-          setShowChart(false);
-          setShowBio(false);
-          setShowRatings(false);
-          setShowNews(false);
-          setChatOpen(false);
-          
+          const prevH = cardRef.current?.offsetHeight || 0;
+          closeAllSections();
           if (isAbove) {
-            // Wait for collapse animations to finish, then adjust scroll
             setTimeout(() => {
-              const newHeight = cardRef.current?.offsetHeight || 0;
-              const diff = prevHeight - newHeight;
-              if (diff > 0) {
-                window.scrollBy(0, -diff);
-              }
+              const newH = cardRef.current?.offsetHeight || 0;
+              const diff = prevH - newH;
+              if (diff > 0) window.scrollBy(0, -diff);
             }, 450);
           }
         }
@@ -113,64 +318,89 @@ const [reportLoading, setReportLoading] = useState(false);
     );
     observer.observe(cardRef.current);
     return () => observer.disconnect();
-  }, [showChart, showBio, showRatings, showNews, chatOpen]);
+  }, [showChart, showBio, showRatings, showNews, chatOpen, closeAllSections]);
 
+  // Auto-scroll chat
   useEffect(() => {
-    if (!user?.uid || !db || !stock.symbol || chatLoaded) return;
-    
-    const loadChat = async () => {
+    if (chatOpen && chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatMessages, chatOpen]);
+
+  // Focus chat input when opened
+  useEffect(() => {
+    if (chatOpen && chatInputRef.current) {
+      setTimeout(() => chatInputRef.current?.focus(), 300);
+    }
+  }, [chatOpen]);
+
+  // Load saved chat from Firestore
+  useEffect(() => {
+    if (!user?.uid || !db || !symbol || chatLoaded) return;
+    const load = async () => {
       try {
-        const { doc, getDoc } = await import('firebase/firestore');
-        const chatDoc = await getDoc(doc(db, 'users', user.uid, 'stockChats', stock.symbol));
-        if (chatDoc.exists()) {
-          const data = chatDoc.data();
-          if (data.messages && data.messages.length > 0) {
-            setChatMessages(data.messages);
-            setHasSavedChat(true);
-          }
+        const snap = await getDoc(doc(db, 'users', user.uid, 'stockChats', symbol));
+        if (snap.exists() && snap.data().messages?.length > 0) {
+          setChatMessages(snap.data().messages);
+          setHasSavedChat(true);
         }
-      } catch (e) {
-        console.error('Failed to load chat:', e);
-      }
+      } catch (e) {}
       setChatLoaded(true);
     };
-    
-    loadChat();
-  }, [user, db, stock.symbol, chatLoaded]);
+    load();
+  }, [user, db, symbol, chatLoaded]);
 
-  // Save chat to Firestore
   const saveChat = async (messages) => {
-    if (!user?.uid || !db || !stock.symbol || messages.length === 0) return;
+    if (!user?.uid || !db || !symbol || messages.length === 0) return;
     try {
-      const { doc, setDoc } = await import('firebase/firestore');
-      await setDoc(doc(db, 'users', user.uid, 'stockChats', stock.symbol), {
-        messages: messages.slice(-50), // Keep last 50 messages
-        symbol: stock.symbol,
-        name: stock.name,
-        updatedAt: new Date().toISOString()
+      await setDoc(doc(db, 'users', user.uid, 'stockChats', symbol), {
+        messages: messages.slice(-50),
+        symbol,
+        name: companyName,
+        updatedAt: new Date().toISOString(),
       });
       setHasSavedChat(true);
+    } catch (e) {}
+  };
+
+  // ===== AI Chat (mirrors StockCard sendMessage) =====
+  const sendMessage = async (text) => {
+    if (!text?.trim() || chatLoading || !aiModel) return;
+    const userMsg    = { role: 'user', text: text.trim() };
+    const newMessages = [...chatMessages, userMsg];
+    setChatMessages(newMessages);
+    setChatInput('');
+    setChatLoading(true);
+    setChatOpen(true);
+    try {
+      const context = `Stock: ${symbol} (${companyName})\nPrice: $${displayPrice.toFixed(2)}\nChange: ${isPositive ? '+' : ''}${displayChange.toFixed(2)}%\nCatalyst: ${stock.catalyst || 'N/A'}\nIndustry: ${stock.industry || stock._company?.industry || 'N/A'}\nVolume: ${formatVolume(stock.volume) || 'N/A'}\nVolume Ratio: ${stock.volumeRatio || 'N/A'}x`;
+      const prompt  = `You are an AI stock analyst assistant. Context:\n${context}\n\nUser: ${text.trim()}\n\nProvide a concise, helpful answer. No disclaimers. Be specific and actionable.`;
+      const response = await aiModel.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        tools: [{ googleSearch: {} }],
+      });
+      const aiText = await response.response.text();
+      const updated = [...newMessages, { role: 'assistant', text: aiText || 'No response generated.' }];
+      setChatMessages(updated);
+      saveChat(updated);
     } catch (e) {
-      console.error('Failed to save chat:', e);
+      const updated = [...newMessages, { role: 'assistant', text: 'Unable to get a response. Try again.' }];
+      setChatMessages(updated);
+      saveChat(updated);
+    } finally {
+      setChatLoading(false);
     }
   };
 
-  useEffect(() => {
-    prevPrice.current = livePrice;
-    prevChange.current = liveChange;
-    hasAnimatedRef.current = true;
-  }, [livePrice, liveChange]);
-
-const fetchBio = async () => {
+  // ===== Bio (mirrors StockCard fetchBio) =====
+  const fetchBio = async () => {
     if (bioText) { setShowBio(!showBio); return; }
     setBioLoading(true);
     setShowBio(true);
-    
-    // Check Firestore cache first
+    // Check Firestore cache
     if (db) {
       try {
-        const { doc, getDoc } = await import('firebase/firestore');
-        const cached = await getDoc(doc(db, 'stockBios', stock.symbol));
+        const cached = await getDoc(doc(db, 'stockBios', symbol));
         if (cached.exists() && cached.data().bio) {
           setBioText(cached.data().bio);
           setBioLoading(false);
@@ -178,23 +408,15 @@ const fetchBio = async () => {
         }
       } catch (e) {}
     }
-
     try {
       const response = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: `Give a 2-3 sentence company overview of ${stock.name} (${stock.symbol}). Include what the company does, its sector, and what makes it notable. Be concise and factual. No disclaimers.` }] }]
+        contents: [{ role: 'user', parts: [{ text: `Give a 2-3 sentence company overview of ${companyName} (${symbol}). Include what the company does, its sector, and what makes it notable. Be concise and factual. No disclaimers.` }] }],
       });
       const text = await response.response.text();
-      setBioText(text);
-      
-      // Cache in Firestore
+      setBioText(text || 'No bio available.');
       if (db) {
         try {
-          const { doc, setDoc } = await import('firebase/firestore');
-          await setDoc(doc(db, 'stockBios', stock.symbol), {
-            bio: text,
-            name: stock.name,
-            updatedAt: new Date().toISOString()
-          });
+          await setDoc(doc(db, 'stockBios', symbol), { bio: text, name: companyName, updatedAt: new Date().toISOString() });
         } catch (e) {}
       }
     } catch (e) {
@@ -204,1214 +426,881 @@ const fetchBio = async () => {
     }
   };
 
-const fetchRatings = async () => {
+  // ===== Ratings (mirrors StockCard fetchRatings) =====
+  const fetchRatings = async () => {
     if (ratingsData) { setShowRatings(!showRatings); return; }
     setRatingsLoading(true);
     setShowRatings(true);
-
     try {
-      const res = await fetch(
-        `https://api.polygon.io/v3/reference/tickers/${stock.symbol}?apiKey=${process.env.REACT_APP_POLYGON_KEY}`
-      );
-      const tickerData = await res.json();
-      console.log('Polygon ticker data:', tickerData);
+      let tickerData = null;
+      try {
+        const res = await fetch(`https://api.polygon.io/v3/reference/tickers/${symbol}?apiKey=${process.env.REACT_APP_POLYGON_KEY}`);
+        tickerData = await res.json();
+      } catch (e) {}
 
-      const recRes = await fetch(
-        `https://finnhub.io/api/v1/stock/recommendation?symbol=${stock.symbol}&token=${process.env.REACT_APP_FINNHUB_KEY}`
-      );
-      const recommendations = await recRes.json();
-      console.log('Finnhub recommendations:', recommendations);
+      let recommendations = [];
+      try {
+        const rec = await fetch(`https://finnhub.io/api/v1/stock/recommendation?symbol=${symbol}&token=${process.env.REACT_APP_FINNHUB_KEY}`);
+        const d = await rec.json();
+        recommendations = Array.isArray(d) ? d.slice(0, 3) : [];
+      } catch (e) {}
 
       let priceTarget = null;
       try {
-        const ptResponse = await aiModel.generateContent({
-          contents: [{ role: "user", parts: [{ text: `What is the current 12-month analyst consensus price target for ${stock.symbol}? Return ONLY a JSON object like {"targetLow": 10.00, "targetMean": 15.00, "targetHigh": 20.00}. If unavailable, return {"unavailable": true}. No other text, no markdown, no backticks.` }] }],
-          tools: [{ googleSearch: {} }]
+        const curPrice = parseFloat(stock.price || 0).toFixed(2);
+        const r = await aiModel.generateContent({
+          contents: [{ role: 'user', parts: [{ text: `Stock: ${symbol}, current price: $${curPrice}. What is the 12-month analyst consensus price target? Return ONLY valid JSON with real analyst data. Format: {"targetLow": NUMBER, "targetMean": NUMBER, "targetHigh": NUMBER}. Numbers must be actual analyst estimates relevant to the current price, NOT placeholders. If no analyst coverage exists, return: {"unavailable": true}. No other text.` }] }],
+          tools: [{ googleSearch: {} }],
         });
-        const ptText = await ptResponse.response.text();
-        console.log('AI price target raw:', ptText);
-        const jsonMatch = ptText.match(/\{[^}]+\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (!parsed.unavailable && parsed.targetMean) {
-            priceTarget = parsed;
-          }
+        const txt = await r.response.text();
+        const m = txt.match(/\{[^}]+\}/);
+        if (m) {
+          const p  = JSON.parse(m[0]);
+          const cp = parseFloat(curPrice);
+          const isPlaceholder = p.unavailable || !p.targetMean ||
+            (Math.round(p.targetLow) === 10 && Math.round(p.targetMean) === 15 && Math.round(p.targetHigh) === 20) ||
+            (p.targetLow === p.targetMean && p.targetMean === p.targetHigh) ||
+            (cp > 1 && (p.targetMean < cp * 0.1 || p.targetMean > cp * 20));
+          if (!isPlaceholder) priceTarget = p;
         }
-      } catch (e) {
-        console.log('Price target error:', e.message);
-      }
-
-      console.log('Final ratingsData:', {
-        marketCap: tickerData.results?.market_cap,
-        recommendations: recommendations?.slice(0, 3),
-        priceTarget
-      });
+      } catch (e) {}
 
       setRatingsData({
-        description: tickerData.results?.description,
-        marketCap: tickerData.results?.market_cap,
-        recommendations: recommendations?.slice(0, 3) || [],
-        priceTarget: priceTarget || null
+        marketCap:       tickerData?.results?.market_cap,
+        recommendations,
+        priceTarget,
       });
     } catch (e) {
-      console.error('Ratings fetch error:', e);
       setRatingsData({ error: true });
     } finally {
       setRatingsLoading(false);
     }
   };
 
-  const generateResearchReport = async () => {
-    if (reportData) { setShowReport(true); return; }
-    if (!aiModel) return;
-    setReportLoading(true);
-    setShowReport(true);
-
-    try {
-      const dataPoints = [];
-      dataPoints.push(`Price: $${livePrice.toFixed(2)}`);
-      dataPoints.push(`Change Today: ${liveChange >= 0 ? '+' : ''}${liveChange.toFixed(2)}%`);
-      if (stock.catalyst) dataPoints.push(`Current Catalyst: ${stock.catalyst}`);
-      if (stock.catalystType) dataPoints.push(`Trigger Type: ${stock.catalystType}`);
-      if (stock.volume) dataPoints.push(`Volume: ${stock.volume.toLocaleString()}`);
-      if (stock.volumeRatio) dataPoints.push(`Volume vs Average: ${stock.volumeRatio}x`);
-      if (stock.industry) dataPoints.push(`Industry: ${stock.industry}`);
-      if (stock.headline) dataPoints.push(`Latest headline: "${stock.headline}"`);
-      if (bioText) dataPoints.push(`Company Bio: ${bioText}`);
-      if (ratingsData?.priceTarget) dataPoints.push(`Price Targets: Low $${ratingsData.priceTarget.targetLow}, Mean $${ratingsData.priceTarget.targetMean}, High $${ratingsData.priceTarget.targetHigh}`);
-      if (ratingsData?.marketCap) dataPoints.push(`Market Cap: $${(ratingsData.marketCap / 1e9).toFixed(2)}B`);
-      
-      let newsContext = '';
-      if (stock.news && stock.news.length > 0) {
-        newsContext = '\n\nRECENT NEWS:\n' + stock.news.map((n, i) => 
-          `${i + 1}. "${n.title}" (${n.publisher?.name || 'Unknown'}, ${n.published_utc ? new Date(n.published_utc).toLocaleDateString() : 'Recent'})`
-        ).join('\n');
-      }
-
-      const prompt = `You are a senior equity research analyst writing a comprehensive research report on ${stock.symbol} (${stock.name}). Use the data provided AND web search to fill in any gaps. Search for "${stock.symbol} financials", "${stock.symbol} analyst ratings", and "${stock.symbol} upcoming catalysts" to get the latest data.
-
-AVAILABLE DATA:
-${dataPoints.join('\n')}
-${newsContext}
-
-Write a research report with EXACTLY these sections. Use "##" before each heading. Be specific with numbers, dates, and data. Each section should be 2-4 sentences. No filler, no generic statements.
-
-## EXECUTIVE SUMMARY
-What the company does and why it's relevant right now. Include market cap and sector.
-
-## WHY IT'S MOVING
-The specific catalyst driving today's price action. Reference the news/volume data.
-
-## BULL CASE
-The 3 strongest arguments for buying. Be specific — reference revenue growth, partnerships, market opportunity, or technical setup.
-
-## BEAR CASE
-The 3 biggest risks. Be specific — reference competition, valuation, cash burn, dilution, or regulatory risk.
-
-## TECHNICAL SETUP
-Current support/resistance levels, trend direction, volume analysis. Reference specific price levels.
-
-## KEY FINANCIALS
-Revenue, earnings, margins, cash position. Use the most recent quarterly data you can find.
-
-## CATALYST TIMELINE
-Upcoming events: earnings date, FDA dates, product launches, conferences, lockup expirations. Include specific dates.
-
-## RISK RATING
-Rate the risk 1-5 (1 = low risk blue chip, 5 = extremely speculative). Explain why.
-
-## VERDICT
-One clear word: BULLISH, BEARISH, or NEUTRAL. Then 2-3 sentences explaining your reasoning.
-
-CRITICAL: Be honest and balanced. If this is a speculative stock, say so. This is NOT financial advice — it's research and analysis.`;
-
-      const response = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        tools: [{ googleSearch: {} }]
-      });
-      const text = await response.response.text();
-      
-      // Parse sections
-      const sections = [];
-      const expectedTitles = ['EXECUTIVE SUMMARY', 'WHY IT', 'BULL CASE', 'BEAR CASE', 'TECHNICAL', 'KEY FINANCIALS', 'CATALYST TIMELINE', 'RISK RATING', 'VERDICT'];
-      const parts = text.split(/^##\s+/m).filter(Boolean);
-      parts.forEach(part => {
-        const newlineIdx = part.indexOf('\n');
-        if (newlineIdx > -1) {
-          const title = part.slice(0, newlineIdx).trim();
-          const content = part.slice(newlineIdx + 1).trim();
-          // Only include recognized section headings
-          if (expectedTitles.some(t => title.toUpperCase().startsWith(t))) {
-            sections.push({ title, content });
-          }
-        }
-      });
-
-      setReportData({
-        sections,
-        generatedAt: new Date(),
-        rawText: text
-      });
-    } catch (err) {
-      console.error('Research report error:', err);
-      setReportData({
-        sections: [{ title: 'ERROR', content: 'Unable to generate report. Please try again.' }],
-        generatedAt: new Date(),
-        error: true
-      });
-    } finally {
-      setReportLoading(false);
+  // ===== Share (web equivalent of StockCard handleShare) =====
+  const handleShare = () => {
+    const arrow     = isPositive ? '▲' : '▼';
+    const changeStr = `${isPositive ? '+' : ''}${displayChange.toFixed(2)}%`;
+    const catalyst  = stock.catalyst && !stock.catalyst.toLowerCase().includes('no clear')
+      ? `\n📌 ${stock.catalyst.slice(0, 100)}` : '';
+    const text = `${symbol} — $${displayPrice.toFixed(2)} (${arrow} ${changeStr})${catalyst}\n\nFound on jckrbbt.io`;
+    if (navigator.share) {
+      navigator.share({ text }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(text).catch(() => {});
     }
   };
 
-useEffect(() => {
-    const handleScroll = () => onCloseMenu();
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [showAddToListMenu, onCloseMenu]);
+  // ─── Brokerage buttons ───────────────────────────────────────────────────
+  const brokeragesWithUrls = connectedBrokerages
+    .map(b => ({ ...b, url: getBrokerageTradeUrl(b.name, symbol) }))
+    .filter(b => b.url);
 
-  // Auto-collapse everything when card scrolls out of view
-  useEffect(() => {
-    if (!showChart && !showNews && !chatOpen) return;
-    
-    const handleScroll = () => {
-      if (!cardRef.current) return;
-      const rect = cardRef.current.getBoundingClientRect();
-      const windowHeight = window.innerHeight;
-      
-      // If less than 20% of the card is visible, collapse everything
-      if (rect.bottom < windowHeight * 0.1 || rect.top > windowHeight * 0.9) {
-        setShowChart(false);
-        setShowNews(false);
-        setChatOpen(false);
-      }
-    };
+  const handleTrade = (url) => window.open(url, '_blank', 'noopener');
 
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [showChart, showNews, chatOpen]);
-
-// Auto-scroll chat container only (not the page)
-useEffect(() => {
-    if (chatOpen && chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-}, [chatMessages, chatOpen]);
-
-  // Focus input when chat opens
-  useEffect(() => {
-    if (chatOpen && chatInputRef.current) {
-      setTimeout(() => chatInputRef.current?.focus(), 300);
-    }
-  }, [chatOpen]);
-
-  // Catalyst type badge styling
-  const getCatalystStyle = (type) => {
-    switch (type) {
-      case 'early_signal':
-        return { icon: Search, color: '#f97316', label: 'EARLY SIGNAL' };
-      case 'options_first':
-        return { icon: Target, color: '#ec4899', label: 'PRE-MOVE OPTIONS' };
-      case 'news':
-        return { icon: Newspaper, color: '#00ff4e', label: 'NEWS CATALYST' };
-      case 'volume':
-        return { icon: BarChart3, color: '#f59e0b', label: 'VOLUME SPIKE' };
-      case 'breakout':
-        return { icon: TrendingUp, color: '#3b82f6', label: 'BREAKOUT' };
-      case 'momentum':
-        return { icon: Zap, color: '#8b5cf6', label: 'MOMENTUM' };
-      case 'gainer':
-        return { icon: TrendingUp, color: '#10b981', label: 'TOP GAINER' };
-      default:
-        return { icon: Target, color: '#71717a', label: 'SIGNAL' };
+  const toggleExpand = () => {
+    if (expanded) closeAllSections();
+    if (onToggleExpand) {
+      onToggleExpand();
+    } else {
+      setInternalExpanded(!internalExpanded);
     }
   };
 
-  const getEarningsLabel = (earnings) => {
-  if (!earnings?.date) return null;
-  const today = new Date();
-  const earningsDate = new Date(earnings.date + 'T00:00:00');
-  const diffDays = Math.ceil((earningsDate - today) / (1000 * 60 * 60 * 24));
-  
-  if (diffDays < 0) return null;
-  if (diffDays === 0) return 'TODAY';
-  if (diffDays === 1) return 'TOMORROW';
-  if (diffDays <= 7) return `IN ${diffDays} DAYS`;
-  if (diffDays <= 30) return new Date(earnings.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return null; // Don't show if more than 30 days out
-};
-
-  const catalystStyle = getCatalystStyle(stock.catalystType);
-  const CatalystIcon = catalystStyle.icon;
-
-  const formatVolume = (vol) => {
-    if (!vol) return null;
-    if (vol >= 1000000000) return (vol / 1000000000).toFixed(1) + 'B';
-    if (vol >= 1000000) return (vol / 1000000).toFixed(1) + 'M';
-    if (vol >= 1000) return (vol / 1000).toFixed(0) + 'K';
-    return vol.toString();
-  };
-
-  // --- AI CHAT LOGIC (inline) ---
-  const buildContext = (userQuestion) => {
-    const dataPoints = [];
-    dataPoints.push(`Price: $${livePrice.toFixed(2)}`);
-    dataPoints.push(`Change: ${liveChange >= 0 ? '+' : ''}${liveChange.toFixed(2)}%`);
-    if (stock.catalyst) dataPoints.push(`Catalyst: ${stock.catalyst}`);
-    if (stock.catalystType) dataPoints.push(`Trigger Type: ${stock.catalystType}`);
-    if (stock.volume) dataPoints.push(`Volume: ${stock.volume.toLocaleString()}`);
-    if (stock.volumeRatio) dataPoints.push(`Volume vs Average: ${stock.volumeRatio}x`);
-    if (stock.industry) dataPoints.push(`Industry: ${stock.industry}`);
-    if (stock.newsCount) dataPoints.push(`Recent articles: ${stock.newsCount}`);
-    if (stock.headline) dataPoints.push(`Latest headline: "${stock.headline}"`);
-    if (stock.newsSource) dataPoints.push(`Source: ${stock.newsSource}`);
-    
-    let newsContext = '';
-    if (stock.news && stock.news.length > 0) {
-      newsContext = '\n\nRECENT NEWS ARTICLES:\n' + stock.news.map((n, i) => 
-        `${i + 1}. "${n.title}" (${n.publisher?.name || 'Unknown'}, ${n.published_utc ? new Date(n.published_utc).toLocaleDateString() : 'Recent'})`
-      ).join('\n');
-    }
-
-    return `You are an expert stock analyst helping a trader research ${stock.symbol} (${stock.name}). You have access to web search to find any information not provided below.
-
-CURRENT DATA:
-${dataPoints.join('\n')}
-${newsContext}
-
-User question: ${userQuestion}
-
-INSTRUCTIONS:
-- Be direct and actionable (2-5 sentences unless the question warrants more detail)
-- If the question requires information NOT in the data above (earnings dates, financials, analyst ratings, company background, etc.), use web search
-- When using web search, search for "${stock.symbol} [relevant query]"
-- Always cite sources when using search results
-- Frame insights in terms of actionable trading decisions
-- Be honest about uncertainty
-- Never give direct buy/sell recommendations, but DO give the information needed to decide`;
-  };
-
-  
-
-const sendChatMessage = async (messageText) => {
-    const text = messageText || chatInput;
-    console.log('sendChat:', { text, chatLoading, aiModel: !!aiModel, user: !!user, db: !!db });
-    if (!text.trim() || chatLoading || !aiModel) return;
-    
-    const userMessage = { role: 'user', text: text.trim() };
-    setChatMessages(prev => [...prev, userMessage]);
-    setChatInput('');
-    setChatLoading(true);
-
-    // Open chat if not already open
-    if (!chatOpen) setChatOpen(true);
-
-    try {
-      const context = buildContext(text.trim());
-      const response = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: context }] }],
-        tools: [{ googleSearch: {} }]
-      });
-      const aiText = await response.response.text();
-      setChatMessages(prev => {
-        const updated = [...prev, { role: 'assistant', text: aiText }];
-        saveChat(updated);
-        return updated;
-      });
-    } catch (error) {
-      console.error('AI chat error:', error);
-      setChatMessages(prev => {
-        const updated = [...prev, { 
-          role: 'assistant', 
-          text: 'Sorry, I encountered an error. Please try again.' 
-        }];
-        saveChat(updated);
-        return updated;
-      });
-    } finally {
-      setChatLoading(false);
-    }
-  };
-
-  const quickPrompts = [
-    "Why is this moving?",
-    "Bull case?",
-    "Key risks?",
-    "Good entry?",
-    "Analyst targets?",
-    "Upcoming catalysts?"
-  ];
-
-return (
-    <>
-    <div 
-ref={cardRef}
-      className="rounded-xl p-4 md:p-8 relative transition-all duration-300 overflow-hidden group"
-     style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', borderTop: '1px solid rgba(0,255,78,0.2)'}}
-      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 30px rgba(0,0,0,0.5), 0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.09)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.15)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.3)'; }}
-      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.2)'; }}
+  // ─── Render ──────────────────────────────────────────────────────────────
+  return (
+    <div
+      ref={cardRef}
+      style={{
+        marginBottom: 12,
+        borderRadius: 16,
+        overflow: 'hidden',
+        boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+      }}
     >
+      {/* Green top border */}
+      <div style={{ height: 1, backgroundColor: 'rgba(0,255,78,0.15)' }} />
 
-      {/* ACTION BUTTONS - Top Right */}
-      <div className="absolute top-3 right-3 md:top-4 md:right-8 z-10 flex gap-2">
-        {/* Add/Remove Button */}
-        {actionType === "REMOVE" ? (
-          <button 
-            onMouseEnter={() => setIsHoveringButton(true)}
-            onMouseLeave={() => setIsHoveringButton(false)}
-            onClick={(e) => {
-              e.stopPropagation();
-              removeFromWatchlist(stock.symbol);
-            }}
-            className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 rounded-lg border transition-all active:scale-95 border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
-          >
-            <span className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.2em] leading-none hidden sm:inline">Remove</span>
-            <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
-          </button>
-        ) : (
-          <>
-            <button 
-              data-add-button="true"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!user) {
-                  alert('Please sign in to add stocks to lists');
-                  return;
-                }
-                if (isAlreadyAdded) {
-                  const listWithStock = watchlists.find(list => 
-                    list.stocks.some(s => s.symbol === stock.symbol)
-                  );
-                  if (listWithStock) {
-                    removeFromWatchlist(listWithStock.id, stock.symbol);
-                  }
-                } else {
-                  onAction(stock);
-                }
-              }}
-              className={`flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 rounded-lg border transition-all active:scale-95 ${
-                isAlreadyAdded 
-                  ? "border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                  : "border-zinc-800 bg-black text-zinc-500 hover:text-[#00ff4e] hover:border-[#00ff4e]/50"
-              }`}
-            >
-              <span className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.2em] leading-none hidden sm:inline">
-                {isAlreadyAdded ? "Remove" : "Add"}
-              </span>
-              {isAlreadyAdded ? (
-                <Trash2 size={12} className="md:w-3.5 md:h-3.5" />
-              ) : (
-                <Plus size={12} className="md:w-3.5 md:h-3.5" />
-              )}
-            </button>
+      {/* Card gradient body */}
+      <div
+        style={{
+          padding: 16,
+          background: 'linear-gradient(135deg, rgba(40,40,40,0.92) 0%, rgba(20,20,20,0.95) 50%, rgba(15,15,15,0.98) 100%)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderTop: 'none',
+          borderBottomLeftRadius: 16,
+          borderBottomRightRadius: 16,
+        }}
+      >
+        {/* Clickable header area (expands/collapses) */}
+        <div onClick={toggleExpand} style={{ cursor: 'pointer' }}>
 
-            {/* Add to List Dropdown */}
-            {showAddToListMenu?.symbol === stock.symbol && (() => {
-              const buttonElement = cardRef.current?.querySelector('button[data-add-button="true"]');
-              const rect = buttonElement?.getBoundingClientRect();
-              
-              return ReactDOM.createPortal(
-                <>
-                  <div className="fixed inset-0 bg-transparent z-[99998]" onClick={() => onCloseMenu()} />
-                  <div 
-                    className="fixed bg-black border-2 border-zinc-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto z-[99999]"
-                    style={{
-                      top: rect ? `${rect.bottom + 8}px` : '100px',
-                      right: rect ? `${window.innerWidth - rect.right}px` : '20px',
-                      width: '280px'
-                    }}
-                  >
-                    <div className="p-3 border-b border-zinc-800">
-                      <p className="text-xs font-black text-white uppercase">Add to List</p>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onCloseMenu();
-                        window.dispatchEvent(new CustomEvent('openWatchlistModal'));
-                      }}
-                      className="w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 text-[#00ff4e] hover:bg-zinc-900"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Plus size={14} />
-                        <span className="uppercase tracking-wider">Create New List</span>
-                      </div>
-                    </button>
-                    {watchlists.length === 0 ? (
-                      <div className="p-4 text-center">
-                        <p className="text-xs text-zinc-500">No lists yet. Create one above!</p>
-                      </div>
-                    ) : (
-                      watchlists.map((list) => {
-                        const isInList = list.stocks.some(s => s.symbol === stock.symbol);
-                        return (
-                          <button
-                            key={list.id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!isInList) onAddToList(stock, list.id);
-                            }}
-                            disabled={isInList}
-                            className={`w-full text-left px-4 py-3 text-xs font-bold transition-all border-b border-zinc-900 last:border-0 ${
-                              isInList
-                                ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
-                                : 'text-white hover:bg-zinc-900 hover:text-[#00ff4e]'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="uppercase tracking-wider">{list.name}</span>
-                              {isInList && (
-                                <svg className="w-4 h-4 text-[#00ff4e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                </svg>
-                              )}
-                            </div>
-                            <span className="text-[9px] text-zinc-600">{list.stocks.length} stocks</span>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </>,
-                document.body
-              );
-            })()}
-          </>
-        )}
-      </div>
+          {/* ACTIONS ROW */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end', marginBottom: 2 }}>
+            {/* Status dot */}
+            <div style={{
+              width: 7, height: 7, borderRadius: 4,
+              backgroundColor: accent,
+              boxShadow: `0 0 6px ${accent}`,
+              marginRight: 'auto',
+            }} />
 
-      {/* HEADER: Name + Symbol + Price */}
-      <div className="mb-6 md:mb-8">
-        <p className="text-[8px] md:text-[10px] text-[#ffffff] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 flex items-start gap-2 pr-24 md:pr-0">
-          <span 
-            className={`h-1.5 w-1.5 md:h-2 md:w-2 rounded-full flex-shrink-0 mt-1 ${isMarketOpen ? 'animate-pulse' : ''}`} 
-            style={{ backgroundColor: accent, boxShadow: isMarketOpen ? `0 0 15px ${accent}` : 'none' }} 
-          />
-          <span className="break-words leading-relaxed">{stock.name}</span>
-        </p>
-        
-        <div className="flex flex-col sm:flex-row sm:items-end gap-3 md:gap-8">
-          <div className="flex items-baseline gap-3">
-            <h2 className="text-4xl md:text-7xl font-black tracking-tighter text-white uppercase leading-none">{stock.symbol}</h2>
-            {stock.sentiment && stock.sentiment !== 'NEUTRAL' && (
-              <span 
-                className="text-[10px] md:text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded self-center"
-                style={{ 
-                  color: stock.sentiment === 'BULLISH' ? '#00ff4e' : '#FF4B2B',
-                  backgroundColor: stock.sentiment === 'BULLISH' ? '#00ff4e12' : '#FF4B2B12',
+            {/* Pin button */}
+            {onPin && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onPin(stock); }}
+                style={{
+                  ...S.iconBtn,
+                  ...(isPinned ? { backgroundColor: '#00ff4e', borderColor: '#00ff4e' } : {}),
                 }}
               >
-                {stock.sentiment === 'BULLISH' ? '▲ BULL' : '▼ BEAR'}
-              </span>
+                <Pin size={15} color={isPinned ? '#000' : '#00ff4e'} />
+              </button>
+            )}
+
+            {/* Share button */}
+            <button
+              onClick={(e) => { e.stopPropagation(); handleShare(); }}
+              style={S.iconBtn}
+            >
+              <Share2 size={14} color="#00ff4e" />
+            </button>
+
+            {/* Add to list button */}
+            {onAddToList && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onAddToList(stock); }}
+                style={S.addToListBtn}
+              >
+                <span style={S.addToListText}>Add to List</span>
+                <Plus size={13} color="#00ff4e" />
+              </button>
             )}
           </div>
-          
-          <div className="flex items-baseline gap-2 md:gap-3">
-            <span className="text-3xl md:text-5xl font-black text-white tabular-nums leading-none">
-              ${shouldAnimate ? (
-                <CountUp end={livePrice} decimals={2} duration={1200} />
-              ) : (
-                livePrice.toFixed(2)
-              )}
+
+          {/* TICKER ROW — navigates to stock detail */}
+          <div
+            onClick={(e) => { e.stopPropagation(); window.location.href = `/stock/${symbol}`; }}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, cursor: 'pointer' }}
+          >
+            <span style={{
+              fontSize: 40, fontFamily: 'AlphaLyrae-Medium, serif',
+              color: '#fff', letterSpacing: -2, lineHeight: 1,
+            }}>
+              {symbol}
             </span>
-            <span className="text-xl md:text-3xl font-black tabular-nums leading-none" style={{ color: trendColor }}>
-              {prefix}{shouldAnimate ? (
-                <CountUp end={Math.abs(liveChange)} decimals={2} duration={1200} />
-              ) : (
-                Math.abs(liveChange).toFixed(2)
-              )}% <span className="text-lg md:text-2xl ml-1 md:ml-2 align-middle">{Triangle}</span>
+            <div style={{
+              marginLeft: 6, backgroundColor: 'rgba(0,255,78,0.1)', borderRadius: 6, padding: 3,
+              boxShadow: '0 0 6px rgba(0,255,78,0.4)',
+            }}>
+              <ArrowUpRight size={13} color="#00ff4e" />
+            </div>
+          </div>
+
+          {/* Company name */}
+          <p style={{
+            fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+            color: '#737373', letterSpacing: 3, textTransform: 'uppercase',
+            marginBottom: 8, marginLeft: 2, margin: '0 0 8px 2px',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {companyName}
+          </p>
+
+          {/* PRICE ROW */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+            <span style={{
+              fontSize: 30, fontFamily: 'JetBrainsMono-Medium, monospace',
+              color: '#fff', fontVariantNumeric: 'tabular-nums',
+            }}>
+              $<CountUp end={displayPrice} decimals={2} duration={1200} />
             </span>
-            
+            <span style={{
+              fontSize: 22, fontFamily: 'JetBrainsMono-Medium, monospace',
+              color: accent, fontVariantNumeric: 'tabular-nums',
+            }}>
+              {isPositive ? '+' : '-'}<CountUp end={Math.abs(displayChange)} decimals={2} duration={1200} />%
+            </span>
+            <span style={{ fontSize: 18, color: accent, marginLeft: 4 }}>
+              {isPositive ? '▲' : '▼'}
+            </span>
           </div>
-                  {/* Trade Button */}
-        <TradeButton symbol={stock.symbol} connectedBrokerages={connectedBrokerages} />
-        </div>
-      </div>
 
-      
-
-      {/* QUICK STATS ROW */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 mb-6 md:mb-8 border-t border-zinc-700/50 pt-4 md:pt-6">
-        {stock.volume && (
-          <div>
-            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">Volume</p>
-            <p className="text-base md:text-xl font-black text-white">{formatVolume(stock.volume)}</p>
-          </div>
-        )}
-        {stock.volumeRatio && parseFloat(stock.volumeRatio) > 1 && (
-          <div>
-            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">vs Avg Volume</p>
-            <p className="text-base md:text-xl font-black text-amber-400">{stock.volumeRatio}x</p>
-          </div>
-        )}
-        {stock.industry && (
-          <div>
-            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-tighter mb-1 md:mb-2">Sector</p>
-            <p className="text-xs md:text-sm font-black text-white uppercase leading-tight">{stock.industry}</p>
-          </div>
-        )}
-      </div>
-
-      {/* TRIGGER TAGS */}
-      <div className="mb-6 md:mb-8">
-        <div className="flex flex-wrap gap-2">
-          <div 
-            className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
-            style={{ 
-              color: catalystStyle.color, 
-              backgroundColor: `${catalystStyle.color}15`,
-              borderColor: `${catalystStyle.color}40`
-            }}
-          >
-            <CatalystIcon size={14} className="md:w-4 md:h-4" />
-            <span>{catalystStyle.label}</span>
-          </div>
-          {/* Sentiment Badge */}
-          {stock.sentiment && stock.sentiment !== 'NEUTRAL' && (
-            <div 
-              className="inline-flex items-center gap-1 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
-              style={{ 
-                color: stock.sentiment === 'BULLISH' ? '#00ff4e' : '#FF4B2B',
-                backgroundColor: stock.sentiment === 'BULLISH' ? '#00ff4e15' : '#FF4B2B15',
-                borderColor: stock.sentiment === 'BULLISH' ? '#00ff4e40' : '#FF4B2B40'
-              }}
-            >
-              <span>{stock.sentiment === 'BULLISH' ? '▲' : '▼'}</span>
-              <span>{stock.sentiment}</span>
-            </div>
-          )}
-          {/* Earnings Badge */}
-          {getEarningsLabel(stock.earnings) && (
-            <div 
-              className="inline-flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-md font-black text-xs md:text-sm uppercase tracking-tight border"
-              style={{ 
-                color: '#f59e0b', 
-                backgroundColor: 'rgba(245,158,11,0.08)',
-                borderColor: 'rgba(245,158,11,0.25)'
-              }}
-            >
-              <BarChart3 size={14} className="md:w-4 md:h-4" style={{ color: '#f59e0b' }} />
-              <span>EARNINGS {getEarningsLabel(stock.earnings)}</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* WHY IT'S MOVING + SOURCE LINK */}
-      <div className="mb-6 md:mb-8">
-        <div className="flex items-start gap-3 md:gap-4">
-          <div 
-            className="flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center mt-0.5"
-            style={{ backgroundColor: `${catalystStyle.color}15`, border: `1px solid ${catalystStyle.color}40` }}
-          >
-            <CatalystIcon size={18} className="md:w-5 md:h-5" style={{ color: catalystStyle.color }} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1">
-              {stock.catalystType === 'early_signal' ? 'Unusual Activity Detected' : stock.catalystType === 'options_first' ? 'Smart Money Positioning' : 'Why It\'s Moving'}
-            </p>
-            {(() => {
-              const c = stock.catalyst || '';
-              const isUseless = c.toLowerCase().includes('no clear') || 
-                                c.toLowerCase().includes('not identified') || 
-                                c.toLowerCase().includes('provided summaries') ||
-                                c.toLowerCase().includes('no catalyst');
-              const text = (c && !isUseless) ? c : (stock.headline?.slice(0, 120) || stock.trigger || 'Unusual activity detected');
-              
-              // Split on " — " to separate hook from detail
-              const dashIdx = text.indexOf(' — ');
-              if (dashIdx > 15 && dashIdx < text.length - 4) {
-                const hook = text.slice(0, dashIdx);
-                const detail = text.slice(dashIdx + 3);
-                return (
-                  <>
-                    <p className="text-base md:text-xl font-black text-white leading-tight mb-1.5">
-                      {hook}
-                    </p>
-                    <p className="text-sm md:text-base text-zinc-400 leading-relaxed font-medium">
-                      {detail}
-                    </p>
-                  </>
-                );
-              }
-              return (
-                <p className="text-base md:text-xl font-black text-white leading-tight">
-                  {text}
-                </p>
-              );
-            })()}
-          </div>
-        </div>
-
-        {/* Source Attribution Link */}
-        {stock.newsSource && (
-          <a 
-            href={stock.news?.[0]?.article_url || stock.news?.[0]?.url || '#'}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 mt-4 px-4 py-3 bg-black/70 rounded-lg border border-[#00ff4e]/60 hover:border-[#00ff4e] hover:bg-[#00ff4e]/5 transition-all cursor-pointer group/headline"
-          >
-            <Newspaper size={14} className="text-[#00ff4e] group-hover/headline:text-[#00ff4e] flex-shrink-0 transition-colors" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs md:text-sm text-zinc-300 group-hover/headline:text-white truncate transition-colors">{stock.headline}</p>
-              <p className="text-[10px] text-zinc-600">
-                {stock.newsSource}{stock.newsDate ? ` · ${stock.newsDate}` : ''}
-              </p>
-            </div>
-            <span className="text-zinc-700 group-hover/headline:text-[#00ff4e] transition-colors flex-shrink-0 hidden md:block">→</span>
-          </a>
-        )}
-      </div>
-
-            {/* ASK AI HEADER */}
-      <div className="border-t border-zinc-700/50 pt-4 md:pt-6 mb-3">
-        <div className="flex items-center gap-2 md:gap-3">
-          <Lightbulb size={14} className="md:w-4 md:h-4 text-[#00ff4e]" />
-          <span className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-white">
-            Ask AI
-          </span>
-        </div>
-      </div>
-
-      {/* CHAT SECTION */}
-      {chatMessages.length > 0 && (
-        <div className="mb-0">
-          <AnimatePresence>
-            {chatOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
-                exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden"
+          {/* TRADE & ALERT ROW */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }} onClick={e => e.stopPropagation()}>
+            {brokeragesWithUrls.length === 1 && (
+              <button
+                style={{ ...S.tradeBtn, flex: 1 }}
+                onClick={() => handleTrade(brokeragesWithUrls[0].url)}
               >
-                <div className="bg-black/70 border border-zinc-700 rounded-xl p-3 md:p-4 mb-4">
-                  {/* Chat Header */}
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <MessageCircle size={12} className="text-[#00ff4e]" />
-                      <span className="text-[8px] md:text-[10px] font-black text-zinc-500 uppercase tracking-widest">
-                        AI Research · {stock.symbol}
-                      </span>
-                      {hasSavedChat && (
-                        <span className="text-[8px] font-bold text-[#00ff4e]/50 uppercase">· Saved</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={async () => {
-                          setChatMessages([]);
-                          setHasSavedChat(false);
-                          if (user?.uid && db) {
-                            try {
-                              const { doc, deleteDoc } = await import('firebase/firestore');
-                              await deleteDoc(doc(db, 'users', user.uid, 'stockChats', stock.symbol));
-                            } catch (e) {}
-                          }
-                          setChatOpen(false);
-                        }}
-                        className="text-zinc-700 hover:text-red-500 transition-colors text-[10px] font-bold uppercase"
-                      >
-                        Clear
-                      </button>
-                      <button
-                        onClick={() => setChatOpen(false)}
-                        className="text-zinc-600 hover:text-zinc-400 transition-colors text-xs font-bold uppercase"
-                      >
-                        Collapse ▲
-                      </button>
-                    </div>
-                  </div>
+                <Briefcase size={12} color="#00ff4e" />
+                <span style={S.tradeBtnText}>Trade on {brokeragesWithUrls[0].name}</span>
+              </button>
+            )}
+            {brokeragesWithUrls.length > 1 && (
+              <div style={{ flex: 1 }}>
+                <TradeDropdown brokerages={brokeragesWithUrls} onTrade={handleTrade} />
+              </div>
+            )}
+            <button
+              style={{ ...S.tradeBtn, flex: 1 }}
+              onClick={() => onSetAlert ? onSetAlert(stock) : setShowAlertModal(true)}
+            >
+              <Bell size={12} color="#00ff4e" />
+              <span style={S.tradeBtnText}>Set Alert</span>
+            </button>
+          </div>
 
-                  {/* Messages */}
-                  <div ref={chatContainerRef} className="space-y-3 max-h-[400px] overflow-y-auto">
-                    {chatMessages.map((msg, i) => (
-                      <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[90%] px-3 md:px-4 py-2.5 rounded-lg ${
-                          msg.role === 'user' 
-                            ? 'bg-[#00ff4e]/10 text-white border border-[#00ff4e]/20' 
-                            : 'bg-black/70 text-zinc-300 border border-zinc-700'
-                        }`}>
-                          <p className="text-xs md:text-sm whitespace-pre-wrap leading-relaxed">
-                            {msg.text.split(/(\*\*[^*]+\*\*)/).map((part, j) => {
-                              if (part.startsWith('**') && part.endsWith('**')) {
-                                return <strong key={j} className="text-white font-black">{part.slice(2, -2)}</strong>;
-                              }
-                              return part;
-                            })}
-                          </p>
-                        </div>
+          {/* STATS GRID */}
+          <div style={{
+            display: 'flex', gap: 16, paddingTop: 14, paddingBottom: 14,
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+          }}>
+            {stock.volume > 0 && (
+              <div style={{ flex: 1 }}>
+                <p style={S.statLabel}>Volume</p>
+                <p style={S.statValue}>{formatVolume(stock.volume)}</p>
+              </div>
+            )}
+            {stock.volumeRatio && parseFloat(stock.volumeRatio) > 1 && (
+              <div style={{ flex: 1 }}>
+                <p style={S.statLabel}>vs Avg Volume</p>
+                <p style={{ ...S.statValue, color: '#f59e0b' }}>{stock.volumeRatio}x</p>
+              </div>
+            )}
+            {stock.industry && (
+              <div style={{ flex: 1 }}>
+                <p style={S.statLabel}>Sector</p>
+                <p style={{ ...S.statValue, fontSize: 12 }}>{stock.industry}</p>
+              </div>
+            )}
+          </div>
+
+          {/* TAGS */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
+            {/* Catalyst tag */}
+            <div style={{ ...S.tagPill, backgroundColor: cs.color + '15', borderColor: cs.color + '40' }}>
+              <CatalystIcon size={12} color={cs.color} />
+              <span style={{ ...S.tagLabel, color: cs.color }}>{cs.label}</span>
+            </div>
+            {/* Sentiment tag */}
+            {stock.sentiment && stock.sentiment !== 'NEUTRAL' && (
+              <div style={{
+                ...S.tagPill,
+                backgroundColor: (stock.sentiment === 'BULLISH' ? '#00ff4e' : '#FF4B2B') + '15',
+                borderColor:     (stock.sentiment === 'BULLISH' ? '#00ff4e' : '#FF4B2B') + '40',
+              }}>
+                <span style={{ ...S.tagLabel, color: stock.sentiment === 'BULLISH' ? '#00ff4e' : '#FF4B2B' }}>
+                  {stock.sentiment === 'BULLISH' ? '▲' : '▼'} {stock.sentiment}
+                </span>
+              </div>
+            )}
+            {/* Earnings tag */}
+            {earningsLabel && (
+              <div style={{ ...S.tagPill, backgroundColor: 'rgba(245,158,11,0.08)', borderColor: 'rgba(245,158,11,0.25)' }}>
+                <BarChart3 size={12} color="#f59e0b" />
+                <span style={{ ...S.tagLabel, color: '#f59e0b' }}>EARNINGS {earningsLabel}</span>
+              </div>
+            )}
+          </div>
+
+          {/* CATALYST SECTION */}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backgroundColor: cs.color + '15', border: `1px solid ${cs.color}40`,
+            }}>
+              <CatalystIcon size={16} color={cs.color} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{
+                fontSize: 9, fontFamily: 'JetBrainsMono-Medium, monospace',
+                color: '#666', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4,
+              }}>
+                {stock.catalystType === 'early_signal'  ? 'Unusual Activity Detected' :
+                 stock.catalystType === 'options_first' ? 'Smart Money Positioning'   : "Why It's Moving"}
+              </p>
+              <p style={{
+                fontSize: 16, fontFamily: 'AlphaLyrae-Medium, serif',
+                color: '#fff', lineHeight: 1.4,
+                display: '-webkit-box', WebkitLineClamp: expanded ? undefined : 2,
+                WebkitBoxOrient: 'vertical', overflow: expanded ? 'visible' : 'hidden',
+              }}>
+                {hook}
+              </p>
+              {detail && expanded && (
+                <p style={{ fontSize: 13, color: '#999', lineHeight: 1.5, fontFamily: 'JetBrainsMono-Light, monospace', marginTop: 4 }}>
+                  {detail}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* SOURCE BOX */}
+          {stock.newsSource && (
+            <a
+              href={stock.news?.[0]?.article_url || stock.news?.[0]?.url || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '12px 14px', backgroundColor: 'rgba(0,0,0,0.7)',
+                borderRadius: 10, border: '1px solid rgba(0,255,78,0.35)',
+                marginBottom: 12, textDecoration: 'none',
+              }}
+            >
+              <FileText size={12} color="#00ff4e" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{
+                  fontSize: 12, color: '#d4d4d8',
+                  fontFamily: 'JetBrainsMono-Light, monospace',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  margin: 0,
+                }}>
+                  {stock.headline}
+                </p>
+                <p style={{ fontSize: 10, color: '#555', marginTop: 2, fontFamily: 'JetBrainsMono-Light, monospace', margin: '2px 0 0' }}>
+                  {stock.newsSource}{stock.newsDate ? ` · ${stock.newsDate}` : ''}
+                </p>
+              </div>
+              <span style={{ color: '#3f3f46', fontSize: 14 }}>→</span>
+            </a>
+          )}
+        </div>{/* end clickable header area */}
+
+        {/* AI SUMMARY BUTTON (optional) */}
+        {onAISummary && (
+          <div style={{ paddingTop: 14, paddingBottom: 14 }}>
+            <button
+              onClick={() => onAISummary(stock)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: 7, padding: '10px 16px', borderRadius: 10, width: '100%',
+                border: '1px solid rgba(168,85,247,0.35)',
+                backgroundColor: 'rgba(168,85,247,0.08)', cursor: 'pointer',
+              }}
+            >
+              <span style={{ fontSize: 14, color: '#a855f7' }}>✦</span>
+              <span style={{
+                fontSize: 12, fontFamily: 'JetBrainsMono-Medium, monospace',
+                color: '#a855f7', letterSpacing: 1, textTransform: 'uppercase',
+              }}>
+                AI Summary
+              </span>
+            </button>
+          </div>
+        )}
+
+        {/* ===== EXPANDED SECTION ===== */}
+        <AnimatePresence>
+          {expanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1, transition: { duration: 0.3 } }}
+              exit={{ height: 0, opacity: 0 }}
+              style={{ overflow: 'hidden' }}
+            >
+              {/* OPTIONS DATA */}
+              {stock.optionsData && (
+                <div style={{
+                  marginTop: 8, paddingTop: 12,
+                  borderTop: '1px solid rgba(168,85,247,0.15)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <Activity size={12} color="#a855f7" />
+                    <span style={{
+                      fontSize: 9, fontFamily: 'JetBrainsMono-Medium, monospace',
+                      color: '#a855f7', letterSpacing: 2,
+                    }}>
+                      OPTIONS ACTIVITY
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 24, paddingBottom: 10 }}>
+                    {stock.optionsData.callVolume > 0 && (
+                      <div style={{ minWidth: 70 }}>
+                        <p style={S.statLabel}>Call Vol</p>
+                        <p style={{ ...S.statValue, color: '#a855f7' }}>{formatVolume(stock.optionsData.callVolume)}</p>
                       </div>
-                    ))}
-                    
-                    {chatLoading && (
-                      <div className="flex justify-start">
-                        <div className="bg-black/70 border border-zinc-700 px-4 py-2.5 rounded-lg">
-                          <div className="flex items-center gap-2">
-                            <div className="flex gap-1">
-                              <span className="w-1.5 h-1.5 bg-[#00ff4e] rounded-full animate-[pulse_1s_ease-in-out_infinite]" />
-                              <span className="w-1.5 h-1.5 bg-[#00ff4e] rounded-full animate-[pulse_1s_ease-in-out_0.2s_infinite]" />
-                              <span className="w-1.5 h-1.5 bg-[#00ff4e] rounded-full animate-[pulse_1s_ease-in-out_0.4s_infinite]" />
-                            </div>
-                            <span className="text-xs text-zinc-500">Researching...</span>
-                          </div>
-                        </div>
+                    )}
+                    {stock.optionsData.avgIV > 0 && (
+                      <div style={{ minWidth: 70 }}>
+                        <p style={S.statLabel}>Avg IV</p>
+                        <p style={{ ...S.statValue, color: '#c084fc' }}>{(stock.optionsData.avgIV * 100).toFixed(0)}%</p>
+                      </div>
+                    )}
+                    {stock.optionsData.otmCallPct > 0 && (
+                      <div style={{ minWidth: 70 }}>
+                        <p style={S.statLabel}>OTM Calls</p>
+                        <p style={{ ...S.statValue, color: '#d946ef' }}>{(stock.optionsData.otmCallPct * 100).toFixed(0)}%</p>
                       </div>
                     )}
                   </div>
+                  {stock.patterns?.length > 0 && <PatternTags patterns={stock.patterns} />}
+                </div>
+              )}
 
-                  {/* Disclaimer */}
-                  <p className="text-[9px] text-zinc-700 mt-3 text-center">
-                    AI-powered research · Not financial advice
+              {/* Patterns without options data */}
+              {!stock.optionsData && stock.patterns?.length > 0 && (
+                <PatternTags patterns={stock.patterns} />
+              )}
+
+              {/* CHART */}
+              <ExpandableSection
+                title={showChart ? 'Hide Chart' : 'View Chart'}
+                iconName="trending-up"
+                isOpen={showChart}
+                onToggle={() => setShowChart(!showChart)}
+              >
+                <MiniChart
+                  symbol={symbol}
+                  livePrice={wsData?.price}
+                  liveChange={displayChange}
+                  isMarketOpen={isMarketOpen}
+                />
+              </ExpandableSection>
+
+              {/* BIO */}
+              <ExpandableSection
+                title={showBio ? 'Hide Bio' : 'Company Bio'}
+                iconName="briefcase"
+                isOpen={showBio}
+                onToggle={fetchBio}
+                loading={bioLoading}
+              >
+                <div style={{ padding: 14 }}>
+                  <p style={{ fontSize: 14, color: '#d4d4d8', lineHeight: 1.6, fontFamily: 'JetBrainsMono-Light, monospace', margin: 0 }}>
+                    {bioText}
                   </p>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              </ExpandableSection>
 
-          {/* Collapsed chat indicator */}
-          {!chatOpen && (
-            <button 
-              onClick={() => setChatOpen(true)}
-              className="w-full flex items-center justify-center gap-2 py-2 text-[10px] font-black text-zinc-500 uppercase tracking-wider hover:text-[#00ff4e] transition-colors"
-            >
-              <MessageCircle size={12} />
-              <span>{chatMessages.length} messages · Click to expand</span>
-              <span>▼</span>
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* PROMPTS + INPUT */}
-      <div className="pt-0 md:pt-0 mb-2 md:mb-3">
-        {/* Full Research Report Button */}
-        <button
-          onClick={(e) => { e.stopPropagation(); generateResearchReport(); }}
-          disabled={reportLoading || !aiModel}
-          className="w-full mb-3 py-3 px-4 rounded-lg font-black text-xs uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
-          style={{
-            background: 'linear-gradient(135deg, rgba(139,92,246,0.15) 0%, rgba(88,28,235,0.15) 100%)',
-            border: '1px solid rgba(139,92,246,0.3)',
-            color: '#a78bfa',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.25) 0%, rgba(88,28,235,0.25) 100%)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.5)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.15) 0%, rgba(88,28,235,0.15) 100%)'; e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)'; }}
-        >
-          {reportLoading ? (
-            <>
-              <div className="w-3.5 h-3.5 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" />
-              <span>Generating Report...</span>
-            </>
-          ) : (
-            <>
-              <FileText size={14} />
-              <span>✦ Full Research Report</span>
-            </>
-          )}
-        </button>
-
-        {/* Quick Prompt Pills */}
-        <div className="flex flex-wrap gap-1.5 md:gap-2 mb-3">
-          {quickPrompts.map((prompt, i) => (
-            <button
-              key={i}
-              onClick={(e) => {
-                e.stopPropagation();
-                sendChatMessage(prompt);
-              }}
-              disabled={chatLoading}
-className="text-[10px] md:text-xs font-bold px-2.5 md:px-3 py-1.5 md:py-2 rounded-lg bg-black/70 border border-zinc-700 text-zinc-400 hover:text-[#00ff4e] hover:border-[#00ff4e]/30 hover:bg-[#00ff4e]/5 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"            >
-              {prompt}
-            </button>
-          ))}
-        </div>
-
-        {/* Chat Input Bar */}
-        <div className="flex gap-2">
-          <div className="flex-1 relative">
-            <input
-              ref={chatInputRef}
-              type="text"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  sendChatMessage();
-                }
-              }}
-              onFocus={() => { if (!chatOpen && chatMessages.length > 0) setChatOpen(true); }}
-              placeholder={`Ask anything about ${stock.symbol}...`}
-              disabled={chatLoading}
-              className="w-full bg-black/70 border border-zinc-700 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-[#00ff4e]/50 transition-colors disabled:opacity-50 font-mono placeholder:text-zinc-400"
-              style={{ caretColor: '#00ff4e' }}
-            />
-            {!chatInput && chatMessages.length === 0 && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
-                <MessageCircle size={14} className="text-zinc-600" />
-                <span className="text-[10px] font-black text-zinc-600 uppercase tracking-wider hidden sm:inline">Ask AI</span>
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => sendChatMessage()}
-            disabled={!chatInput.trim() || chatLoading}
-            className="px-4 py-3 bg-[#00ff4e] hover:opacity-90 disabled:opacity-20 text-black rounded-lg font-black text-sm transition-all active:scale-95 flex items-center gap-2 flex-shrink-0"
-          >
-            <Send size={16} />
-          </button>
-        </div>
-      </div>
-
-      {/* CHART TOGGLE */}
-      <div className="border-t border-zinc-700/50 pt-4 md:pt-6 pb-4 md:pb-6">
-        <button onClick={() => setShowChart(!showChart)} className="flex items-center gap-2 md:gap-3 transition-all">
-          <TrendingUp size={14} className={`md:w-4 md:h-4 ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
-          <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showChart ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
-            {showChart ? "Hide Chart" : "View Chart"}
-          </span>
-          <motion.span animate={{ rotate: showChart ? 180 : 0 }} className={`text-[10px] ${showChart ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
-        </button>
-
-        <AnimatePresence>
-          {showChart && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
-              exit={{ height: 0, opacity: 0 }}
-              className="mt-4 md:mt-6 overflow-hidden"
-            >
-              <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} livePrice={livePrices?.[stock.symbol]?.price} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* COMPANY BIO TOGGLE */}
-      <div className="border-t border-zinc-700/50 pt-4 md:pt-6 pb-4 md:pb-6">
-        <button onClick={fetchBio} className="flex items-center gap-2 md:gap-3 transition-all">
-          <Building2 size={14} className={`md:w-4 md:h-4 ${showBio ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
-          <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showBio ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
-            {showBio ? "Hide Bio" : "Company Bio"}
-          </span>
-          <motion.span animate={{ rotate: showBio ? 180 : 0 }} className={`text-[10px] ${showBio ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
-        </button>
-
-        <AnimatePresence>
-          {showBio && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
-              exit={{ height: 0, opacity: 0 }}
-              className="mt-4 overflow-hidden"
-            >
-              <div className="bg-black/70 border border-zinc-700 rounded-xl p-4">
-                {bioLoading ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
-                    <span className="text-xs text-zinc-500 font-bold">Loading company info...</span>
-                  </div>
+              {/* RATINGS */}
+              <ExpandableSection
+                title={showRatings ? 'Hide Ratings' : 'Analyst Ratings'}
+                iconName="target"
+                isOpen={showRatings}
+                onToggle={fetchRatings}
+                loading={ratingsLoading}
+              >
+                {ratingsData?.error ? (
+                  <p style={{ fontSize: 12, color: '#8a8a8a', fontFamily: 'JetBrainsMono-Light, monospace' }}>
+                    Unable to load analyst data.
+                  </p>
                 ) : (
-                  <p className="text-sm text-zinc-300 leading-relaxed">{bioText}</p>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* ANALYST RATINGS TOGGLE */}
-<div className="border-t border-zinc-700/50 pt-4 md:pt-6">
-          <button onClick={fetchRatings} className="flex items-center gap-2 md:gap-3 transition-all">
-          <Target size={14} className={`md:w-4 md:h-4 ${showRatings ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
-          <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showRatings ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
-            {showRatings ? "Hide Ratings" : "Analyst Ratings"}
-          </span>
-          <motion.span animate={{ rotate: showRatings ? 180 : 0 }} className={`text-[10px] ${showRatings ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
-        </button>
-
-        <AnimatePresence>
-          {showRatings && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
-              exit={{ height: 0, opacity: 0 }}
-              className="mt-4 overflow-hidden"
-            >
-              <div className="bg-black/70 border border-zinc-700 rounded-xl p-4">
-                {ratingsLoading ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-[#00ff4e]/30 border-t-[#00ff4e] rounded-full animate-spin" />
-                    <span className="text-xs text-zinc-500 font-bold">Loading analyst data...</span>
-                  </div>
-                ) : ratingsData?.error ? (
-                  <p className="text-xs text-zinc-500">Unable to load analyst data.</p>
-                ) : (
-                  <div className="space-y-4">
-                    {/* Price Target */}
+                  <div style={{ padding: 14 }}>
                     {ratingsData?.priceTarget?.targetMean && (
-                      <div>
-<p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">12-Month Price Target</p>                        <div className="grid grid-cols-3 gap-3">
-                          <div>
-                            <p className="text-[9px] text-zinc-600 uppercase font-bold">Low</p>
-                            <p className="text-sm font-black text-red-400">${ratingsData.priceTarget.targetLow?.toFixed(2)}</p>
+                      <div style={{ marginBottom: 14 }}>
+                        <p style={S.secLabel}>12-Month Price Target</p>
+                        <div style={{ display: 'flex', gap: 12 }}>
+                          <div style={{ flex: 1 }}>
+                            <p style={S.tgtLabel}>Low</p>
+                            <p style={{ ...S.tgtVal, color: '#ef4444' }}>${ratingsData.priceTarget.targetLow?.toFixed(2)}</p>
                           </div>
-                          <div>
-                            <p className="text-[9px] text-zinc-600 uppercase font-bold">Average</p>
-                            <p className="text-sm font-black text-white">${ratingsData.priceTarget.targetMean?.toFixed(2)}</p>
+                          <div style={{ flex: 1 }}>
+                            <p style={S.tgtLabel}>Average</p>
+                            <p style={{ ...S.tgtVal, color: '#fff' }}>${ratingsData.priceTarget.targetMean?.toFixed(2)}</p>
                           </div>
-                          <div>
-                            <p className="text-[9px] text-zinc-600 uppercase font-bold">High</p>
-                            <p className="text-sm font-black text-[#00ff4e]">${ratingsData.priceTarget.targetHigh?.toFixed(2)}</p>
+                          <div style={{ flex: 1 }}>
+                            <p style={S.tgtLabel}>High</p>
+                            <p style={{ ...S.tgtVal, color: '#00ff4e' }}>${ratingsData.priceTarget.targetHigh?.toFixed(2)}</p>
                           </div>
                         </div>
                       </div>
                     )}
-
-                    {/* Recommendations */}
                     {ratingsData?.recommendations?.length > 0 && (
-                      <div>
-                        <p className="text-[8px] md:text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-2">Recent Consensus</p>
-                        <div className="space-y-2">
-                          {ratingsData.recommendations.map((rec, i) => {
-                            const total = (rec.buy || 0) + (rec.hold || 0) + (rec.sell || 0) + (rec.strongBuy || 0) + (rec.strongSell || 0);
-                            const bullish = ((rec.buy || 0) + (rec.strongBuy || 0)) / (total || 1) * 100;
-                            return (
-                              <div key={i} className="flex items-center gap-3">
-                                <span className="text-[10px] text-zinc-600 font-mono w-20 flex-shrink-0">
-                                  {new Date(rec.period).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
-                                </span>
-                                <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full rounded-full transition-all"
-                                    style={{ 
-                                      width: `${bullish}%`,
-                                      backgroundColor: bullish > 60 ? '#00ff4e' : bullish > 40 ? '#f59e0b' : '#ef4444'
-                                    }} 
-                                  />
-                                </div>
-                                <span className="text-[10px] font-black w-12 text-right" style={{ 
-                                  color: bullish > 60 ? '#00ff4e' : bullish > 40 ? '#f59e0b' : '#ef4444'
-                                }}>
-                                  {bullish.toFixed(0)}% Buy
-                                </span>
+                      <div style={{ marginBottom: 14 }}>
+                        <p style={S.secLabel}>Recent Consensus</p>
+                        {ratingsData.recommendations.map((rec, i) => {
+                          const total   = (rec.buy||0)+(rec.hold||0)+(rec.sell||0)+(rec.strongBuy||0)+(rec.strongSell||0);
+                          const bullish = ((rec.buy||0)+(rec.strongBuy||0))/(total||1)*100;
+                          const barColor = bullish > 60 ? '#00ff4e' : bullish > 40 ? '#f59e0b' : '#ef4444';
+                          return (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                              <span style={{ fontSize: 10, color: '#8a8a8a', fontFamily: 'JetBrainsMono-Light, monospace', width: 50 }}>
+                                {new Date(rec.period).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
+                              </span>
+                              <div style={{ flex: 1, height: 6, backgroundColor: '#27272a', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ width: `${bullish}%`, height: '100%', backgroundColor: barColor, borderRadius: 3 }} />
                               </div>
-                            );
-                          })}
-                        </div>
+                              <span style={{ fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace', width: 55, textAlign: 'right', color: barColor }}>
+                                {bullish.toFixed(0)}% Buy
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
-
-                    {/* Market Cap */}
                     {ratingsData?.marketCap && (
                       <div>
-                        <p className="text-[8px] text-zinc-500 font-black uppercase tracking-widest mb-1">Market Cap</p>
-                        <p className="text-sm font-black text-white">
-                          ${ratingsData.marketCap >= 1e12 ? (ratingsData.marketCap / 1e12).toFixed(2) + 'T' :
-                            ratingsData.marketCap >= 1e9 ? (ratingsData.marketCap / 1e9).toFixed(2) + 'B' :
-                            ratingsData.marketCap >= 1e6 ? (ratingsData.marketCap / 1e6).toFixed(2) + 'M' :
+                        <p style={S.secLabel}>Market Cap</p>
+                        <p style={{ fontSize: 14, fontFamily: 'JetBrainsMono-Medium, monospace', color: '#fff', margin: 0 }}>
+                          ${ratingsData.marketCap >= 1e12 ? (ratingsData.marketCap/1e12).toFixed(2)+'T' :
+                            ratingsData.marketCap >= 1e9  ? (ratingsData.marketCap/1e9).toFixed(2)+'B'  :
+                            ratingsData.marketCap >= 1e6  ? (ratingsData.marketCap/1e6).toFixed(2)+'M'  :
                             ratingsData.marketCap.toLocaleString()}
                         </p>
                       </div>
                     )}
                   </div>
                 )}
+              </ExpandableSection>
+
+              {/* ASK AI */}
+              <div style={{ borderTop: '1px solid rgba(113,113,122,0.18)', paddingTop: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <Cpu size={14} color="#00ff4e" />
+                  <span style={{
+                    fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+                    textTransform: 'uppercase', letterSpacing: 2, color: '#fff',
+                  }}>
+                    Ask AI
+                  </span>
+                </div>
+
+                {/* Chat messages */}
+                {chatMessages.length > 0 && chatOpen && (
+                  <div style={{
+                    backgroundColor: 'rgba(0,0,0,0.7)', border: '1px solid #3f3f46',
+                    borderRadius: 12, padding: 12, marginBottom: 12,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <MessageCircle size={12} color="#00ff4e" />
+                        <span style={{
+                          fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+                          textTransform: 'uppercase', letterSpacing: 1.5, color: '#00ff4e',
+                        }}>
+                          AI Research · {symbol}
+                        </span>
+                        {hasSavedChat && (
+                          <span style={{ fontSize: 8, color: 'rgba(0,255,78,0.5)', fontFamily: 'JetBrainsMono-Medium, monospace' }}>
+                            · Saved
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <button
+                          onClick={async () => {
+                            setChatMessages([]);
+                            setHasSavedChat(false);
+                            if (user?.uid && db) {
+                              try { await deleteDoc(doc(db, 'users', user.uid, 'stockChats', symbol)); } catch (e) {}
+                            }
+                            setChatOpen(false);
+                          }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace', color: '#555', textTransform: 'uppercase' }}
+                        >
+                          Clear
+                        </button>
+                        <button
+                          onClick={() => setChatOpen(false)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace', color: '#fff', textTransform: 'uppercase', letterSpacing: 1 }}
+                        >
+                          Collapse ▲
+                        </button>
+                      </div>
+                    </div>
+                    <div ref={chatScrollRef} style={{ maxHeight: 300, overflowY: 'auto' }}>
+                      {chatMessages.map((msg, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            ...(msg.role === 'user' ? S.userBub : S.aiBub),
+                            marginBottom: 8,
+                          }}
+                        >
+                          <p style={{
+                            ...(msg.role === 'user' ? S.userTxt : S.aiTxt),
+                            margin: 0, whiteSpace: 'pre-wrap',
+                          }}>
+                            {msg.text.split(/(\*\*[^*]+\*\*)/).map((part, j) =>
+                              part.startsWith('**') && part.endsWith('**')
+                                ? <strong key={j} style={{ color: '#fff' }}>{part.slice(2, -2)}</strong>
+                                : part
+                            )}
+                          </p>
+                        </div>
+                      ))}
+                      {chatLoading && (
+                        <div style={{ ...S.aiBub, marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={S.spinner} />
+                            <span style={{ fontSize: 12, color: '#8a8a8a' }}>Researching...</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Collapsed chat indicator */}
+                {chatMessages.length > 0 && !chatOpen && (
+                  <button
+                    onClick={() => setChatOpen(true)}
+                    style={{
+                      display: 'block', width: '100%', background: 'none', border: 'none',
+                      cursor: 'pointer', paddingTop: 6, paddingBottom: 6, textAlign: 'center',
+                      fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+                      color: '#00ff4e', textTransform: 'uppercase', letterSpacing: 1,
+                    }}
+                  >
+                    Show {chatMessages.length} messages ▼
+                  </button>
+                )}
+
+                {/* Quick prompts */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                  {QUICK_PROMPTS.map((p, i) => (
+                    <button
+                      key={i}
+                      onClick={() => sendMessage(p)}
+                      disabled={chatLoading}
+                      style={{
+                        ...S.promptChip,
+                        ...(i === 0 ? S.promptFirst : {}),
+                      }}
+                    >
+                      <span style={{
+                        fontSize: 11, fontFamily: 'JetBrainsMono-Light, monospace',
+                        color: i === 0 ? '#00ff4e' : '#a1a1aa',
+                      }}>
+                        {p}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Chat input */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <input
+                    ref={chatInputRef}
+                    type="text"
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(chatInput); } }}
+                    onFocus={() => { if (!chatOpen && chatMessages.length > 0) setChatOpen(true); }}
+                    placeholder={`Ask about ${symbol}...`}
+                    disabled={chatLoading}
+                    style={{
+                      flex: 1, backgroundColor: '#000', border: '1px solid #3f3f46',
+                      borderRadius: 12, color: '#fff', padding: '12px 14px',
+                      fontSize: 13, fontFamily: 'JetBrainsMono-Light, monospace',
+                      caretColor: '#00ff4e', outline: 'none',
+                    }}
+                  />
+                  <button
+                    onClick={() => sendMessage(chatInput)}
+                    disabled={!chatInput.trim() || chatLoading}
+                    style={{
+                      backgroundColor: '#00ff4e', borderRadius: 12, padding: 12,
+                      border: 'none', cursor: 'pointer', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                      opacity: (!chatInput.trim() || chatLoading) ? 0.2 : 1,
+                    }}
+                  >
+                    <Send size={16} color="#000" />
+                  </button>
+                </div>
               </div>
+
+              {/* NEWS */}
+              {stock.news?.length > 0 && (
+                <ExpandableSection
+                  title={showNews ? 'Hide News' : `View ${stock.news.length} Related ${stock.news.length === 1 ? 'Article' : 'Articles'}`}
+                  iconName="file-text"
+                  isOpen={showNews}
+                  onToggle={() => setShowNews(!showNews)}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {stock.news.map((article, i) => (
+                      <a
+                        key={i}
+                        href={article.article_url || article.url || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: 10,
+                          backgroundColor: 'rgba(0,0,0,0.7)', border: '1px solid #3f3f46',
+                          borderRadius: 12, padding: 12, textDecoration: 'none',
+                        }}
+                      >
+                        <FileText size={13} color="#00ff4e" style={{ marginTop: 2, flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{
+                            fontSize: 13, color: '#d4d4d8',
+                            fontFamily: 'JetBrainsMono-Light, monospace',
+                            lineHeight: 1.4, marginBottom: 4,
+                            display: '-webkit-box', WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical', overflow: 'hidden', margin: '0 0 4px',
+                          }}>
+                            {article.title}
+                          </p>
+                          <p style={{ fontSize: 10, color: '#8a8a8a', fontFamily: 'JetBrainsMono-Light, monospace', margin: 0 }}>
+                            {article.publisher?.name || 'Unknown'}{article.published_utc ? ` · ${new Date(article.published_utc).toLocaleDateString()}` : ''}
+                          </p>
+                        </div>
+                        <span style={{ color: '#3f3f46', fontSize: 14 }}>→</span>
+                      </a>
+                    ))}
+                  </div>
+                </ExpandableSection>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
 
-
-      {/* NEWS ARTICLES TOGGLE */}
-      {stock.news && stock.news.length > 0 && (
-        <div className="border-t border-zinc-700/50 mt-4 md:mt-6 pt-4 md:pt-6">
-          <button onClick={() => setShowNews(!showNews)} className="flex items-center gap-2 md:gap-3 transition-all">
-            <Newspaper size={14} className={`md:w-4 md:h-4 ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`} />
-            <span className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] ${showNews ? 'text-[#00ff4e]' : 'text-white'} transition-colors`}>
-              {showNews ? "Hide News" : `View ${stock.news.length} Related ${stock.news.length === 1 ? 'Article' : 'Articles'}`}
-            </span>
-            <motion.span animate={{ rotate: showNews ? 180 : 0 }} className={`text-[10px] ${showNews ? 'text-[#00ff4e]' : 'text-zinc-500'}`}>▼</motion.span>
-          </button>
-
-          <AnimatePresence>
-            {showNews && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1, transition: { duration: 0.4 } }}
-                exit={{ height: 0, opacity: 0 }}
-                className="mt-4 md:mt-6 space-y-3 overflow-hidden"
-              >
-                {stock.news.map((article, i) => (
-                  <a 
-                    key={i}
-                    href={article.article_url || article.url || '#'}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block p-3 md:p-4 bg-black/70 border border-zinc-700 rounded-lg hover:border-[#00ff4e]/30 hover:bg-zinc-900 transition-all group/article"
-                  >
-                    <div className="flex items-start gap-3">
-                      {article.image_url && (
-                        <img 
-                          src={article.image_url} 
-                          alt="" 
-                          className="w-16 h-16 md:w-20 md:h-20 rounded-lg object-cover flex-shrink-0"
-                          onError={(e) => { e.target.style.display = 'none'; }}
-                        />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm md:text-base font-black text-white leading-tight mb-1 group-hover/article:text-[#00ff4e] transition-colors">
-                          {article.title}
-                        </p>
-                        {article.description && (
-                          <p className="text-xs text-zinc-500 line-clamp-2 mb-1">{article.description}</p>
-                        )}
-                        <p className="text-[10px] text-zinc-600">
-                          {article.publisher?.name || article.source || 'Unknown source'}
-                          {article.published_utc ? ` · ${new Date(article.published_utc).toLocaleDateString()}` : ''}
-                        </p>
-                      </div>
-                      <span className="text-zinc-700 group-hover/article:text-[#00ff4e] transition-colors flex-shrink-0 hidden md:block">→</span>
-                    </div>
-                  </a>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
-      <div className="pb-2 md:pb-4" />
-    </div>
-
-    {/* FULL RESEARCH REPORT MODAL */}
-    <AnimatePresence>
-    {showReport && (
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.3 }}
-        className="fixed inset-0 z-[9999] flex items-stretch md:items-start md:justify-center" 
-        onClick={() => setShowReport(false)}
-      >
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-xl" />
-        <motion.div 
-          initial={{ y: '100%', opacity: 0.5 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: '100%', opacity: 0 }}
-          transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-          className="relative w-full max-w-2xl mx-auto h-full md:h-auto md:my-8 md:max-h-[90vh] overflow-y-auto md:rounded-2xl"
-          style={{
-            background: 'linear-gradient(135deg, rgba(30,30,30,0.98) 0%, rgba(10,10,10,0.99) 100%)',
-            border: '1px solid rgba(139,92,246,0.2)',
-            boxShadow: '0 0 60px rgba(139,92,246,0.1), 0 0 120px rgba(0,0,0,0.5)',
-          }}
-          onClick={e => e.stopPropagation()}
+        {/* BOTTOM CHEVRON */}
+        <div
+          onClick={toggleExpand}
+          style={{ display: 'flex', justifyContent: 'center', marginTop: 8, paddingTop: 4, paddingBottom: 4, cursor: 'pointer' }}
         >
-          {/* Modal Header */}
-          <div className="sticky top-0 z-10 px-5 md:px-8 pt-5 md:pt-6 pb-4 border-b border-zinc-800/50" style={{ background: 'linear-gradient(135deg, rgba(30,30,30,0.98) 0%, rgba(10,10,10,0.99) 100%)' }}>
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <FileText size={16} className="text-purple-400" />
-                  <span className="text-[9px] font-black text-purple-400 uppercase tracking-[0.3em]">AI Research Report</span>
-                </div>
-                <h2 className="text-2xl md:text-3xl font-black text-white leading-none">{stock.symbol}</h2>
-                <p className="text-xs text-zinc-500 mt-1">{stock.name}</p>
-                <div className="flex items-center gap-3 mt-2">
-                  <span className="text-lg font-black text-white tabular-nums">${livePrice.toFixed(2)}</span>
-                  <span className="text-sm font-black tabular-nums" style={{ color: liveChange >= 0 ? '#00ff4e' : '#FF4B2B' }}>
-                    {liveChange >= 0 ? '+' : ''}{liveChange.toFixed(2)}%
-                  </span>
-                </div>
-              </div>
-              <button 
-                onClick={() => setShowReport(false)}
-                className="text-zinc-500 hover:text-white transition-colors p-1"
-              >
-                <X size={20} />
-              </button>
-            </div>
+          <div style={{
+            width: 36, height: 36, borderRadius: 18,
+            backgroundColor: 'rgba(0,255,78,0.12)',
+            border: '1px solid rgba(0,255,78,0.35)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 0 10px rgba(0,255,78,0.6)',
+          }}>
+            {expanded
+              ? <ChevronUp  size={20} color="#00ff4e" />
+              : <ChevronDown size={20} color="#00ff4e" />
+            }
           </div>
-
-          {/* Modal Body */}
-          <div className="px-5 md:px-8 py-5 md:py-6">
-            {reportLoading ? (
-              <div className="flex flex-col items-center justify-center py-20 gap-4">
-                <div className="w-8 h-8 border-3 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" style={{ borderWidth: '3px' }} />
-                <div className="text-center">
-                  <p className="text-sm font-black text-white mb-1">Generating Research Report</p>
-                  <p className="text-xs text-zinc-500">Analyzing {stock.symbol} with AI + web search...</p>
-                </div>
-              </div>
-            ) : reportData?.sections ? (
-              <div className="space-y-6">
-                {reportData.sections.map((section, i) => {
-                  const isVerdict = section.title.toUpperCase().includes('VERDICT');
-                  const isRisk = section.title.toUpperCase().includes('RISK');
-                  const isBull = section.title.toUpperCase().includes('BULL');
-                  const isBear = section.title.toUpperCase().includes('BEAR');
-                  
-                  let accentColor = 'rgba(139,92,246,0.15)';
-                  let borderColor = 'rgba(139,92,246,0.2)';
-                  let iconColor = '#a78bfa';
-                  
-                  if (isBull) { accentColor = 'rgba(0,255,78,0.08)'; borderColor = 'rgba(0,255,78,0.2)'; iconColor = '#00ff4e'; }
-                  if (isBear) { accentColor = 'rgba(255,75,43,0.08)'; borderColor = 'rgba(255,75,43,0.2)'; iconColor = '#FF4B2B'; }
-                  if (isVerdict) { accentColor = 'rgba(245,158,11,0.08)'; borderColor = 'rgba(245,158,11,0.3)'; iconColor = '#f59e0b'; }
-                  if (isRisk) { accentColor = 'rgba(239,68,68,0.08)'; borderColor = 'rgba(239,68,68,0.2)'; iconColor = '#ef4444'; }
-
-                  return (
-                    <div key={i} className="rounded-xl p-4" style={{ background: accentColor, border: `1px solid ${borderColor}` }}>
-                      <h3 className="text-[9px] font-black uppercase tracking-[0.25em] mb-3" style={{ color: iconColor }}>
-                        {section.title}
-                      </h3>
-                      <div className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
-                        {section.content.split(/(\*\*[^*]+\*\*)/).map((part, j) => {
-                          if (part.startsWith('**') && part.endsWith('**')) {
-                            return <strong key={j} className="text-white font-black">{part.slice(2, -2)}</strong>;
-                          }
-                          return part;
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-                
-                {/* Disclaimer */}
-                <div className="pt-4 border-t border-zinc-800/50">
-                  <p className="text-[9px] text-zinc-700 leading-relaxed">
-                    This report was generated by AI and is for informational purposes only. It is not financial advice. 
-                    Always do your own research before making investment decisions. Data may be delayed or inaccurate.
-                  </p>
-                  {reportData.generatedAt && (
-                    <p className="text-[9px] text-zinc-700 mt-1">
-                      Generated {reportData.generatedAt.toLocaleString()}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </motion.div>
-      </motion.div>
-    )}
-    </AnimatePresence>
-    </>
+        </div>
+      </div>
+    </div>
   );
-}, (prevProps, nextProps) => {
-  const sym = nextProps.stock.symbol;
+}, (prev, next) => {
+  const sym = next.stock.symbol;
   return (
-    prevProps.stock.symbol === nextProps.stock.symbol &&
-    prevProps.stock.price === nextProps.stock.price &&
-    prevProps.stock.change === nextProps.stock.change &&
-    prevProps.isMarketOpen === nextProps.isMarketOpen &&
-    prevProps.showAddToListMenu?.symbol === nextProps.showAddToListMenu?.symbol &&
-    prevProps.watchlist.length === nextProps.watchlist.length &&
-    prevProps.aiModel === nextProps.aiModel &&
-    prevProps.db === nextProps.db &&
-    prevProps.livePrices?.[sym]?.price === nextProps.livePrices?.[sym]?.price
+    prev.stock.symbol   === next.stock.symbol   &&
+    prev.stock.price    === next.stock.price     &&
+    prev.stock.change   === next.stock.change    &&
+    prev.isMarketOpen   === next.isMarketOpen    &&
+    prev.isPinned       === next.isPinned        &&
+    prev.aiModel        === next.aiModel         &&
+    prev.db             === next.db              &&
+    prev.livePrices?.[sym]?.price === next.livePrices?.[sym]?.price
   );
 });
+
+// ─── PatternTags helper ───────────────────────────────────────────────────────
+function PatternTags({ patterns }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12, marginBottom: 12 }}>
+      {patterns.slice(0, 5).map((p, i) => {
+        const c = PATTERN_COLORS[p] || '#666';
+        return (
+          <div key={i} style={{
+            paddingLeft: 8, paddingRight: 8, paddingTop: 4, paddingBottom: 4,
+            borderRadius: 5, border: `1px solid ${c}50`, backgroundColor: c + '12',
+          }}>
+            <span style={{
+              fontSize: 9, fontFamily: 'JetBrainsMono-Medium, monospace',
+              letterSpacing: 0.5, textTransform: 'uppercase', color: c,
+            }}>
+              {p.replace(/_/g, ' ')}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Shared style tokens ──────────────────────────────────────────────────────
+const S = {
+  iconBtn: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '5px 8px', borderRadius: 8, background: 'none',
+    border: '1px solid rgba(0,255,78,0.25)', backgroundColor: 'rgba(0,255,78,0.06)',
+    cursor: 'pointer',
+  },
+  addToListBtn: {
+    display: 'flex', alignItems: 'center', gap: 4,
+    padding: '5px 10px', borderRadius: 8, background: 'none',
+    border: '1px solid rgba(0,255,78,0.25)', backgroundColor: 'rgba(0,255,78,0.06)',
+    cursor: 'pointer',
+  },
+  addToListText: {
+    fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+    color: '#00ff4e', letterSpacing: 0.5,
+  },
+  tradeBtn: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    padding: '10px 12px', borderRadius: 8,
+    border: '1px solid rgba(0,255,78,0.3)', backgroundColor: 'rgba(0,255,78,0.05)',
+    cursor: 'pointer', background: 'none',
+  },
+  tradeBtnText: {
+    fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+    color: '#00ff4e', letterSpacing: 0.8, textTransform: 'uppercase',
+  },
+  statLabel: {
+    fontSize: 9, fontFamily: 'JetBrainsMono-Light, monospace',
+    color: '#666', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4, margin: '0 0 4px',
+  },
+  statValue: {
+    fontSize: 16, fontFamily: 'JetBrainsMono-Medium, monospace', color: '#fff', margin: 0,
+  },
+  tagPill: {
+    display: 'flex', alignItems: 'center', gap: 5,
+    padding: '6px 10px', borderRadius: 6, border: '1px solid transparent',
+  },
+  tagLabel: {
+    fontSize: 11, fontFamily: 'JetBrainsMono-Medium, monospace',
+    letterSpacing: 0.5, textTransform: 'uppercase',
+  },
+  secLabel: {
+    fontSize: 8, fontFamily: 'JetBrainsMono-Medium, monospace',
+    color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: 3, marginBottom: 8, margin: '0 0 8px',
+  },
+  tgtLabel: {
+    fontSize: 9, fontFamily: 'JetBrainsMono-Light, monospace',
+    color: '#a1a1aa', textTransform: 'uppercase', marginBottom: 2, margin: '0 0 2px',
+  },
+  tgtVal: {
+    fontSize: 14, fontFamily: 'JetBrainsMono-Medium, monospace', margin: 0,
+  },
+  userBub: {
+    backgroundColor: 'rgba(0,255,78,0.1)', border: '1px solid rgba(0,255,78,0.2)',
+    borderRadius: 12, padding: 12, alignSelf: 'flex-end', maxWidth: '85%',
+    display: 'inline-block', float: 'right', clear: 'both',
+  },
+  aiBub: {
+    backgroundColor: 'rgba(39,39,42,0.8)', border: '1px solid #3f3f46',
+    borderRadius: 12, padding: 12, alignSelf: 'flex-start', maxWidth: '95%',
+    display: 'inline-block', float: 'left', clear: 'both',
+  },
+  userTxt: {
+    fontSize: 13, color: '#fff', fontFamily: 'JetBrainsMono-Light, monospace', lineHeight: 1.5,
+  },
+  aiTxt: {
+    fontSize: 13, color: '#d4d4d8', fontFamily: 'JetBrainsMono-Light, monospace', lineHeight: 1.55,
+  },
+  promptChip: {
+    border: '1px solid #3f3f46', borderRadius: 8,
+    padding: '8px 12px', background: 'none', cursor: 'pointer',
+  },
+  promptFirst: {
+    borderColor: 'rgba(0,255,78,0.4)', backgroundColor: 'rgba(0,255,78,0.08)',
+  },
+  spinner: {
+    width: 14, height: 14, borderRadius: '50%',
+    border: '2px solid rgba(0,255,78,0.2)', borderTopColor: '#00ff4e',
+    display: 'inline-block', animation: 'spin 0.8s linear infinite',
+    flexShrink: 0,
+  },
+};
+
+// Inject spinner keyframes once
+if (typeof document !== 'undefined' && !document.getElementById('mc-spin')) {
+  const style = document.createElement('style');
+  style.id = 'mc-spin';
+  style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+  document.head.appendChild(style);
+}
 
 export default MetricCard;

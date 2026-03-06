@@ -422,3 +422,46 @@ exports.disconnectPlaid = functions.https.onRequest(async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ============================================================
+// PUSH NOTIFICATION ALERTS
+// ============================================================
+
+const { checkAlerts, sendEarningsReminders, sendEarningsResults } = require('./notificationAlerts');
+exports.checkAlerts = checkAlerts;
+exports.sendEarningsReminders = sendEarningsReminders;
+exports.sendEarningsResults = sendEarningsResults;
+
+// ============================================================
+// DAILY BRIEFING
+// ============================================================
+
+const { generateDailyBriefing, refreshBriefing } = require('./dailyBriefing');
+exports.generateDailyBriefing = generateDailyBriefing;
+exports.refreshBriefing = refreshBriefing;
+
+// ============================================================
+// UPVOTE NOTIFICATIONS (trade ideas)
+// ============================================================
+
+const { onIdeaUpvoted } = require('./upvoteNotifications');
+exports.onIdeaUpvoted = onIdeaUpvoted;
+
+// ============================================================
+// OPTIONS FLOW SCANNER
+// ============================================================
+
+const { scanOptionsFlow, scanOptionsFlowManual } = require('./optionsFlowScanner');
+exports.scanOptionsFlow = scanOptionsFlow;
+exports.scanOptionsFlowManual = scanOptionsFlowManual;
+// ============================================================
+// X AUTO-POSTING
+// ============================================================
+
+const { postMorningScan, postMarketClose, postManual, postMiddayMovers, postWeeklyScorecard, postBreakingAlert } = require('./xAutoPost');
+exports.postMorningScan = postMorningScan;
+exports.postMarketClose = postMarketClose;
+exports.postManual = postManual;
+exports.postMiddayMovers = postMiddayMovers;
+exports.postWeeklyScorecard = postWeeklyScorecard;
+exports.postBreakingAlert = postBreakingAlert;

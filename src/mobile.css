@@ -1,0 +1,204 @@
+/* ════════════════════════════════════════════════
+   JCKRBBT MOBILE — App-matching styles
+   Import this in index.js AFTER index.css:
+     import './mobile.css';
+   ════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;500;700&display=swap');
+
+@media (max-width: 767px) {
+  body, input, button, select, textarea {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  /* ── Bottom nav ── */
+  .mobile-nav-tab {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 12px 0 10px;
+    min-height: 56px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+  .mobile-nav-tab:active {
+    transform: scale(0.85);
+  }
+
+  /* Active dot — glowing green */
+  .mobile-nav-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #00ff4e;
+    box-shadow: 0 0 8px #00ff4e, 0 0 14px rgba(0,255,78,0.4);
+    opacity: 0;
+    transform: scale(0);
+    transition: opacity 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+                transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .mobile-nav-tab.active .mobile-nav-dot {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  /* ── Scan button ── */
+  .mobile-scan-btn {
+    box-shadow: 0 4px 20px rgba(0,255,78,0.3) !important;
+    border-radius: 12px !important;
+    font-size: 15px !important;
+    letter-spacing: 3px !important;
+    padding: 18px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-weight: 500 !important;
+  }
+  .mobile-scan-btn:active {
+    transform: scale(0.97);
+  }
+
+  /* ── Full-screen search overlay ── */
+  .mobile-search-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(0,0,0,0.88);
+    display: flex;
+    flex-direction: column;
+  }
+  .mobile-search-container {
+    padding: 56px 16px 0;
+  }
+  .mobile-search-input-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .mobile-search-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    background: rgba(30,30,30,0.97);
+    border: 1px solid rgba(0,255,78,0.25);
+    border-radius: 12px;
+  }
+  .mobile-search-wrap.has-results {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom: none;
+  }
+  .mobile-search-input {
+    flex: 1;
+    padding: 14px 10px;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #fff;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 300;
+    letter-spacing: 1px;
+    caret-color: #00ff4e;
+  }
+  .mobile-search-cancel {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 300;
+    color: #8a8a8a;
+    background: none;
+    border: none;
+    padding: 10px 4px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .mobile-search-dropdown {
+    background: rgba(20,20,20,0.98);
+    border: 1px solid rgba(0,255,78,0.25);
+    border-top: none;
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+    overflow: hidden;
+  }
+  .mobile-search-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 14px;
+    border-top: 1px solid rgba(255,255,255,0.04);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .mobile-search-item:active {
+    background: rgba(255,255,255,0.03);
+  }
+  .mobile-search-symbol-badge {
+    background: rgba(0,255,78,0.08);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    color: #00ff4e;
+    letter-spacing: 1px;
+    white-space: nowrap;
+  }
+  .mobile-search-name {
+    flex: 1;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 300;
+    color: #8a8a8a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mobile-search-section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px 4px;
+  }
+  .mobile-search-section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 500;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+
+  /* ── Page headers ── */
+  h1.text-2xl, h1.text-3xl {
+    font-size: 22px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    letter-spacing: 1px !important;
+    margin-bottom: 16px;
+  }
+
+  /* ── Price filter inputs ── */
+  .mobile-price-input {
+    background: rgba(0,0,0,0.4) !important;
+    border: 1px solid #27272a !important;
+    border-radius: 10px !important;
+    color: #fff !important;
+    padding: 12px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 14px !important;
+    font-weight: 300 !important;
+  }
+}
+
+@keyframes mobileCardFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 767px) {
+  .mobile-fade-in {
+    animation: mobileCardFadeIn 0.3s ease both;
+  }
+}
