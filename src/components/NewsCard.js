@@ -52,10 +52,10 @@ function NewsCard({ article, aiModel }) {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="rounded-xl p-4 md:p-6 transition-all duration-300 cursor-pointer group"
-      style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
+      style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}
       onClick={() => window.open(article.url, '_blank')}
-      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
-      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.4)'; e.currentTarget.style.border = '0.5px solid rgba(255,255,255,0.12)'; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.3)'; e.currentTarget.style.border = '0.5px solid rgba(255,255,255,0.08)'; }}
     >
       <div className="flex flex-col md:flex-row gap-4 md:gap-6">
         {/* Article Image */}

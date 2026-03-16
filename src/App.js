@@ -15,7 +15,7 @@ import SkeletonCard from './SkeletonCard';
 import WatchlistModal from './WatchlistModal';
 import { createWatchlist, getUserWatchlists, getPublicWatchlists, addStockToWatchlist, removeStockFromWatchlist, updateWatchlist, deleteWatchlist } from './watchlistService';
 import { followUser, unfollowUser, isFollowing, getFollowers, getFollowing, searchUsers } from './followService';
-import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History, Pencil, FileText, X, Share2, Download, Copy, Check, ArrowLeft, ArrowUp, ArrowDown, ArrowUpRight, Globe, Bell, Pin, Cpu, Edit, TrendingDown, DollarSign, ChevronUp } from 'lucide-react';
+import { Activity, Users, Trash2, Plus, MessageCircle, Search, Target, TrendingUp, BarChart3, Lightbulb, AlertTriangle, Clock, Link2, Unlink, ChevronDown, Building2, Wallet, RefreshCw, Zap, Sprout, LayoutDashboard, Flame, List, Briefcase, Newspaper, Send, Heart, History, Pencil, FileText, X, Share2, Share, Download, Copy, Check, ArrowLeft, ArrowUp, ArrowDown, ArrowUpRight, Globe, Bell, Pin, Cpu, Edit, TrendingDown, DollarSign, ChevronUp, LogIn, ChevronRight } from 'lucide-react';
 import PlaidLink from './PlaidLink';
 import StockChatModal from './StockChatModal';
 import UserProfileModal from './UserProfileModal';
@@ -75,9 +75,13 @@ const [scanPriceMax, setScanPriceMax] = useState(500);
   const [watchlists, setWatchlists] = useState([]);
   const [publicWatchlists, setPublicWatchlists] = useState([]);
   const [selectedWatchlist, setSelectedWatchlist] = useState(null);
-  const [expandedListCharts, setExpandedListCharts] = useState(new Set());
   const [showWatchlistModal, setShowWatchlistModal] = useState(false);
   const [editingWatchlist, setEditingWatchlist] = useState(null);
+  const [showListsCreate, setShowListsCreate] = useState(false);
+  const [expandedListId, setExpandedListId] = useState(null);
+  const [listsNewName, setListsNewName] = useState('');
+  const [listsNewDesc, setListsNewDesc] = useState('');
+  const [listsNewPublic, setListsNewPublic] = useState(false);
   const [showAddToListMenu, setShowAddToListMenu] = useState(null); // stockSymbol when menu is open
   const [showUserProfileModal, setShowUserProfileModal] = useState(false);
   const [viewingUser, setViewingUser] = useState(null);
@@ -2906,7 +2910,7 @@ Return ONLY a numbered list:
       const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
       
       toAnalyze.forEach((stock, i) => {
-        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '') : buildReadableFallback(stock, 'early_signal');
+        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '').replace(/\*\*/g, '').trim() : buildReadableFallback(stock, 'early_signal');
         stock.catalystType = 'early_signal';
         stock.signalTier = 1;
       });
@@ -2972,7 +2976,7 @@ Return ONLY a numbered list:
       const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
       
       toAnalyze.forEach((stock, i) => {
-        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '') : buildReadableFallback(stock, 'news');
+        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '').replace(/\*\*/g, '').trim() : buildReadableFallback(stock, 'news');
         stock.catalystType = 'news';
         stock.signalTier = 2;
       });
@@ -3037,7 +3041,7 @@ Return ONLY a numbered list:
       const analyses = text.split('\n').filter(line => /^\d+\./.test(line.trim())).map(line => line.replace(/^\d+\.\s*/, '').trim());
       
       toAnalyze.forEach((stock, i) => {
-        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '') : buildReadableFallback(stock, 'options_first');
+        stock.catalyst = (analyses[i] && analyses[i].length > 10) ? analyses[i].replace(/^["']|["']$/g, '').replace(/\*\*/g, '').trim() : buildReadableFallback(stock, 'options_first');
         stock.catalystType = 'options_first';
         stock.signalTier = 1;
       });
@@ -4212,7 +4216,7 @@ const copyForTwitter = useCallback(() => {
     {/* Left side - Logo and Status */}
     <div className="flex items-center gap-4 md:gap-6">
       <button onClick={() => setActiveTab("DASHBOARD")} className="cursor-pointer hover:opacity-80 transition-opacity">
-        <img src="/jckrbbt_logo.png" alt="Logo" className="h-12 md:h-16 w-auto object-contain" />
+        <img src="/jckrbbt_logo.png" alt="Logo" className="h-8 md:h-16 w-auto object-contain" />
       </button>
       <div className="border-l-2 border-zinc-900 pl-4 md:pl-6 hidden md:block">
         <p className="text-zinc-600 text-[8px] md:text-[10px] tracking-[0.3em] md:tracking-[0.4em] uppercase flex items-center gap-2 font-black flex-wrap">
@@ -4222,26 +4226,22 @@ const copyForTwitter = useCallback(() => {
         </p>
       </div>
     </div>
-    
+
     {/* Right side - Search, Clock and Auth */}
-    <div className="flex items-center gap-4 md:gap-6">
+    <div className="flex items-center gap-3 md:gap-6">
       {/* Search Icon */}
       <button
   onClick={() => setShowSearch(!showSearch)}
-  className={`p-2 md:p-3 rounded-lg border bg-black transition-all active:scale-95 ${
-    showSearch 
-      ? 'border-zinc-800' 
-      : 'border-zinc-800 hover:border-zinc-700'
-  }`}
+  className="mobile-header-btn md:p-3 md:rounded-lg md:border md:bg-black md:border-zinc-800 md:hover:border-zinc-700 transition-all active:scale-95"
 >
-        <Search size={18} className="md:w-5 md:h-5 text-zinc-500 hover:text-[#00ff4e] transition-colors" />
+        <Search size={18} className="md:w-5 md:h-5" />
       </button>
 
       {/* Clock - hidden on mobile */}
       <div className="text-right hidden md:block">
         <CurrentTime />
       </div>
-      
+
       {/* Auth Button */}
       {authLoading ? (
         <div className="w-10 h-10 bg-zinc-900 rounded-full animate-pulse" />
@@ -4327,11 +4327,11 @@ const copyForTwitter = useCallback(() => {
 
 {/* Market Indices Bar */}
 <div className="mb-6 md:mb-8">
-<div className={`rounded-xl p-3 md:p-4 overflow-hidden transition-all duration-500 ${
-    isMarketOpen 
-  ? 'border-2 border-[#00ff4e]/60' 
+<div className={`rounded-xl p-3 md:p-4 overflow-hidden transition-all duration-500 glass-card ${
+    isMarketOpen
+  ? 'md:border-2 md:border-[#00ff4e]/60'
   : ''
-  }`} style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: isMarketOpen ? '0 0 30px rgba(0,255,78,0.15), inset 0 1px 0 rgba(255,255,255,0.05)' : '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: isMarketOpen ? undefined : '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+  }`} style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
     
     {/* Header Row */}
     <div className="flex items-center justify-between mb-3">
@@ -4440,7 +4440,8 @@ const copyForTwitter = useCallback(() => {
 </div>
 
 {/* Mobile Bottom Tab Bar */}
-<div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.06] px-2 pb-[env(safe-area-inset-bottom)]" style={{background: 'rgba(10,10,10,0.5)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)'}}>  <div className="flex">
+<div className="md:hidden mobile-bottom-nav">
+  <div className="mobile-nav-inner">
     {[
       { id: "DASHBOARD", icon: LayoutDashboard, label: "Home" },
       { id: "FEED", icon: Activity, label: "Feed" },
@@ -4455,13 +4456,11 @@ const copyForTwitter = useCallback(() => {
           key={tab.id}
           data-tour={tab.id === 'MY LISTS' ? 'lists-tab' : tab.id === 'MY POSITIONS' ? 'portfolio-tab' : undefined}
           onClick={() => setActiveTab(tab.id)}
-          className={`flex-1 flex flex-col items-center justify-center py-6 transition-all ${
-            isActive 
-              ? "text-[#00ff4e]" 
-              : "text-zinc-600"
-          }`}
+          className={`mobile-nav-tab ${isActive ? 'active' : ''}`}
         >
-          <Icon size={28} strokeWidth={isActive ? 2.5 : 1.5} />
+          <Icon size={22} strokeWidth={isActive ? 2.2 : 1.5} className="nav-icon" />
+          <span className="mobile-nav-label">{tab.label}</span>
+          <span className="mobile-nav-dot" />
         </button>
       );
     })}
@@ -4473,11 +4472,11 @@ const copyForTwitter = useCallback(() => {
   <div className="space-y-4 md:space-y-6 mb-6 md:mb-8">
     
     {/* Page Title */}
-    <h1 className="text-2xl md:text-3xl font-black text-[#00ff4e] uppercase tracking-tight flex items-center gap-3" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}>
-  <LayoutDashboard size={28} className="md:w-8 md:h-8 text-[#00ff4e]" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Dashboard
+    <h1 className="text-2xl md:text-3xl font-black md:text-[#00ff4e] text-white uppercase tracking-tight flex items-center gap-3 mobile-page-title" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}>
+  <LayoutDashboard size={28} className="md:w-8 md:h-8 text-[#00ff4e] page-title-icon" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Dashboard
 </h1>
 
-  <div className="p-4 md:p-5 rounded-xl" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+  <div className="p-4 md:p-5 rounded-xl" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
     <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
       Analyze Market
     </h3>
@@ -4700,7 +4699,7 @@ const copyForTwitter = useCallback(() => {
 
 {/* SORT & FILTER BAR */}
       {activeTab === "DASHBOARD" && stocks.length > 0 && (
-<div className="rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>          <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
+<div className="rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>          <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
             Filters:
           </span>
           
@@ -5029,8 +5028,8 @@ setFilterSignal("all");
         }}
         className="group flex items-center gap-3 mb-4"
       >
-        <Newspaper size={18} className={`${showDashboardNews ? 'text-[#00ff4e]' : 'text-zinc-600 group-hover:text-zinc-400'} transition-colors`} />
-<span className={`text-2xl md:text-3xl font-black uppercase tracking-tight ${showDashboardNews ? 'text-[#00ff4e]' : 'text-white group-hover:text-zinc-300'} transition-colors`}>  Market News
+        <Newspaper size={16} className={`${showDashboardNews ? 'text-[#00ff4e]' : 'text-zinc-600 group-hover:text-zinc-400'} transition-colors`} />
+<span className={`text-sm md:text-3xl font-semibold md:font-black uppercase tracking-wider md:tracking-tight ${showDashboardNews ? 'text-[#00ff4e]' : 'text-zinc-400 md:text-white group-hover:text-zinc-300'} transition-colors`}>Market News
         </span>
         <span className={`text-xs ${showDashboardNews ? 'text-[#00ff4e]' : 'text-zinc-600'} transition-transform ${showDashboardNews ? 'rotate-180' : ''}`}>
           ▼
@@ -5093,7 +5092,7 @@ setFilterSignal("all");
   <>
     {/* Search Bar */}
     <div className="mb-6">
-      <div className="p-4 rounded-xl" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+      <div className="p-4 rounded-xl" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
         <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
           Find Users
         </h3>
@@ -5162,9 +5161,9 @@ setFilterSignal("all");
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05, duration: 0.3 }}
               className="rounded-xl p-6 transition-all duration-300"
-              style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
-              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
-              onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
+              style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.4)'; e.currentTarget.style.border = '0.5px solid rgba(255,255,255,0.12)'; }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.3)'; e.currentTarget.style.border = '0.5px solid rgba(255,255,255,0.08)'; }}
             >
               <div className="flex justify-between items-start mb-4">
                 <div className="flex-1">
@@ -5213,12 +5212,12 @@ setFilterSignal("all");
  ) : activeTab === "TRENDING" ? (
   <>
     {/* Page Title */}
-<h1 className="text-2xl md:text-3xl font-black text-[#00ff4e] uppercase tracking-tight flex items-center gap-3" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}> <Flame size={28} className="md:w-8 md:h-8 text-[#00ff4e]" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Trending
+<h1 className="text-2xl md:text-3xl font-black md:text-[#00ff4e] text-white uppercase tracking-tight flex items-center gap-3 mobile-page-title" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}> <Flame size={28} className="md:w-8 md:h-8 text-[#00ff4e] page-title-icon" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Trending
 </h1>
 
     {/* Interval Filter */}
     <div className="mb-6">
-      <div className="p-4 rounded-xl" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+      <div className="p-4 rounded-xl" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
         <h3 className="text-[10px] md:text-xs font-black uppercase tracking-[0.3em] text-zinc-500 mb-3">
           Time Period
         </h3>
@@ -5257,10 +5256,10 @@ setFilterSignal("all");
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.05, duration: 0.3 }}
-            className="rounded-xl p-6 transition-all duration-300 cursor-pointer"
-            style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
-            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
-            onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
+            className="rounded-xl p-6 transition-all duration-300 cursor-pointer glass-card mobile-trending-card"
+            style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.4)'; e.currentTarget.style.border = '0.5px solid rgba(255,255,255,0.12)'; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.3)'; e.currentTarget.style.border = '0.5px solid rgba(255,255,255,0.08)'; }}
             onClick={() => {
               setManualSearch(stock.symbol);
               setActiveTab("DASHBOARD");
@@ -5312,392 +5311,296 @@ setFilterSignal("all");
 
 ) : activeTab === "MY LISTS" ? (
   <>
-    {/* Page Title */}
-<h1 className="text-2xl md:text-3xl font-black text-[#00ff4e] uppercase tracking-tight flex items-center gap-3" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}>  <List size={28} className="md:w-8 md:h-8 text-[#00ff4e]" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} /> My Lists
-</h1>
+    {/* ── Header ── */}
+    <h1 className="text-2xl md:text-3xl font-black md:text-[#00ff4e] text-white uppercase tracking-tight flex items-center gap-3 mobile-page-title" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}>
+      <List size={28} className="md:w-8 md:h-8 text-[#00ff4e] page-title-icon" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Lists
+    </h1>
 
-    {/* Create New List Button */}
-    {user && (
-        <div className="mb-6">
-          <button
-            onClick={() => setShowWatchlistModal(true)}
-            className="flex items-center gap-2 bg-[#00ff4e] hover:opacity-90 text-black font-black px-6 py-3 rounded-lg text-sm uppercase tracking-tight transition-all"
-          >
-            <Plus size={16} />
-            Create New List
-          </button>
+    {!user ? (
+      <>
+        <div
+          onClick={() => setShowAuthModal(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, backgroundColor: 'rgba(0,255,78,0.04)', border: '1px solid rgba(0,255,78,0.12)', marginBottom: 20, cursor: 'pointer' }}
+        >
+          <LogIn size={16} color="#00ff4e" />
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 12, color: '#888', flex: 1 }}>Sign in to create and manage watchlists</span>
+          <ChevronRight size={16} color="#333" />
         </div>
-      )}
+        <div style={{ paddingTop: 80, paddingBottom: 80, textAlign: 'center', border: '2px dashed #1a1a1a', borderRadius: 12, opacity: 0.6 }}>
+          <List size={32} color="#333" style={{ marginBottom: 16 }} />
+          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 14, color: '#8a8a8a', marginBottom: 8 }}>No Lists Yet</p>
+          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 12, color: '#737373' }}>Sign in to create your first watchlist.</p>
+        </div>
+      </>
+    ) : (
+      <>
+        {/* ── Create Button ── */}
+        <button
+          onClick={() => { setShowListsCreate(v => !v); setListsNewName(''); setListsNewDesc(''); setListsNewPublic(false); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, backgroundColor: '#00ff4e', paddingLeft: 20, paddingRight: 20, paddingTop: 12, paddingBottom: 12, borderRadius: 12, border: 'none', cursor: 'pointer', marginBottom: 20, fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 600, color: '#000', textTransform: 'uppercase', letterSpacing: 0.5 }}
+        >
+          {showListsCreate ? <X size={16} color="#000" /> : <Plus size={16} color="#000" />}
+          {showListsCreate ? 'Cancel' : 'Create New List'}
+        </button>
 
-      {/* User's Watchlists */}
-      {!user ? (
-        <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-          <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black mb-4">Sign in to create lists</p>
-          <button
-            onClick={() => setShowAuthModal(true)}
-            className="bg-[#00ff4e] hover:opacity-90 text-black font-black px-6 py-3 rounded-lg text-xs uppercase tracking-tight transition-all"
-          >
-            Sign In
-          </button>
-        </div>
-      ) : watchlists.length === 0 ? (
-        <div className="py-32 md:py-40 text-center opacity-20 border-2 border-dashed border-zinc-900 rounded-xl">
-          <p className="text-xs md:text-sm tracking-[0.4em] md:tracking-[0.5em] uppercase font-black">No Lists Yet</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {watchlists.map((list, index) => (
-            <motion.div
-              key={list.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05, duration: 0.3 }}
-              className="rounded-xl p-6 transition-all duration-300"
-              style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
-              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
-              onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
-            >
-              <div className="flex justify-between items-start mb-4">
-  <div className="flex-1">
-    <div className="flex items-center gap-3 mb-2">
-      <h3 
-        onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
-        className="text-xl font-black text-white uppercase tracking-tight cursor-pointer hover:text-[#00ff4e] transition-colors"
-      >
-        {list.name}
-      </h3>
-      {/* Desktop badge */}
-      {list.isPublic ? (
-        <span className="hidden md:inline-block text-[8px] font-black bg-[#00ff4e]/10 text-[#00ff4e] px-2 py-1 rounded border border-[#00ff4e]/30 uppercase">
-          Public
-        </span>
-      ) : (
-        <span className="hidden md:inline-block text-[8px] font-black bg-zinc-800 text-zinc-500 px-2 py-1 rounded border border-zinc-700 uppercase">
-          Private
-        </span>
-      )}
-    </div>
-    {list.description && (
-      <p className="text-sm text-zinc-400 mb-2">{list.description}</p>
-    )}
-    <div className="flex items-center gap-2">
-      <p className="text-xs text-zinc-600">{list.stocks.length} stocks</p>
-      {/* Mobile badge */}
-      {list.isPublic ? (
-        <span className="md:hidden text-[8px] font-black bg-[#00ff4e]/10 text-[#00ff4e] px-2 py-1 rounded border border-[#00ff4e]/30 uppercase">
-          Public
-        </span>
-      ) : (
-        <span className="md:hidden text-[8px] font-black bg-zinc-800 text-zinc-500 px-2 py-1 rounded border border-zinc-700 uppercase">
-          Private
-        </span>
-      )}
-    </div>
-  </div>
-                
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      setEditingWatchlist(list);
-                      setShowWatchlistModal(true);
-                    }}
-                    className="text-zinc-500 hover:text-[#00ff4e] transition-colors p-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => handleDeleteWatchlist(list.id)}
-                    className="text-zinc-500 hover:text-red-500 transition-colors p-2"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                  <button
-                    onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
-                    className="text-zinc-500 hover:text-white transition-colors text-sm font-bold uppercase"
-                  >
-                    {selectedWatchlist?.id === list.id ? 'Hide ▲' : 'View ▼'}
-                  </button>
+        {/* ── Inline Create Form ── */}
+        {showListsCreate && (
+          <div className="mobile-create-form" style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 20, background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.08)', padding: 16 }}>
+              <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 10, color: '#8a8a8a', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 6 }}>List Name</p>
+              <input
+                value={listsNewName}
+                onChange={e => setListsNewName(e.target.value)}
+                placeholder="e.g. Meme Stocks"
+                style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 14, color: '#fff', backgroundColor: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '14px', marginBottom: 12, width: '100%', boxSizing: 'border-box', outline: 'none' }}
+              />
+              <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 10, color: '#8a8a8a', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 6 }}>Description (optional)</p>
+              <input
+                value={listsNewDesc}
+                onChange={e => setListsNewDesc(e.target.value)}
+                placeholder="What's this list about?"
+                style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 14, color: '#fff', backgroundColor: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '14px', marginBottom: 12, width: '100%', boxSizing: 'border-box', outline: 'none' }}
+              />
+              <div
+                onClick={() => setListsNewPublic(v => !v)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, cursor: 'pointer' }}
+              >
+                <div style={{ width: 20, height: 20, borderRadius: 4, border: listsNewPublic ? 'none' : '2px solid #333', backgroundColor: listsNewPublic ? '#00ff4e' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {listsNewPublic && <Check size={12} color="#000" />}
                 </div>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 12, color: '#888' }}>Make this list public</span>
               </div>
-
-{/* Stocks in this list */}
-              <AnimatePresence>
-                {selectedWatchlist?.id === list.id && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden"
-                  >
-                   <div className="space-y-2 mt-3">
-                    {list.stocks.map((stock) => {
-                      const wsData = livePrices?.[stock.symbol];
-                      const snapData = watchlistPrices?.[stock.symbol];
-                      const currentPrice = wsData?.price ?? snapData?.price ?? parseFloat(stock.price);
-                      const prevClose = snapData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
-                      const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
-                      const addedPrice = parseFloat(stock.addedPrice || stock.price);
-                      const sinceAdded = addedPrice > 0 ? ((currentPrice - addedPrice) / addedPrice) * 100 : null;
-                      const addedAgo = stock.addedAt ? (() => {
-                        const diff = Date.now() - new Date(stock.addedAt).getTime();
-                        const mins = Math.floor(diff / 60000);
-                        if (mins < 60) return `${mins}m`;
-                        const hrs = Math.floor(mins / 60);
-                        if (hrs < 24) return `${hrs}h`;
-                        const days = Math.floor(hrs / 24);
-                        if (days < 30) return `${days}d`;
-                        return `${Math.floor(days / 30)}mo`;
-                      })() : null;
-                      const chartKey = `${list.id}-${stock.symbol}`;
-                      const showListChart = expandedListCharts.has(chartKey);
-                      const toggleChart = () => {
-                        setExpandedListCharts(prev => {
-                          const next = new Set(prev);
-                          if (next.has(chartKey)) next.delete(chartKey);
-                          else next.add(chartKey);
-                          return next;
-                        });
-                      };
-                      
-                      return (
-                        <div key={stock.symbol}>
-                          <div
-                            className="w-full p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 transition-all"
-                          >
-                            <div 
-                              className="flex items-center justify-between cursor-pointer"
-                              onClick={() => {
-                                setManualSearch(stock.symbol);
-                                setIsManualResult(true);
-                                setStocks([]);
-                                runScanner(stock.symbol);
-                              }}
-                            >
-                              <div className="flex items-baseline gap-2">
-                                <span className="text-sm font-black text-white cursor-pointer hover:text-[#00ff4e] transition-colors" onClick={(e) => { e.stopPropagation(); setSelectedStock(stock.symbol); }}>{stock.symbol}</span>
-                                <span className="text-sm font-black text-white">${currentPrice.toFixed(2)}</span>
-                                <span className={`text-xs font-bold ${dayChange >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
-                                  {dayChange >= 0 ? '+' : ''}{dayChange.toFixed(2)}%
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {sinceAdded !== null && (
-                                  <div className="text-right">
-                                    <span className={`text-[10px] font-black ${sinceAdded >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
-                                      {sinceAdded >= 0 ? '+' : ''}{sinceAdded.toFixed(1)}%
-                                    </span>
-                                    <p className="text-[8px] text-zinc-600 uppercase">
-                                      {addedAgo ? `since ${addedAgo}` : 'since add'}
-                                    </p>
-                                  </div>
-                                )}
-                                <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    onClick={toggleChart}
-                                    className="text-zinc-600 hover:text-[#00ff4e] transition-colors p-1"
-                                    title="Toggle chart"
-                                  >
-                                    <BarChart3 size={14} />
-                                  </button>
-                                  <button
-                                    onClick={() => removeStockFromList(list.id, stock.symbol)}
-                                    className="text-zinc-600 hover:text-red-500 transition-colors p-1"
-                                    title="Remove"
-                                  >
-                                    <X size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                            <span className="text-[10px] text-zinc-500 truncate block mt-0.5">{stock.name}</span>
-                          </div>
-                          <AnimatePresence>
-                            {showListChart && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="overflow-hidden"
-                              >
-                                <div className="px-2 py-3 bg-zinc-900/30 rounded-b-lg border-x border-b border-zinc-800">
-                                  <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} livePrice={livePrices?.[stock.symbol]?.price} />
-                                </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
-          ))}
-        </div>
-      )}
-{/* Lists I Follow */}
-      {user && followedListsData.length > 0 && (
-        <div className="mt-10">
-          <h2 className="text-lg md:text-xl font-black text-zinc-500 uppercase tracking-tight mb-4 flex items-center gap-2">
-            <Heart size={18} className="text-[#00ff4e]" />
-            Lists I Follow
-          </h2>
-          <div className="space-y-4">
-            {followedListsData.map((list, index) => (
-              <motion.div
-                key={list.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05, duration: 0.3 }}
-                className="rounded-xl p-6 transition-all duration-300"
-              style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
-              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 30px rgba(0,255,78,0.08), inset 0 1px 0 rgba(255,255,255,0.07)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.1)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.25)'; }}
-              onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; e.currentTarget.style.borderTop = '1px solid rgba(0,255,78,0.15)'; }}
-            >
-{/* Header Row */}
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <h3
-                      onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
-                      className="text-xl font-black text-white uppercase tracking-tight cursor-pointer hover:text-[#00ff4e] transition-colors truncate"
-                    >
-                      {list.name}
-                    </h3>
-                    <p className="text-xs text-zinc-600 mt-1">
-                      {list.stocks?.length || 0} stocks · {list.followerCount || 0} followers
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className="text-[8px] font-black bg-[#00ff4e]/10 text-[#00ff4e] px-2 py-1 rounded border border-[#00ff4e]/30 uppercase hidden sm:inline-block">
-                      Following
-                    </span>
-                    <button
-                      onClick={async () => {
-                        if (!window.confirm('Unfollow this list?')) return;
-                        try {
-                          const { toggleFollowWatchlist } = await import('./watchlistService');
-                          await toggleFollowWatchlist(user.uid, list.id, false);
-                          setFollowedLists(prev => prev.filter(id => id !== list.id));
-                        } catch (e) {
-                          console.error('Unfollow error:', e);
-                        }
-                      }}
-                      className="text-zinc-600 hover:text-red-500 transition-colors text-[10px] font-black uppercase tracking-wider"
-                    >
-                      Unfollow
-                    </button>
-                    <button
-                      onClick={() => setSelectedWatchlist(selectedWatchlist?.id === list.id ? null : list)}
-                      className="text-zinc-500 hover:text-white transition-colors text-[10px] font-black uppercase tracking-wider"
-                    >
-                      {selectedWatchlist?.id === list.id ? 'Hide ▲' : 'View ▼'}
-                    </button>
-                  </div>
-                </div>
-
-                {list.description && (
-                  <p className="text-sm text-zinc-500 mt-2">{list.description}</p>
-                )}
-
-                {/* Expanded stocks */}
-                <AnimatePresence>
-                  {selectedWatchlist?.id === list.id && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="space-y-2 mt-4">
-                        {list.stocks?.map((stock) => {
-                          const wsData = livePrices?.[stock.symbol];
-                          const snapData = watchlistPrices?.[stock.symbol];
-                          const currentPrice = wsData?.price ?? snapData?.price ?? parseFloat(stock.price || 0);
-                          const prevClose = snapData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
-                          const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
-                          const chartKey = `followed-${list.id}-${stock.symbol}`;
-                          const showListChart = expandedListCharts.has(chartKey);
-                          const toggleChart = () => {
-                            setExpandedListCharts(prev => {
-                              const next = new Set(prev);
-                              if (next.has(chartKey)) next.delete(chartKey);
-                              else next.add(chartKey);
-                              return next;
-                            });
-                          };
-                          
-                          return (
-                            <div key={stock.symbol}>
-                              <div
-                                className="w-full flex items-center justify-between p-3 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-[#00ff4e]/30 transition-all"
-                              >
-                                <div 
-                                  className="flex items-center gap-3 flex-1 cursor-pointer"
-                                  onClick={() => {
-                                    setManualSearch(stock.symbol);
-                                    setIsManualResult(true);
-                                    setStocks([]);
-                                    runScanner(stock.symbol);
-                                  }}
-                                >
-                                  <div className="flex flex-col">
-                                    <span className="text-sm font-black text-white cursor-pointer hover:text-[#00ff4e] transition-colors" onClick={(e) => { e.stopPropagation(); setSelectedStock(stock.symbol); }}>{stock.symbol}</span>
-                                    <span className="text-[10px] text-zinc-500 truncate max-w-[100px]">{stock.name}</span>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <div className="text-right">
-                                    <span className="text-sm font-black text-white">${currentPrice.toFixed(2)}</span>
-                                    <span className={`text-xs font-bold ml-2 ${dayChange >= 0 ? 'text-[#00ff4e]' : 'text-[#FF4B2B]'}`}>
-                                      {dayChange >= 0 ? '+' : ''}{dayChange.toFixed(2)}%
-                                    </span>
-                                  </div>
-                                  <button
-                                    onClick={toggleChart}
-                                    className="text-zinc-600 hover:text-[#00ff4e] transition-colors p-1"
-                                    title="Toggle chart"
-                                  >
-                                    <BarChart3 size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                              <AnimatePresence>
-                                {showListChart && (
-                                  <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: 'auto', opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.2 }}
-                                    className="overflow-hidden"
-                                  >
-                                    <div className="px-2 py-3 bg-zinc-900/30 rounded-b-lg border-x border-b border-zinc-800">
-                                      <StockChart symbol={stock.symbol} polygonKey={process.env.REACT_APP_POLYGON_KEY} isMarketOpen={isMarketOpen} livePrice={livePrices?.[stock.symbol]?.price} />
-                                    </div>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            ))}
+              <button
+                onClick={async () => {
+                  if (!listsNewName.trim()) return;
+                  try {
+                    await handleCreateWatchlist({ name: listsNewName.trim(), description: listsNewDesc.trim(), isPublic: listsNewPublic });
+                    setShowListsCreate(false);
+                    setListsNewName(''); setListsNewDesc(''); setListsNewPublic(false);
+                  } catch (e) { alert('Failed to create list'); }
+                }}
+                style={{ backgroundColor: '#00ff4e', borderRadius: 10, paddingTop: 14, paddingBottom: 14, width: '100%', border: 'none', cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 14, color: '#000', textTransform: 'uppercase', letterSpacing: 2 }}
+              >
+                Create List
+              </button>
           </div>
-        </div>
-      )}
-    </>
+        )}
+
+        {/* ── My Watchlists ── */}
+        {watchlists.length === 0 ? (
+          <div style={{ paddingTop: 80, paddingBottom: 80, textAlign: 'center', border: '2px dashed #1a1a1a', borderRadius: 12, opacity: 0.6 }}>
+            <List size={32} color="#333" style={{ marginBottom: 16 }} />
+            <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 14, color: '#8a8a8a', marginBottom: 8 }}>No Lists Yet</p>
+            <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 12, color: '#737373' }}>Create your first watchlist to start tracking stocks.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {watchlists.map((list) => {
+              const isExpanded = expandedListId === list.id;
+              return (
+                <div key={list.id} className="mobile-list-card" style={{ borderRadius: 16, overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.08)', padding: 16 }}>
+                    {/* List header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span
+                            onClick={() => { setExpandedListId(isExpanded ? null : list.id); setSelectedWatchlist(isExpanded ? null : list); }}
+                            style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 18, color: '#fff', textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'pointer' }}
+                          >{list.name}</span>
+                          <span style={{ padding: '3px 8px', borderRadius: 4, border: list.isPublic ? '1px solid rgba(0,255,78,0.2)' : '1px solid rgba(255,255,255,0.06)', backgroundColor: list.isPublic ? 'rgba(0,255,78,0.06)' : 'rgba(255,255,255,0.03)', fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 8, textTransform: 'uppercase', letterSpacing: 1, color: list.isPublic ? '#00ff4e' : '#8a8a8a' }}>
+                            {list.isPublic ? 'Public' : 'Private'}
+                          </span>
+                        </div>
+                        {list.description && <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 13, color: '#71717a', marginBottom: 4 }}>{list.description}</p>}
+                        <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 12, color: '#737373', marginTop: 2 }}>{list.stocks?.length || 0} stocks</p>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <button onClick={() => { navigator.share ? navigator.share({ text: `${list.name} — ${list.stocks?.length || 0} stocks on jckrbbt.io` }) : navigator.clipboard?.writeText(`${list.name} on jckrbbt.io`); }} style={{ padding: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#8a8a8a' }} title="Share">
+                          <Share size={14} />
+                        </button>
+                        <button onClick={() => handleDeleteWatchlist(list.id)} style={{ padding: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#8a8a8a' }} title="Delete">
+                          <Trash2 size={14} />
+                        </button>
+                        <button
+                          onClick={() => { setExpandedListId(isExpanded ? null : list.id); setSelectedWatchlist(isExpanded ? null : list); }}
+                          style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 10, color: '#8a8a8a', textTransform: 'uppercase', letterSpacing: 1, background: 'none', border: 'none', cursor: 'pointer' }}
+                        >
+                          {isExpanded ? 'Hide ▲' : 'View ▼'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Expanded stocks */}
+                    {isExpanded && (
+                      <div style={{ marginTop: 12 }}>
+                        {list.stocks?.length === 0 ? (
+                          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 12, color: '#333', textAlign: 'center', paddingTop: 20, paddingBottom: 20 }}>No stocks in this list yet. Scan a stock and add it!</p>
+                        ) : (
+                          <>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
+                              {list.stocks.map((stock) => {
+                                const wsData = livePrices?.[stock.symbol];
+                                const snapData = watchlistPrices?.[stock.symbol];
+                                const currentPrice = wsData?.price ?? snapData?.price ?? parseFloat(stock.price || 0);
+                                const prevClose = snapData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
+                                const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
+                                const addedPrice = parseFloat(stock.addedPrice || stock.price || 0);
+                                const sinceAdded = addedPrice > 0 && currentPrice > 0 ? ((currentPrice - addedPrice) / addedPrice) * 100 : null;
+                                const addedAgo = stock.addedAt ? (() => {
+                                  const diff = Date.now() - new Date(stock.addedAt).getTime();
+                                  const mins = Math.floor(diff / 60000);
+                                  if (mins < 60) return `${mins}m`;
+                                  const hrs = Math.floor(mins / 60);
+                                  if (hrs < 24) return `${hrs}h`;
+                                  const days = Math.floor(hrs / 24);
+                                  if (days < 30) return `${days}d`;
+                                  return `${Math.floor(days / 30)}mo`;
+                                })() : null;
+                                return (
+                                  <div
+                                    key={stock.symbol}
+                                    onClick={() => setSelectedStock(stock.symbol)}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', backgroundColor: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 10, cursor: 'pointer' }}
+                                  >
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 14, color: '#fff' }}>{stock.symbol}</span>
+                                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 14, color: '#fff' }}>${currentPrice.toFixed(2)}</span>
+                                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 12, color: dayChange >= 0 ? '#00ff4e' : '#FF4B2B' }}>{dayChange >= 0 ? '+' : ''}{dayChange.toFixed(2)}%</span>
+                                      </div>
+                                      <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 10, color: '#8a8a8a', marginTop: 2, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stock.name}</p>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
+                                      {sinceAdded !== null && (
+                                        <div style={{ textAlign: 'right' }}>
+                                          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 10, color: sinceAdded >= 0 ? '#00ff4e' : '#FF4B2B' }}>{sinceAdded >= 0 ? '+' : ''}{sinceAdded.toFixed(1)}%</p>
+                                          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 8, color: '#737373', textTransform: 'uppercase' }}>{addedAgo ? `since ${addedAgo}` : 'since add'}</p>
+                                        </div>
+                                      )}
+                                      <button
+                                        onClick={() => removeStockFromList(list.id, stock.symbol)}
+                                        style={{ padding: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#737373' }}
+                                        title="Remove"
+                                      >
+                                        <X size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {list.stocks?.length > 5 && (
+                              <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 9, color: '#737373', textAlign: 'center', marginTop: 8, letterSpacing: 1 }}>↕ Scroll · {list.stocks.length} stocks</p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Lists I Follow ── */}
+        {followedListsData.length > 0 && (
+          <div style={{ marginTop: 32 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <Heart size={16} color="#a1a1aa" />
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: 2, fontWeight: 600 }}>Following</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {followedListsData.map((list) => {
+                const isExpanded = expandedListId === list.id;
+                return (
+                  <div key={list.id} className="mobile-list-card" style={{ borderRadius: 16, overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.08)', padding: 16 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span
+                              onClick={() => { setExpandedListId(isExpanded ? null : list.id); setSelectedWatchlist(isExpanded ? null : list); }}
+                              style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 18, color: '#fff', textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'pointer' }}
+                            >{list.name}</span>
+                          </div>
+                          {list.description && <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 13, color: '#71717a', marginBottom: 4 }}>{list.description}</p>}
+                          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 12, color: '#737373', marginTop: 2 }}>{list.stocks?.length || 0} stocks · by {list.ownerUsername || 'Anonymous'} · {list.followerCount || 0} followers</p>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <button
+                            onClick={async () => {
+                              if (!window.confirm('Unfollow this list?')) return;
+                              try {
+                                const { toggleFollowWatchlist } = await import('./watchlistService');
+                                await toggleFollowWatchlist(user.uid, list.id, false);
+                                setFollowedLists(prev => prev.filter(id => id !== list.id));
+                              } catch (e) { console.error('Unfollow error:', e); }
+                            }}
+                            style={{ padding: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#FF4B2B' }}
+                            title="Unfollow"
+                          >
+                            <Heart size={14} fill="#FF4B2B" />
+                          </button>
+                          <button
+                            onClick={() => { setExpandedListId(isExpanded ? null : list.id); setSelectedWatchlist(isExpanded ? null : list); }}
+                            style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 10, color: '#8a8a8a', textTransform: 'uppercase', letterSpacing: 1, background: 'none', border: 'none', cursor: 'pointer' }}
+                          >
+                            {isExpanded ? 'Hide ▲' : 'View ▼'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {isExpanded && list.stocks && (
+                        <div style={{ marginTop: 12 }}>
+                          {list.stocks.length === 0 ? (
+                            <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 12, color: '#333', textAlign: 'center', paddingTop: 20, paddingBottom: 20 }}>No stocks in this list yet.</p>
+                          ) : (
+                            <>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
+                                {list.stocks.map((stock) => {
+                                  const wsData = livePrices?.[stock.symbol];
+                                  const snapData = watchlistPrices?.[stock.symbol];
+                                  const currentPrice = wsData?.price ?? snapData?.price ?? parseFloat(stock.price || 0);
+                                  const prevClose = snapData?.prevClose ?? (stock.prevClose ? parseFloat(stock.prevClose) : null);
+                                  const dayChange = prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : parseFloat(stock.change || 0);
+                                  return (
+                                    <div
+                                      key={stock.symbol}
+                                      onClick={() => setSelectedStock(stock.symbol)}
+                                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', backgroundColor: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 10, cursor: 'pointer' }}
+                                    >
+                                      <div style={{ flex: 1 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 14, color: '#fff' }}>{stock.symbol}</span>
+                                          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 14, color: '#fff' }}>${currentPrice.toFixed(2)}</span>
+                                          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, fontSize: 12, color: dayChange >= 0 ? '#00ff4e' : '#FF4B2B' }}>{dayChange >= 0 ? '+' : ''}{dayChange.toFixed(2)}%</span>
+                                        </div>
+                                        <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 10, color: '#8a8a8a', marginTop: 2, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stock.name}</p>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {list.stocks.length > 5 && (
+                                <p style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, fontSize: 9, color: '#737373', textAlign: 'center', marginTop: 8, letterSpacing: 1 }}>↕ Scroll · {list.stocks.length} stocks</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+
+      </>
+    )}
+  </>
 
 ) : activeTab === "FEED" ? (
   <>
-<h1 className="text-2xl md:text-3xl font-black text-[#00ff4e] uppercase tracking-tight flex items-center gap-3" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}> <Activity size={28} className="md:w-8 md:h-8 text-[#00ff4e]" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Activity Feed
+<h1 className="text-2xl md:text-3xl font-black md:text-[#00ff4e] text-white uppercase tracking-tight flex items-center gap-3 mobile-page-title" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}> <Activity size={28} className="md:w-8 md:h-8 text-[#00ff4e] page-title-icon" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Feed
 </h1>
     <p className="text-xs text-zinc-500 font-bold mb-6">
       {following.length > 0 ? 'What people you follow are watching' : 'Discover what the community is watching'}
@@ -5796,8 +5699,8 @@ setFilterSignal("all");
           return (
             <div 
               key={activity.id}
-              className="rounded-xl p-4 transition-all duration-300"
-              style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}
+              className="rounded-xl p-4 transition-all duration-300 glass-card mobile-feed-card"
+              style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}
             >
               <div className="flex items-start gap-3">
                 {/* Avatar */}
@@ -5852,7 +5755,7 @@ setFilterSignal("all");
 ) : activeTab === "MY POSITIONS" ? (
   <>
     {/* Page Title */}
-<h1 className="text-2xl md:text-3xl font-black text-[#00ff4e] uppercase tracking-tight flex items-center gap-3" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}>  <Briefcase size={28} className="md:w-8 md:h-8 text-[#00ff4e]" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />My Positions
+<h1 className="text-2xl md:text-3xl font-black md:text-[#00ff4e] text-white uppercase tracking-tight flex items-center gap-3 mobile-page-title" style={{textShadow: '0 0 10px rgba(0,255,78,0.4)'}}>  <Briefcase size={28} className="md:w-8 md:h-8 text-[#00ff4e] page-title-icon" style={{filter: 'drop-shadow(0 0 8px rgba(0,255,78,0.5))'}} />Portfolio
 </h1>
 
     {!user ? (
@@ -5868,7 +5771,7 @@ setFilterSignal("all");
     ) : (
       <>
         {/* Brokerage Management Header */}
-        <div className="rounded-xl p-4 md:p-6 mb-6" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+        <div className="rounded-xl p-4 md:p-6 mb-6" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
 <h3 
@@ -6066,7 +5969,7 @@ setFilterSignal("all");
   polygonKey={POLYGON_KEY} 
 />                
                   {/* Sort Bar */}
-<div className="rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+<div className="rounded-lg p-3 md:p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3 md:gap-4" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
                     <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">
                       Sort:
                     </span>
@@ -6406,10 +6309,10 @@ function SearchOverlay({
 
   return ReactDOM.createPortal(
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-      style={{ position: 'fixed', inset: 0, zIndex: 9990, backgroundColor: 'rgba(0,0,0,0.97)', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+      className="mobile-search-overlay" style={{ position: 'fixed', inset: 0, zIndex: 9990, backgroundColor: 'rgba(10,10,10,0.97)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
       {/* Search bar row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 16px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: '10px 14px', border: '1px solid rgba(0,255,78,0.2)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 16px 12px', borderBottom: '0.5px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: '10px 14px', border: '0.5px solid rgba(255,255,255,0.08)' }}>
           <Search size={16} color="#00ff4e" style={{ flexShrink: 0 }} />
           <input ref={inputRef} value={userSearchTerm} onChange={e => handleInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && stockResults.length > 0) onSelectStock(stockResults[0].ticker); }}
@@ -6436,7 +6339,7 @@ function SearchOverlay({
               </div>
             ) : stockResults.map(r => (
               <button key={r.ticker} onClick={() => onSelectStock(r.ticker)}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 14px', marginBottom: 6, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', textAlign: 'left' }}>
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 14px', marginBottom: 6, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12, border: '0.5px solid rgba(255,255,255,0.08)', cursor: 'pointer', textAlign: 'left' }}>
                 <div>
                   <p style={{ fontSize: 15, fontFamily: 'JetBrains Mono, monospace', color: '#00ff4e', fontWeight: 700, margin: 0 }}>{r.ticker}</p>
                   <p style={{ fontSize: 11, color: '#8a8a8a', margin: '2px 0 0', fontFamily: 'JetBrains Mono, monospace' }}>{r.name}</p>
@@ -6456,7 +6359,7 @@ function SearchOverlay({
               </div>
             ) : searchResults.map(u => (
               <button key={u.id} onClick={() => { handleViewUserProfile(u.id); onClose(); }}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 14px', marginBottom: 6, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', textAlign: 'left' }}>
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 14px', marginBottom: 6, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12, border: '0.5px solid rgba(255,255,255,0.08)', cursor: 'pointer', textAlign: 'left' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   {u.profilePicUrl
                     ? <img src={u.profilePicUrl} alt={u.username} style={{ width: 36, height: 36, borderRadius: 18, objectFit: 'cover' }} />
@@ -6482,7 +6385,7 @@ function SearchOverlay({
             <p style={{ fontSize: 10, color: '#555', letterSpacing: 2, fontFamily: 'JetBrains Mono, monospace', marginBottom: 8, textTransform: 'uppercase' }}>Popular Watchlists</p>
             {publicWatchlists.slice(0, 5).map(list => (
               <button key={list.id} onClick={() => { handleViewUserProfile(list.ownerId); onClose(); }}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 14px', marginBottom: 6, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', textAlign: 'left' }}>
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 14px', marginBottom: 6, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12, border: '0.5px solid rgba(255,255,255,0.08)', cursor: 'pointer', textAlign: 'left' }}>
                 <div>
                   <p style={{ fontSize: 14, color: '#fff', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, margin: 0 }}>{list.name}</p>
                   <p style={{ fontSize: 11, color: '#555', margin: '3px 0 0', fontFamily: 'JetBrains Mono, monospace' }}>by {list.ownerUsername || 'Anonymous'} · {list.stocks?.length || 0} stocks</p>
@@ -6742,9 +6645,12 @@ function StockDetailPage({ symbol, onClose, polygonKey, finnhubKey, aiModel, use
     (async () => {
       try {
         const expDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        const res = await fetch(`https://api.polygon.io/v3/snapshot/options/${symbol}?contract_type=call&expiration_date.lte=${expDate}&limit=50&apiKey=${polygonKey}`).then(r => r.json());
-        if (cancelled || !res?.results?.length) { if (!cancelled) setOptionsLoading(false); return; }
-        const contracts = res.results;
+        const [callRes, putRes] = await Promise.all([
+          fetch(`https://api.polygon.io/v3/snapshot/options/${symbol}?contract_type=call&expiration_date.lte=${expDate}&limit=50&apiKey=${polygonKey}`).then(r => r.json()),
+          fetch(`https://api.polygon.io/v3/snapshot/options/${symbol}?contract_type=put&expiration_date.lte=${expDate}&limit=50&apiKey=${polygonKey}`).then(r => r.json()),
+        ]);
+        if (cancelled || (!callRes?.results?.length && !putRes?.results?.length)) { if (!cancelled) setOptionsLoading(false); return; }
+        const contracts = [...(callRes.results || []), ...(putRes.results || [])];
         const calls = contracts.filter(c => c.details?.contract_type === 'call');
         const puts = contracts.filter(c => c.details?.contract_type === 'put');
         const callVol = calls.reduce((s, c) => s + (c.day?.volume || 0), 0);
@@ -6823,12 +6729,9 @@ function StockDetailPage({ symbol, onClose, polygonKey, finnhubKey, aiModel, use
 
   // ===== GLASS BOX =====
   const GlassBox = ({ title, children }) => (
-    <div style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 12, boxShadow: '0 4px 24px rgba(0,0,0,0.4)' }}>
-      <div style={{ height: 1, background: 'rgba(0,255,78,0.15)' }} />
-      <div style={{ background: 'linear-gradient(135deg, rgba(40,40,40,0.92), rgba(15,15,15,0.98))', padding: 16, border: '1px solid rgba(255,255,255,0.06)', borderTop: 'none', borderBottomLeftRadius: 16, borderBottomRightRadius: 16 }}>
-        {title && <div style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: '#8a8a8a', textTransform: 'uppercase', letterSpacing: 3, marginBottom: 12 }}>{title}</div>}
-        {children}
-      </div>
+    <div className="mobile-stock-glassbox" style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 12, boxShadow: '0 4px 24px rgba(0,0,0,0.4)', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.08)', padding: 16 }}>
+      {title && <div className="mobile-stock-glassbox-title" style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: '#8a8a8a', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12, fontWeight: 600 }}>{title}</div>}
+      {children}
     </div>
   );
 
@@ -6837,36 +6740,28 @@ function StockDetailPage({ symbol, onClose, polygonKey, finnhubKey, aiModel, use
   const monoXs = { fontFamily: 'JetBrains Mono, monospace', fontSize: 9 };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#000', display: 'flex', flexDirection: 'column', fontFamily: 'JetBrains Mono, monospace' }}>
+    <div className="mobile-stock-detail" style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#0a0a0a', display: 'flex', flexDirection: 'column', fontFamily: 'JetBrains Mono, monospace' }}>
       {/* HEADER */}
-      <div style={{ display: 'flex', alignItems: 'center', padding: '12px 20px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)', gap: 12, flexShrink: 0 }}>
-        <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: 18, background: 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <div className="mobile-stock-header" style={{ display: 'flex', alignItems: 'center', padding: '12px 16px 10px', borderBottom: '0.5px solid rgba(255,255,255,0.06)', gap: 12, flexShrink: 0 }}>
+        <button onClick={onClose} className="mobile-stock-back" style={{ width: 36, height: 36, borderRadius: 18, background: 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <ArrowLeft size={18} color="#fff" />
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 22, fontFamily: 'JetBrains Mono, monospace', color: '#00ff4e', letterSpacing: 1, fontWeight: 700 }}>{symbol}</div>
-          <div style={{ fontSize: 12, color: '#8a8a8a', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{companyName}</div>
-          {/* Set Alerts chip — matches mobile */}
-          <button
-            onClick={() => onSetAlert?.({ symbol, name: companyName, price })}
-            style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, border: '1px solid rgba(0,255,78,0.35)', background: 'transparent', cursor: 'pointer' }}
-          >
-            <Bell size={11} color="#00ff4e" />
-            <span style={{ fontSize: 11, color: '#00ff4e', fontFamily: 'JetBrains Mono, monospace' }}>Set Alerts</span>
-          </button>
+          <div className="mobile-stock-ticker" style={{ fontSize: 22, fontFamily: 'JetBrains Mono, monospace', color: '#fff', letterSpacing: 0.5, fontWeight: 700 }}>{symbol}</div>
+          <div className="mobile-stock-name" style={{ fontSize: 12, color: '#8a8a8a', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 300 }}>{companyName}</div>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontSize: 22, fontFamily: 'JetBrains Mono, monospace', color: '#fff', fontWeight: 700 }}>
+          <div className="mobile-stock-price" style={{ fontSize: 22, fontFamily: 'JetBrains Mono, monospace', color: '#fff', fontWeight: 700 }}>
             {price > 0 ? `$${price.toFixed(2)}` : '—'}
           </div>
-          <div style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', color: accent, marginTop: 2 }}>
-            {isPositive ? '▲ +' : '▼ '}{change.toFixed(2)}%
+          <div className={`mobile-stock-change ${isPositive ? 'up' : 'down'}`} style={{ fontSize: 13, fontFamily: 'JetBrains Mono, monospace', color: accent, marginTop: 2 }}>
+            {isPositive ? '+' : ''}{change.toFixed(2)}%
           </div>
         </div>
       </div>
 
       {/* BODY */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 80px' }}>
+      <div ref={scrollRef} className="mobile-stock-body" style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '12px 16px 80px' }}>
         {loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, paddingTop: 80 }}>
             <div style={{ width: 36, height: 36, border: '3px solid #00ff4e', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
@@ -6875,11 +6770,11 @@ function StockDetailPage({ symbol, onClose, polygonKey, finnhubKey, aiModel, use
           </div>
         ) : (
           <>
-            {/* ACTION BAR — Pin, Share, Add, Ask AI, Idea, Website */}
+            {/* ACTION BAR — compact pills */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 14, overflowX: 'auto', paddingBottom: 2 }}>
               {[
                 {
-                  icon: <Pin size={18} color="#00ff4e" fill={isPinned ? '#00ff4e' : 'none'} />,
+                  icon: <Pin size={14} color={isPinned ? '#00ff4e' : '#aaa'} fill={isPinned ? '#00ff4e' : 'none'} />,
                   label: isPinned ? 'Pinned' : 'Pin',
                   onClick: () => {
                     setIsPinned(p => !p);
@@ -6891,7 +6786,7 @@ function StockDetailPage({ symbol, onClose, polygonKey, finnhubKey, aiModel, use
                   active: isPinned,
                 },
                 {
-                  icon: <Share2 size={18} color="#00ff4e" />,
+                  icon: <Share2 size={14} color="#aaa" />,
                   label: 'Share',
                   onClick: () => {
                     const text = `${symbol} — $${price.toFixed(2)} (${isPositive ? '+' : ''}${change.toFixed(2)}%)\n\n${companyName}\n\njckrbbt.io`;
@@ -6900,18 +6795,25 @@ function StockDetailPage({ symbol, onClose, polygonKey, finnhubKey, aiModel, use
                   },
                 },
                 {
-                  icon: <Plus size={18} color="#00ff4e" />,
+                  icon: <Plus size={14} color="#aaa" />,
                   label: 'Add',
                   onClick: () => onAddToList?.({ symbol, name: companyName, price }),
                 },
                 {
-                  icon: <Cpu size={18} color="#00ff4e" />,
+                  icon: <Bell size={14} color="#00ff4e" />,
+                  label: 'Set Alerts',
+                  onClick: () => onSetAlert?.({ symbol, name: companyName, price }),
+                  primary: true,
+                },
+                {
+                  icon: <Cpu size={14} color="#00ff4e" />,
                   label: 'Ask AI',
                   onClick: () => setChatOpen(o => !o),
                   active: chatOpen,
+                  primary: true,
                 },
                 {
-                  icon: <Lightbulb size={18} color="#00ff4e" />,
+                  icon: <Lightbulb size={14} color="#00ff4e" />,
                   label: 'Idea',
                   onClick: () => {
                     setChatOpen(true);
@@ -6919,28 +6821,25 @@ function StockDetailPage({ symbol, onClose, polygonKey, finnhubKey, aiModel, use
                       setChatInput(`Give me a trade idea for ${symbol} based on current technicals and recent news.`);
                     }, 150);
                   },
+                  primary: true,
                 },
-                d?.homepage_url ? {
-                  icon: <Globe size={18} color="#00ff4e" />,
-                  label: 'Website',
-                  onClick: () => window.open(d.homepage_url, '_blank'),
-                } : null,
-              ].filter(Boolean).map((btn, i) => (
+              ].map((btn, i) => (
                 <button
                   key={i}
                   onClick={btn.onClick}
+                  className="mobile-action-pill"
                   style={{
                     flex: '0 0 auto',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                    padding: '10px 16px',
-                    borderRadius: 12,
-                    border: `1px solid ${btn.active ? 'rgba(0,255,78,0.5)' : 'rgba(0,255,78,0.2)'}`,
-                    background: btn.active ? 'rgba(0,255,78,0.12)' : 'rgba(0,255,78,0.05)',
-                    cursor: 'pointer', minWidth: 64,
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '8px 14px',
+                    borderRadius: 20,
+                    border: `0.5px solid ${btn.active ? 'rgba(0,255,78,0.4)' : btn.primary ? 'rgba(0,255,78,0.2)' : 'rgba(255,255,255,0.08)'}`,
+                    background: btn.active ? 'rgba(0,255,78,0.12)' : btn.primary ? 'rgba(0,255,78,0.06)' : 'rgba(255,255,255,0.05)',
+                    cursor: 'pointer',
                   }}
                 >
                   {btn.icon}
-                  <span style={{ fontSize: 9, color: '#00ff4e', letterSpacing: 0.5, fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase' }}>{btn.label}</span>
+                  <span style={{ fontSize: 11, color: btn.primary || btn.active ? '#00ff4e' : '#ccc', letterSpacing: 0.3, fontFamily: 'JetBrains Mono, monospace', fontWeight: 500 }}>{btn.label}</span>
                 </button>
               ))}
             </div>

@@ -4,39 +4,91 @@
      import './mobile.css';
    ════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
 
+/* ═══════════════════════════════════════════════
+   MOBILE-ONLY OVERRIDES  (max-width: 767px)
+   ═══════════════════════════════════════════════ */
 @media (max-width: 767px) {
+
+  /* ── Global resets ── */
+  body {
+    background: #0a0a0a !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
   body, input, button, select, textarea {
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-family: 'JetBrains Mono', ui-monospace, monospace !important;
   }
 
-  /* ── Bottom nav ── */
+  /* ── Main container ── */
+  .min-h-screen {
+    background: #0a0a0a !important;
+    padding: 0 16px 80px !important;
+    padding-top: env(safe-area-inset-top, 16px) !important;
+  }
+
+  /* ═══ BOTTOM NAV BAR ═══ */
+  .mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: rgba(10, 10, 10, 0.85);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-top: 0.5px solid rgba(255, 255, 255, 0.06);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .mobile-nav-inner {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+  }
   .mobile-nav-tab {
     position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 12px 0 10px;
-    min-height: 56px;
+    gap: 4px;
+    padding: 10px 0 8px;
+    min-height: 52px;
+    flex: 1;
     background: none;
     border: none;
     cursor: pointer;
     transition: transform 0.1s;
+    -webkit-tap-highlight-color: transparent;
   }
   .mobile-nav-tab:active {
     transform: scale(0.85);
   }
-
-  /* Active dot — glowing green */
+  .mobile-nav-tab .nav-icon {
+    color: #555;
+    transition: color 0.2s;
+  }
+  .mobile-nav-tab.active .nav-icon {
+    color: #00ff4e;
+  }
+  .mobile-nav-label {
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    color: #555;
+    transition: color 0.2s;
+  }
+  .mobile-nav-tab.active .mobile-nav-label {
+    color: #00ff4e;
+  }
+  /* Active indicator dot */
   .mobile-nav-dot {
-    width: 5px;
-    height: 5px;
+    width: 4px;
+    height: 4px;
     border-radius: 50%;
     background: #00ff4e;
-    box-shadow: 0 0 8px #00ff4e, 0 0 14px rgba(0,255,78,0.4);
+    box-shadow: 0 0 6px #00ff4e;
     opacity: 0;
     transform: scale(0);
     transition: opacity 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -47,26 +99,124 @@
     transform: scale(1);
   }
 
-  /* ── Scan button ── */
-  .mobile-scan-btn {
-    box-shadow: 0 4px 20px rgba(0,255,78,0.3) !important;
-    border-radius: 12px !important;
-    font-size: 15px !important;
-    letter-spacing: 3px !important;
-    padding: 18px !important;
-    font-family: 'JetBrains Mono', monospace !important;
+  /* ═══ HEADER ═══ */
+  .mobile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0 8px;
+  }
+  .mobile-header-logo {
+    height: 32px;
+    width: auto;
+    object-fit: contain;
+  }
+  .mobile-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mobile-header-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    color: #888;
+  }
+  .mobile-header-btn:active {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  /* ═══ PAGE TITLES ═══ */
+  .mobile-page-title {
+    font-family: 'AlphaLyrae', sans-serif !important;
+    font-size: 22px !important;
     font-weight: 500 !important;
+    color: #fff !important;
+    text-shadow: none !important;
+    letter-spacing: -0.02em !important;
+    text-transform: none !important;
+    margin-bottom: 16px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0 !important;
+  }
+  .mobile-page-title svg,
+  .mobile-page-title .page-title-icon {
+    display: none !important;
+  }
+  /* Override Tailwind title classes */
+  h1.text-2xl, h1.text-3xl {
+    font-size: 22px !important;
+    font-weight: 600 !important;
+    color: #fff !important;
+    text-shadow: none !important;
+    letter-spacing: 0 !important;
+    margin-bottom: 16px;
+  }
+
+  /* ═══ GLASS CARDS — the new standard ═══ */
+  .mobile-glass,
+  .glass-card {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+    overflow: hidden;
+    /* Remove green top border */
+    border-top: 0.5px solid rgba(255, 255, 255, 0.08) !important;
+  }
+  /* Kill all old gradient card styles */
+  [style*="linear-gradient(135deg, rgba(40,40,40"] {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.08) !important;
+    border-top: 0.5px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+  }
+
+  /* ═══ SECTION HEADERS ═══ */
+  .mobile-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: #a1a1aa;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+
+  /* ═══ SCAN BUTTON ═══ */
+  .mobile-scan-btn {
+    background: #00ff4e !important;
+    color: #000 !important;
+    border-radius: 12px !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    letter-spacing: 1px !important;
+    padding: 16px !important;
+    border: none !important;
+    box-shadow: 0 4px 20px rgba(0, 255, 78, 0.25) !important;
+    -webkit-tap-highlight-color: transparent;
   }
   .mobile-scan-btn:active {
     transform: scale(0.97);
+    opacity: 0.9;
   }
 
-  /* ── Full-screen search overlay ── */
+  /* ═══ FULL-SCREEN SEARCH OVERLAY ═══ */
   .mobile-search-overlay {
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: rgba(0,0,0,0.88);
+    background: rgba(10, 10, 10, 0.96);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     display: flex;
     flex-direction: column;
   }
@@ -82,9 +232,10 @@
     flex: 1;
     display: flex;
     align-items: center;
-    background: rgba(30,30,30,0.97);
-    border: 1px solid rgba(0,255,78,0.25);
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
+    padding: 0 12px;
   }
   .mobile-search-wrap.has-results {
     border-bottom-left-radius: 0;
@@ -93,7 +244,7 @@
   }
   .mobile-search-input {
     flex: 1;
-    padding: 14px 10px;
+    padding: 14px 8px;
     background: transparent;
     border: none;
     outline: none;
@@ -101,13 +252,16 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 15px;
     font-weight: 300;
-    letter-spacing: 1px;
+    letter-spacing: 0.5px;
     caret-color: #00ff4e;
+  }
+  .mobile-search-input::placeholder {
+    color: #555;
   }
   .mobile-search-cancel {
     font-family: 'JetBrains Mono', monospace;
     font-size: 13px;
-    font-weight: 300;
+    font-weight: 400;
     color: #8a8a8a;
     background: none;
     border: none;
@@ -116,8 +270,8 @@
     white-space: nowrap;
   }
   .mobile-search-dropdown {
-    background: rgba(20,20,20,0.98);
-    border: 1px solid rgba(0,255,78,0.25);
+    background: rgba(255, 255, 255, 0.03);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
     border-top: none;
     border-bottom-left-radius: 12px;
     border-bottom-right-radius: 12px;
@@ -128,22 +282,22 @@
     align-items: center;
     gap: 10px;
     padding: 13px 14px;
-    border-top: 1px solid rgba(255,255,255,0.04);
+    border-top: 0.5px solid rgba(255, 255, 255, 0.04);
     cursor: pointer;
     transition: background 0.15s;
   }
   .mobile-search-item:active {
-    background: rgba(255,255,255,0.03);
+    background: rgba(255, 255, 255, 0.03);
   }
   .mobile-search-symbol-badge {
-    background: rgba(0,255,78,0.08);
-    border-radius: 4px;
-    padding: 3px 8px;
+    background: rgba(0, 255, 78, 0.08);
+    border-radius: 6px;
+    padding: 4px 10px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     color: #00ff4e;
-    letter-spacing: 1px;
+    letter-spacing: 0.5px;
     white-space: nowrap;
   }
   .mobile-search-name {
@@ -165,24 +319,16 @@
   .mobile-search-section-label {
     font-family: 'JetBrains Mono', monospace;
     font-size: 9px;
-    font-weight: 500;
+    font-weight: 600;
     color: #555;
     text-transform: uppercase;
     letter-spacing: 2px;
   }
 
-  /* ── Page headers ── */
-  h1.text-2xl, h1.text-3xl {
-    font-size: 22px !important;
-    font-family: 'JetBrains Mono', monospace !important;
-    letter-spacing: 1px !important;
-    margin-bottom: 16px;
-  }
-
-  /* ── Price filter inputs ── */
+  /* ═══ PRICE INPUTS ═══ */
   .mobile-price-input {
-    background: rgba(0,0,0,0.4) !important;
-    border: 1px solid #27272a !important;
+    background: rgba(0, 0, 0, 0.4) !important;
+    border: 0.5px solid rgba(255, 255, 255, 0.08) !important;
     border-radius: 10px !important;
     color: #fff !important;
     padding: 12px !important;
@@ -190,15 +336,416 @@
     font-size: 14px !important;
     font-weight: 300 !important;
   }
-}
+  .mobile-price-input:focus {
+    border-color: rgba(0, 255, 78, 0.3) !important;
+  }
 
-@keyframes mobileCardFadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
+  /* ═══ ACTION PILLS (Set Alerts, Ask AI, Post Idea) ═══ */
+  .mobile-action-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    color: #ccc;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-action-pill:active {
+    background: rgba(255, 255, 255, 0.1);
+    transform: scale(0.95);
+  }
+  .mobile-action-pill.primary {
+    background: rgba(0, 255, 78, 0.08);
+    border-color: rgba(0, 255, 78, 0.2);
+    color: #00ff4e;
+  }
 
-@media (max-width: 767px) {
+  /* ═══ FILTER PILLS / TABS ═══ */
+  .mobile-filter-pill {
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: #888;
+    cursor: pointer;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-filter-pill.active {
+    background: rgba(0, 255, 78, 0.1);
+    border-color: rgba(0, 255, 78, 0.3);
+    color: #00ff4e;
+  }
+  .mobile-filter-pill:active {
+    transform: scale(0.95);
+  }
+
+  /* ═══ FEED ACTIVITY CARDS ═══ */
+  .mobile-feed-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 8px;
+  }
+
+  /* ═══ TRENDING CARDS ═══ */
+  .mobile-trending-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 10px;
+  }
+
+  /* ═══ LIST CARDS ═══ */
+  .mobile-list-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 10px;
+  }
+
+  /* ═══ PORTFOLIO CARDS ═══ */
+  .mobile-portfolio-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 8px;
+  }
+
+  /* ═══ STOCK DETAIL OVERLAY ═══ */
+  .mobile-stock-detail {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: #0a0a0a;
+    display: flex;
+    flex-direction: column;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .mobile-stock-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px 10px;
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.06);
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .mobile-stock-back {
+    width: 36px;
+    height: 36px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: #fff;
+  }
+  .mobile-stock-ticker {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.5px;
+  }
+  .mobile-stock-name {
+    font-size: 12px;
+    color: #8a8a8a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+  }
+  .mobile-stock-price {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    text-align: right;
+  }
+  .mobile-stock-change {
+    font-size: 13px;
+    text-align: right;
+    margin-top: 2px;
+  }
+  .mobile-stock-change.up { color: #00ff4e; }
+  .mobile-stock-change.down { color: #FF4B2B; }
+  .mobile-stock-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px 16px 80px;
+  }
+  .mobile-stock-glassbox {
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .mobile-stock-glassbox-title {
+    font-size: 10px;
+    color: #8a8a8a;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+
+  /* ═══ FONT WEIGHT UTILITIES ═══ */
+  .fw-light { font-weight: 300 !important; }
+  .fw-regular { font-weight: 400 !important; }
+  .fw-medium { font-weight: 500 !important; }
+  .fw-semibold { font-weight: 600 !important; }
+  .fw-bold { font-weight: 700 !important; }
+
+  /* ═══ COLOR UTILITIES ═══ */
+  .text-muted { color: #555 !important; }
+  .text-secondary { color: #8a8a8a !important; }
+  .text-primary { color: #a1a1aa !important; }
+
+  /* ═══ GREEN TEXT — soften it ═══ */
+  /* Remove the glow from green text on mobile */
+  .text-\[\#00ff4e\] {
+    text-shadow: none !important;
+    filter: none !important;
+  }
+
+  /* ═══ EMPTY STATES ═══ */
+  .mobile-empty-state {
+    padding: 60px 20px;
+    text-align: center;
+    border: 1px dashed rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+  }
+  .mobile-empty-state p {
+    color: #555;
+    font-size: 13px;
+    font-weight: 400;
+  }
+
+  /* ═══ SCROLLBAR ═══ */
+  ::-webkit-scrollbar {
+    width: 0px;
+    background: transparent;
+  }
+
+  /* ═══ ANIMATION ═══ */
+  @keyframes mobileCardFadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
   .mobile-fade-in {
     animation: mobileCardFadeIn 0.3s ease both;
+  }
+
+  /* ═══ MISC OVERRIDES ═══ */
+  /* Remove green glow from icons on mobile */
+  [style*="drop-shadow(0 0 8px rgba(0,255,78"] {
+    filter: none !important;
+  }
+  /* Remove text shadows */
+  [style*="textShadow: '0 0 10px"] {
+    text-shadow: none !important;
+  }
+
+  /* ═══ MARKET INDICES TICKER TAPE ═══ */
+  .mobile-ticker-tape {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 0 0 12px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mobile-ticker-tape::-webkit-scrollbar {
+    display: none;
+  }
+  .mobile-ticker-chip {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+  }
+  .mobile-ticker-label {
+    font-size: 9px;
+    font-weight: 500;
+    color: #666;
+    letter-spacing: 0.5px;
+  }
+  .mobile-ticker-price {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .mobile-ticker-change {
+    font-size: 10px;
+    font-weight: 500;
+  }
+  .mobile-ticker-change.up { color: #00ff4e; }
+  .mobile-ticker-change.down { color: #FF4B2B; }
+
+  /* ═══ CREATE LIST FORM ═══ */
+  .mobile-create-form {
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .mobile-create-form input {
+    background: rgba(0, 0, 0, 0.4);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 14px;
+    color: #fff;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 300;
+    width: 100%;
+    box-sizing: border-box;
+    outline: none;
+    margin-bottom: 12px;
+  }
+  .mobile-create-form input:focus {
+    border-color: rgba(0, 255, 78, 0.3);
+  }
+  .mobile-create-form label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #8a8a8a;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  /* ═══ AUTH / LOGIN PROMPT ═══ */
+  .mobile-auth-prompt {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px;
+    border-radius: 12px;
+    background: rgba(0, 255, 78, 0.04);
+    border: 0.5px solid rgba(0, 255, 78, 0.12);
+    margin-bottom: 16px;
+    cursor: pointer;
+  }
+  .mobile-auth-prompt span {
+    font-size: 12px;
+    color: #888;
+    font-weight: 300;
+    flex: 1;
+  }
+
+  /* ═══ PROGRESS BAR ═══ */
+  .mobile-progress-bar {
+    height: 3px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .mobile-progress-fill {
+    height: 100%;
+    background: #00ff4e;
+    border-radius: 2px;
+    transition: width 0.5s ease-out;
+  }
+
+  /* ═══ STATS GRID ═══ */
+  .mobile-stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+  }
+  .mobile-stat-item {
+    padding: 10px 0;
+  }
+  .mobile-stat-label {
+    font-size: 9px;
+    color: #555;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .mobile-stat-value {
+    font-size: 16px;
+    color: #fff;
+    font-weight: 600;
+  }
+
+  /* ═══ CHAT BUBBLE ═══ */
+  .mobile-chat-input {
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 12px 14px;
+    color: #fff;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 300;
+    width: 100%;
+    box-sizing: border-box;
+    outline: none;
+    resize: none;
+  }
+  .mobile-chat-input:focus {
+    border-color: rgba(0, 255, 78, 0.3);
+  }
+
+  /* ═══ FONT WEIGHT TAMING ═══ */
+  /* Tailwind font-black (900) is too heavy on mobile — cap at 700 */
+  .font-black {
+    font-weight: 700 !important;
+  }
+
+  /* ═══ MARKET INDICES — force glass style even when market open ═══ */
+  .glass-card {
+    border: 0.5px solid rgba(255, 255, 255, 0.08) !important;
+    border-top: 0.5px solid rgba(255, 255, 255, 0.08) !important;
+  }
+
+  /* ═══ SIGN IN BUTTON ═══ */
+  .mobile-header-actions button[style*="backgroundColor: '#00ff4e'"],
+  button[style*="background-color: rgb(0, 255, 78)"] {
+    border-radius: 10px !important;
+  }
+
+  /* ═══ ACCURACY BANNER — softer on mobile ═══ */
+  div[style*="borderColor: 'rgba(0,255,78"] {
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+  }
+
+  /* ═══ SCAN IN PROGRESS BANNER ═══ */
+  .border-\[\#00ff4e\]\/30,
+  .bg-gradient-to-r {
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+  }
+
+  /* ═══ PAGINATION / DIVIDERS ═══ */
+  .border-t-2 {
+    border-top-width: 0.5px !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
   }
 }

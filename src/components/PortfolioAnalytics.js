@@ -226,7 +226,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         {/* Win Rate */}
-        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
           <div className="absolute top-0 left-0 h-1 transition-all duration-500" style={{ 
             width: `${winRate}%`,
             backgroundColor: winRate >= 50 ? '#00ff4e' : '#FF4B2B',
@@ -244,7 +244,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
         </div>
 
         {/* Total Return */}
-        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
           <div className="absolute top-0 left-0 h-1 w-full" style={{ 
             backgroundColor: totalGainPercent >= 0 ? '#00ff4e' : '#FF4B2B',
             opacity: 0.3
@@ -259,7 +259,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
         </div>
 
         {/* Best */}
-        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
           <div className="absolute top-0 left-0 h-1 w-full bg-[#00ff4e] opacity-30" />
           <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-2">Best Position</p>
           {bestStock ? (
@@ -275,7 +275,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
         </div>
 
         {/* Worst */}
-        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'linear-gradient(135deg, rgba(50,50,50,0.95) 0%, rgba(25,25,25,0.98) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.06) 0%, transparent 50%)', boxShadow: '0 4px 30px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)'}}>
+        <div className="rounded-xl p-4 md:p-5 relative overflow-hidden group transition-all" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
           <div className="absolute top-0 left-0 h-1 w-full bg-red-500 opacity-30" />
           <p className="text-[9px] text-zinc-600 font-black uppercase tracking-wider mb-2">Worst Position</p>
           {worstStock ? (
@@ -292,7 +292,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
       </div>
 
       {/* Secondary Stats Bar */}
-      <div className="rounded-xl p-4 md:p-5" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+      <div className="rounded-xl p-4 md:p-5" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-[#00ff4e]/10 flex items-center justify-center flex-shrink-0">
@@ -336,7 +336,7 @@ const worstStock = sortedByGain[sortedByGain.length - 1];
       </div>
 
       {/* Charts Section */}
-      <div className="rounded-xl p-4 md:p-6 overflow-hidden" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+      <div className="rounded-xl p-4 md:p-6 overflow-hidden" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
         {/* Chart Tabs */}
         <div className="flex gap-1.5 mb-6">
           {[

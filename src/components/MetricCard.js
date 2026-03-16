@@ -106,7 +106,7 @@ function ExpandableSection({ title, iconName, isOpen, onToggle, loading, childre
       >
         <Icon size={14} color={isOpen ? '#00ff4e' : '#fff'} />
         <span style={{
-          fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+          fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
           textTransform: 'uppercase', letterSpacing: 2,
           color: isOpen ? '#00ff4e' : '#fff', flex: 1, textAlign: 'left',
         }}>
@@ -128,7 +128,7 @@ function ExpandableSection({ title, iconName, isOpen, onToggle, loading, childre
               {loading ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div style={S.spinner} />
-                  <span style={{ fontSize: 12, color: '#8a8a8a', fontFamily: 'JetBrainsMono-Light, monospace' }}>
+                  <span style={{ fontSize: 12, color: '#8a8a8a', fontFamily: "'JetBrains Mono', monospace", fontWeight: 300 }}>
                     Loading...
                   </span>
                 </div>
@@ -178,7 +178,7 @@ function TradeDropdown({ brokerages, onTrade }) {
               >
                 <Briefcase size={13} color="#00ff4e" />
                 <span style={{
-                  fontSize: 11, fontFamily: 'JetBrainsMono-Medium, monospace',
+                  fontSize: 11, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
                   color: '#fff', letterSpacing: 0.5, textTransform: 'uppercase', flex: 1, textAlign: 'left',
                 }}>
                   {b.name}
@@ -518,18 +518,14 @@ const MetricCard = React.memo(function MetricCard({
         boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
       }}
     >
-      {/* Green top border */}
-      <div style={{ height: 1, backgroundColor: 'rgba(0,255,78,0.15)' }} />
-
-      {/* Card gradient body */}
+      {/* Card body */}
       <div
+        className="glass-card"
         style={{
           padding: 16,
-          background: 'linear-gradient(135deg, rgba(40,40,40,0.92) 0%, rgba(20,20,20,0.95) 50%, rgba(15,15,15,0.98) 100%)',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderTop: 'none',
-          borderBottomLeftRadius: 16,
-          borderBottomRightRadius: 16,
+          background: 'rgba(255,255,255,0.05)',
+          border: '0.5px solid rgba(255,255,255,0.08)',
+          borderRadius: 16,
         }}
       >
         {/* Clickable header area (expands/collapses) */}
@@ -584,7 +580,7 @@ const MetricCard = React.memo(function MetricCard({
             style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4, cursor: 'pointer' }}
           >
             <span style={{
-              fontSize: 40, fontFamily: 'AlphaLyrae-Medium, serif',
+              fontSize: 40, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600,
               color: '#fff', letterSpacing: -2, lineHeight: 1,
             }}>
               {symbol}
@@ -599,7 +595,7 @@ const MetricCard = React.memo(function MetricCard({
 
           {/* Company name */}
           <p style={{
-            fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+            fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
             color: '#737373', letterSpacing: 3, textTransform: 'uppercase',
             marginBottom: 8, marginLeft: 2, margin: '0 0 8px 2px',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -610,13 +606,13 @@ const MetricCard = React.memo(function MetricCard({
           {/* PRICE ROW */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
             <span style={{
-              fontSize: 30, fontFamily: 'JetBrainsMono-Medium, monospace',
+              fontSize: 30, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
               color: '#fff', fontVariantNumeric: 'tabular-nums',
             }}>
               $<CountUp end={displayPrice} decimals={2} duration={1200} />
             </span>
             <span style={{
-              fontSize: 22, fontFamily: 'JetBrainsMono-Medium, monospace',
+              fontSize: 22, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
               color: accent, fontVariantNumeric: 'tabular-nums',
             }}>
               {isPositive ? '+' : '-'}<CountUp end={Math.abs(displayChange)} decimals={2} duration={1200} />%
@@ -715,14 +711,14 @@ const MetricCard = React.memo(function MetricCard({
             </div>
             <div style={{ flex: 1 }}>
               <p style={{
-                fontSize: 9, fontFamily: 'JetBrainsMono-Medium, monospace',
+                fontSize: 9, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
                 color: '#666', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4,
               }}>
                 {stock.catalystType === 'early_signal'  ? 'Unusual Activity Detected' :
                  stock.catalystType === 'options_first' ? 'Smart Money Positioning'   : "Why It's Moving"}
               </p>
               <p style={{
-                fontSize: 16, fontFamily: 'AlphaLyrae-Medium, serif',
+                fontSize: 16, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600,
                 color: '#fff', lineHeight: 1.4,
                 display: '-webkit-box', WebkitLineClamp: expanded ? undefined : 2,
                 WebkitBoxOrient: 'vertical', overflow: expanded ? 'visible' : 'hidden',
@@ -730,7 +726,7 @@ const MetricCard = React.memo(function MetricCard({
                 {hook}
               </p>
               {detail && expanded && (
-                <p style={{ fontSize: 13, color: '#999', lineHeight: 1.5, fontFamily: 'JetBrainsMono-Light, monospace', marginTop: 4 }}>
+                <p style={{ fontSize: 13, color: '#999', lineHeight: 1.5, fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, marginTop: 4 }}>
                   {detail}
                 </p>
               )}
@@ -755,13 +751,13 @@ const MetricCard = React.memo(function MetricCard({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{
                   fontSize: 12, color: '#d4d4d8',
-                  fontFamily: 'JetBrainsMono-Light, monospace',
+                  fontFamily: "'JetBrains Mono', monospace", fontWeight: 300,
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                   margin: 0,
                 }}>
                   {stock.headline}
                 </p>
-                <p style={{ fontSize: 10, color: '#555', marginTop: 2, fontFamily: 'JetBrainsMono-Light, monospace', margin: '2px 0 0' }}>
+                <p style={{ fontSize: 10, color: '#555', marginTop: 2, fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, margin: '2px 0 0' }}>
                   {stock.newsSource}{stock.newsDate ? ` · ${stock.newsDate}` : ''}
                 </p>
               </div>
@@ -784,7 +780,7 @@ const MetricCard = React.memo(function MetricCard({
             >
               <span style={{ fontSize: 14, color: '#a855f7' }}>✦</span>
               <span style={{
-                fontSize: 12, fontFamily: 'JetBrainsMono-Medium, monospace',
+                fontSize: 12, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
                 color: '#a855f7', letterSpacing: 1, textTransform: 'uppercase',
               }}>
                 AI Summary
@@ -811,7 +807,7 @@ const MetricCard = React.memo(function MetricCard({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                     <Activity size={12} color="#a855f7" />
                     <span style={{
-                      fontSize: 9, fontFamily: 'JetBrainsMono-Medium, monospace',
+                      fontSize: 9, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
                       color: '#a855f7', letterSpacing: 2,
                     }}>
                       OPTIONS ACTIVITY
@@ -870,7 +866,7 @@ const MetricCard = React.memo(function MetricCard({
                 loading={bioLoading}
               >
                 <div style={{ padding: 14 }}>
-                  <p style={{ fontSize: 14, color: '#d4d4d8', lineHeight: 1.6, fontFamily: 'JetBrainsMono-Light, monospace', margin: 0 }}>
+                  <p style={{ fontSize: 14, color: '#d4d4d8', lineHeight: 1.6, fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, margin: 0 }}>
                     {bioText}
                   </p>
                 </div>
@@ -885,7 +881,7 @@ const MetricCard = React.memo(function MetricCard({
                 loading={ratingsLoading}
               >
                 {ratingsData?.error ? (
-                  <p style={{ fontSize: 12, color: '#8a8a8a', fontFamily: 'JetBrainsMono-Light, monospace' }}>
+                  <p style={{ fontSize: 12, color: '#8a8a8a', fontFamily: "'JetBrains Mono', monospace", fontWeight: 300 }}>
                     Unable to load analyst data.
                   </p>
                 ) : (
@@ -918,13 +914,13 @@ const MetricCard = React.memo(function MetricCard({
                           const barColor = bullish > 60 ? '#00ff4e' : bullish > 40 ? '#f59e0b' : '#ef4444';
                           return (
                             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                              <span style={{ fontSize: 10, color: '#8a8a8a', fontFamily: 'JetBrainsMono-Light, monospace', width: 50 }}>
+                              <span style={{ fontSize: 10, color: '#8a8a8a', fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, width: 50 }}>
                                 {new Date(rec.period).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
                               </span>
                               <div style={{ flex: 1, height: 6, backgroundColor: '#27272a', borderRadius: 3, overflow: 'hidden' }}>
                                 <div style={{ width: `${bullish}%`, height: '100%', backgroundColor: barColor, borderRadius: 3 }} />
                               </div>
-                              <span style={{ fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace', width: 55, textAlign: 'right', color: barColor }}>
+                              <span style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, width: 55, textAlign: 'right', color: barColor }}>
                                 {bullish.toFixed(0)}% Buy
                               </span>
                             </div>
@@ -935,7 +931,7 @@ const MetricCard = React.memo(function MetricCard({
                     {ratingsData?.marketCap && (
                       <div>
                         <p style={S.secLabel}>Market Cap</p>
-                        <p style={{ fontSize: 14, fontFamily: 'JetBrainsMono-Medium, monospace', color: '#fff', margin: 0 }}>
+                        <p style={{ fontSize: 14, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, color: '#fff', margin: 0 }}>
                           ${ratingsData.marketCap >= 1e12 ? (ratingsData.marketCap/1e12).toFixed(2)+'T' :
                             ratingsData.marketCap >= 1e9  ? (ratingsData.marketCap/1e9).toFixed(2)+'B'  :
                             ratingsData.marketCap >= 1e6  ? (ratingsData.marketCap/1e6).toFixed(2)+'M'  :
@@ -952,7 +948,7 @@ const MetricCard = React.memo(function MetricCard({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <Cpu size={14} color="#00ff4e" />
                   <span style={{
-                    fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+                    fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
                     textTransform: 'uppercase', letterSpacing: 2, color: '#fff',
                   }}>
                     Ask AI
@@ -969,13 +965,13 @@ const MetricCard = React.memo(function MetricCard({
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <MessageCircle size={12} color="#00ff4e" />
                         <span style={{
-                          fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+                          fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
                           textTransform: 'uppercase', letterSpacing: 1.5, color: '#00ff4e',
                         }}>
                           AI Research · {symbol}
                         </span>
                         {hasSavedChat && (
-                          <span style={{ fontSize: 8, color: 'rgba(0,255,78,0.5)', fontFamily: 'JetBrainsMono-Medium, monospace' }}>
+                          <span style={{ fontSize: 8, color: 'rgba(0,255,78,0.5)', fontFamily: "'JetBrains Mono', monospace", fontWeight: 500 }}>
                             · Saved
                           </span>
                         )}
@@ -990,13 +986,13 @@ const MetricCard = React.memo(function MetricCard({
                             }
                             setChatOpen(false);
                           }}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace', color: '#555', textTransform: 'uppercase' }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, color: '#555', textTransform: 'uppercase' }}
                         >
                           Clear
                         </button>
                         <button
                           onClick={() => setChatOpen(false)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace', color: '#fff', textTransform: 'uppercase', letterSpacing: 1 }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, color: '#fff', textTransform: 'uppercase', letterSpacing: 1 }}
                         >
                           Collapse ▲
                         </button>
@@ -1042,7 +1038,7 @@ const MetricCard = React.memo(function MetricCard({
                     style={{
                       display: 'block', width: '100%', background: 'none', border: 'none',
                       cursor: 'pointer', paddingTop: 6, paddingBottom: 6, textAlign: 'center',
-                      fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+                      fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
                       color: '#00ff4e', textTransform: 'uppercase', letterSpacing: 1,
                     }}
                   >
@@ -1063,7 +1059,7 @@ const MetricCard = React.memo(function MetricCard({
                       }}
                     >
                       <span style={{
-                        fontSize: 11, fontFamily: 'JetBrainsMono-Light, monospace',
+                        fontSize: 11, fontFamily: "'JetBrains Mono', monospace", fontWeight: 300,
                         color: i === 0 ? '#00ff4e' : '#a1a1aa',
                       }}>
                         {p}
@@ -1086,7 +1082,7 @@ const MetricCard = React.memo(function MetricCard({
                     style={{
                       flex: 1, backgroundColor: '#000', border: '1px solid #3f3f46',
                       borderRadius: 12, color: '#fff', padding: '12px 14px',
-                      fontSize: 13, fontFamily: 'JetBrainsMono-Light, monospace',
+                      fontSize: 13, fontFamily: "'JetBrains Mono', monospace", fontWeight: 300,
                       caretColor: '#00ff4e', outline: 'none',
                     }}
                   />
@@ -1130,14 +1126,14 @@ const MetricCard = React.memo(function MetricCard({
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{
                             fontSize: 13, color: '#d4d4d8',
-                            fontFamily: 'JetBrainsMono-Light, monospace',
+                            fontFamily: "'JetBrains Mono', monospace", fontWeight: 300,
                             lineHeight: 1.4, marginBottom: 4,
                             display: '-webkit-box', WebkitLineClamp: 2,
                             WebkitBoxOrient: 'vertical', overflow: 'hidden', margin: '0 0 4px',
                           }}>
                             {article.title}
                           </p>
-                          <p style={{ fontSize: 10, color: '#8a8a8a', fontFamily: 'JetBrainsMono-Light, monospace', margin: 0 }}>
+                          <p style={{ fontSize: 10, color: '#8a8a8a', fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, margin: 0 }}>
                             {article.publisher?.name || 'Unknown'}{article.published_utc ? ` · ${new Date(article.published_utc).toLocaleDateString()}` : ''}
                           </p>
                         </div>
@@ -1198,7 +1194,7 @@ function PatternTags({ patterns }) {
             borderRadius: 5, border: `1px solid ${c}50`, backgroundColor: c + '12',
           }}>
             <span style={{
-              fontSize: 9, fontFamily: 'JetBrainsMono-Medium, monospace',
+              fontSize: 9, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
               letterSpacing: 0.5, textTransform: 'uppercase', color: c,
             }}>
               {p.replace(/_/g, ' ')}
@@ -1225,7 +1221,7 @@ const S = {
     cursor: 'pointer',
   },
   addToListText: {
-    fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+    fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
     color: '#00ff4e', letterSpacing: 0.5,
   },
   tradeBtn: {
@@ -1235,34 +1231,34 @@ const S = {
     cursor: 'pointer', background: 'none',
   },
   tradeBtnText: {
-    fontSize: 10, fontFamily: 'JetBrainsMono-Medium, monospace',
+    fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
     color: '#00ff4e', letterSpacing: 0.8, textTransform: 'uppercase',
   },
   statLabel: {
-    fontSize: 9, fontFamily: 'JetBrainsMono-Light, monospace',
+    fontSize: 9, fontFamily: "'JetBrains Mono', monospace", fontWeight: 300,
     color: '#666', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4, margin: '0 0 4px',
   },
   statValue: {
-    fontSize: 16, fontFamily: 'JetBrainsMono-Medium, monospace', color: '#fff', margin: 0,
+    fontSize: 16, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, color: '#fff', margin: 0,
   },
   tagPill: {
     display: 'flex', alignItems: 'center', gap: 5,
     padding: '6px 10px', borderRadius: 6, border: '1px solid transparent',
   },
   tagLabel: {
-    fontSize: 11, fontFamily: 'JetBrainsMono-Medium, monospace',
+    fontSize: 11, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
     letterSpacing: 0.5, textTransform: 'uppercase',
   },
   secLabel: {
-    fontSize: 8, fontFamily: 'JetBrainsMono-Medium, monospace',
+    fontSize: 8, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500,
     color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: 3, marginBottom: 8, margin: '0 0 8px',
   },
   tgtLabel: {
-    fontSize: 9, fontFamily: 'JetBrainsMono-Light, monospace',
+    fontSize: 9, fontFamily: "'JetBrains Mono', monospace", fontWeight: 300,
     color: '#a1a1aa', textTransform: 'uppercase', marginBottom: 2, margin: '0 0 2px',
   },
   tgtVal: {
-    fontSize: 14, fontFamily: 'JetBrainsMono-Medium, monospace', margin: 0,
+    fontSize: 14, fontFamily: "'JetBrains Mono', monospace", fontWeight: 500, margin: 0,
   },
   userBub: {
     backgroundColor: 'rgba(0,255,78,0.1)', border: '1px solid rgba(0,255,78,0.2)',
@@ -1275,10 +1271,10 @@ const S = {
     display: 'inline-block', float: 'left', clear: 'both',
   },
   userTxt: {
-    fontSize: 13, color: '#fff', fontFamily: 'JetBrainsMono-Light, monospace', lineHeight: 1.5,
+    fontSize: 13, color: '#fff', fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, lineHeight: 1.5,
   },
   aiTxt: {
-    fontSize: 13, color: '#d4d4d8', fontFamily: 'JetBrainsMono-Light, monospace', lineHeight: 1.55,
+    fontSize: 13, color: '#d4d4d8', fontFamily: "'JetBrains Mono', monospace", fontWeight: 300, lineHeight: 1.55,
   },
   promptChip: {
     border: '1px solid #3f3f46', borderRadius: 8,

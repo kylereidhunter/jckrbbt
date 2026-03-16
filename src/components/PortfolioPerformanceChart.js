@@ -49,7 +49,7 @@ const PortfolioPerformanceChart = React.memo(function PortfolioPerformanceChart(
   const totalGainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
 
   return (
-    <div className="rounded-xl p-4 md:p-6 mb-4" style={{background: 'linear-gradient(135deg, rgba(40,40,40,0.9) 0%, rgba(15,15,15,0.95) 50%), radial-gradient(ellipse at 10% 0%, rgba(255,255,255,0.04) 0%, transparent 50%)', boxShadow: '0 0 20px rgba(0,255,78,0.03), inset 0 1px 0 rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', borderTop: '1px solid rgba(0,255,78,0.15)'}}>
+    <div className="rounded-xl p-4 md:p-6 mb-4 glass-card" style={{background: 'rgba(255,255,255,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '0.5px solid rgba(255,255,255,0.08)'}}>
       {/* Header with brokerage name + refresh */}
       <div className="flex items-center justify-between mb-4">
         <div>

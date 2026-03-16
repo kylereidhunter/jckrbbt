@@ -5,9 +5,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Bell, TrendingUp, TrendingDown, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
 
 // ─── Fonts ────────────────────────────────────────────────────────────────────
-const FM = 'JetBrainsMono-Medium, monospace';
-const FL = 'JetBrainsMono-Light, monospace';
-const FH = 'AlphaLyrae-Medium, serif';
+const FM = "'JetBrains Mono', monospace";
+const FL = "'JetBrains Mono', monospace";
+const FH = "'JetBrains Mono', monospace";
 
 const PRESETS = [
   { label: '-10%', pct: -10, color: '#FF4B2B' },
@@ -155,9 +155,9 @@ export default function PriceAlertModal({
             style={{
               position: 'fixed', bottom: 0, left: 0, right: 0,
               zIndex: 10002,
-              backgroundColor: '#1a1a1a',
+              backgroundColor: '#0f0f0f',
               borderTopLeftRadius: 20, borderTopRightRadius: 20,
-              borderTop: '1px solid rgba(0,255,78,0.15)',
+              borderTop: '0.5px solid rgba(255,255,255,0.08)',
               paddingTop: 12, paddingBottom: 32,
               maxHeight: '90vh',
               overflowX: 'hidden',
